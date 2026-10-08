@@ -8,7 +8,7 @@ Each background is standalone and uses plain HTML, CSS, and JavaScript. No frame
 
 | Background | Effect |
 | --- | --- |
-| Dot Blobs | Stationary dots change size around moving blobs, with color, glow, and perspective controls. |
+| Blob Grid | Stationary dots change size around moving blobs, with color, glow, and perspective controls. |
 | Wave Field | Traveling waves change dot sizes; mouse interaction creates expanding ripples. |
 | Magnetic Particles | Particles circulate around moving force-field poles and respond to cursor attraction or repulsion. |
 | Topographic Contours | Animated terrain generates contour lines; the cursor creates a hill or depression. |
