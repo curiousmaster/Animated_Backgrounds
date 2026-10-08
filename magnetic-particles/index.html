@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magnetic Particles</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+// Replace this block with configuration copied from the editor.
+const config = {
+    particleCount: 700,
+    particleRadius: 1.2,
+    particleColor: [90, 180, 255],
+    maxSpeed: 100,
+    friction: 0.8,
+    trailLength: 0.8,       // Approximate persistence in seconds
+
+    poles: {
+        count: 4,
+        strength: 180,
+        radius: 220,
+        orbitSpeed: 0.2,
+        swirl: 1.3,
+        show: false
+    },
+
+    mouse: {
+        enabled: true,
+        mode: "attract",   // "attract" or "repel"
+        strength: 500,
+        radius: 240,
+        color: [255, 90, 170]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.7,
+        blur: 10
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+function rgb(color) {
+    return `rgb(${color.map(value =>
+        Math.round(clamp(value, 0, 255))
+    ).join(",")})`;
+}
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+
+    return a.map((value, index) =>
+        value + (b[index] - value) * t
+    );
+}
+
+let width = 0;
+let height = 0;
+let particles = [];
+let poles = [];
+let previousTime = null;
+let poleTime = 0;
+let clearFrame = true;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    active: false,
+    influence: 0
+};
+
+// --------------------------------------------------
+// Particles
+// --------------------------------------------------
+
+function newParticle() {
+    const angle = Math.random() * TAU;
+    const speed = 10 + Math.random() * 25;
+
+    return {
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed
+    };
+}
+
+function syncParticles() {
+    const count = Math.max(
+        0, Math.floor(config.particleCount)
+    );
+
+    while (particles.length < count) {
+        particles.push(newParticle());
+    }
+
+    particles.length = count;
+}
+
+function resetParticles() {
+    particles = [];
+    syncParticles();
+    clearFrame = true;
+}
+
+function syncPoles() {
+    const count = Math.max(
+        0, Math.floor(config.poles.count)
+    );
+
+    poles = Array.from({ length: count }, (_, index) => ({
+        phase: index / Math.max(1, count) * TAU,
+        direction: index % 2 === 0 ? 1 : -1
+    }));
+}
+
+function resize() {
+    const oldWidth = width;
+    const oldHeight = height;
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (oldWidth > 0 && oldHeight > 0) {
+        for (const particle of particles) {
+            particle.x *= width / oldWidth;
+            particle.y *= height / oldHeight;
+        }
+    }
+
+    clearFrame = true;
+}
+
+// --------------------------------------------------
+// Moving force-field poles
+// --------------------------------------------------
+
+function getPoles() {
+    return poles.map(pole => ({
+        x: width * (
+            0.5 + 0.3 * Math.cos(poleTime + pole.phase)
+        ),
+
+        y: height * (
+            0.5 + 0.3 *
+            Math.sin(poleTime * 0.73 + pole.phase)
+        ),
+
+        direction: pole.direction
+    }));
+}
+
+function updateParticle(particle, positions, delta) {
+    let ax = 0;
+    let ay = 0;
+
+    const poleRadius = Math.max(1, config.poles.radius);
+    const poleStrength = Math.max(0, config.poles.strength);
+
+    // Soft radial attraction plus tangential circulation.
+    for (const pole of positions) {
+        const dx = pole.x - particle.x;
+        const dy = pole.y - particle.y;
+        const distance = Math.hypot(dx, dy);
+        const divisor = Math.max(20, distance);
+
+        const ux = dx / divisor;
+        const uy = dy / divisor;
+
+        const falloff = Math.exp(
+            -(distance * distance) /
+            (2 * poleRadius * poleRadius)
+        );
+
+        const force = poleStrength * falloff;
+        const swirl = config.poles.swirl * pole.direction;
+
+        ax += force * (ux - uy * swirl);
+        ay += force * (uy + ux * swirl);
+    }
+
+    let mouseAmount = 0;
+
+    if (config.mouse.enabled && mouse.influence > 0.001) {
+        const dx = mouse.x - particle.x;
+        const dy = mouse.y - particle.y;
+        const distance = Math.hypot(dx, dy);
+        const divisor = Math.max(20, distance);
+        const radius = Math.max(1, config.mouse.radius);
+
+        mouseAmount =
+            mouse.influence *
+            Math.exp(
+                -(distance * distance) /
+                (2 * radius * radius)
+            );
+
+        const direction =
+            config.mouse.mode === "repel" ? -1 : 1;
+
+        const force =
+            Math.max(0, config.mouse.strength) *
+            mouseAmount *
+            direction;
+
+        ax += dx / divisor * force;
+        ay += dy / divisor * force;
+    }
+
+    particle.vx += ax * delta;
+    particle.vy += ay * delta;
+
+    // Exponential drag is independent of frame rate.
+    const drag = Math.exp(
+        -Math.max(0, config.friction) * delta
+    );
+
+    particle.vx *= drag;
+    particle.vy *= drag;
+
+    const speed = Math.hypot(particle.vx, particle.vy);
+    const maximum = Math.max(0, config.maxSpeed);
+
+    if (speed > maximum && speed > 0) {
+        particle.vx *= maximum / speed;
+        particle.vy *= maximum / speed;
+    }
+
+    particle.x += particle.vx * delta;
+    particle.y += particle.vy * delta;
+
+    // Wrap around screen edges without drawing connecting lines.
+    particle.x = (particle.x % width + width) % width;
+    particle.y = (particle.y % height + height) % height;
+
+    return mouseAmount;
+}
+
+// --------------------------------------------------
+// Rendering
+// --------------------------------------------------
+
+function drawParticle(particle, mouseAmount) {
+    const radius = Math.max(0, config.particleRadius);
+    if (radius <= 0) return;
+
+    const color = rgb(mixColor(
+        config.particleColor,
+        config.mouse.color,
+        mouseAmount
+    ));
+
+    if (config.glow.enabled && config.glow.intensity > 0) {
+        ctx.save();
+
+        ctx.globalAlpha = clamp(config.glow.intensity, 0, 1);
+        ctx.shadowColor = color;
+        ctx.shadowBlur = Math.max(0, config.glow.blur);
+        ctx.fillStyle = color;
+
+        ctx.beginPath();
+        ctx.arc(particle.x, particle.y, radius, 0, TAU);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(particle.x, particle.y, radius, 0, TAU);
+    ctx.fill();
+}
+
+function drawPoles(positions) {
+    if (!config.poles.show) return;
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    ctx.lineWidth = 1;
+
+    for (const pole of positions) {
+        ctx.beginPath();
+        ctx.arc(pole.x, pole.y, 7, 0, TAU);
+        ctx.moveTo(pole.x - 11, pole.y);
+        ctx.lineTo(pole.x + 11, pole.y);
+        ctx.moveTo(pole.x, pole.y - 11);
+        ctx.lineTo(pole.x, pole.y + 11);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+function animate(time) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((time - previousTime) / 1000, 0.05);
+
+    previousTime = time;
+    poleTime += delta * config.poles.orbitSpeed;
+
+    mouse.influence +=
+        ((mouse.active && config.mouse.enabled ? 1 : 0) -
+            mouse.influence) *
+        (1 - Math.exp(-7 * delta));
+
+    const persistence = Math.max(0, config.trailLength);
+
+    const fade = clearFrame || persistence === 0
+        ? 1
+        : 1 - Math.exp(-delta / persistence);
+
+    ctx.fillStyle = `rgba(0,0,0,${fade})`;
+    ctx.fillRect(0, 0, width, height);
+    clearFrame = false;
+
+    const positions = getPoles();
+
+    // Smaller simulation steps improve stability.
+    const steps = Math.max(1, Math.ceil(delta / (1 / 120)));
+    const stepDelta = delta / steps;
+
+    for (const particle of particles) {
+        let mouseAmount = 0;
+
+        for (let step = 0; step < steps; step++) {
+            mouseAmount = updateParticle(
+                particle, positions, stepDelta
+            );
+        }
+
+        drawParticle(particle, mouseAmount);
+    }
+
+    drawPoles(positions);
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function isEditorTarget(target) {
+    return (
+        target instanceof Element &&
+        target.closest("[data-background-editor]")
+    );
+}
+
+function updateMouse(event) {
+    if (isEditorTarget(event.target)) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+    mouse.active = true;
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+// --------------------------------------------------
+// Initialize
+// --------------------------------------------------
+
+resize();
+syncParticles();
+syncPoles();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if (path === "particleCount") {
+                        syncParticles();
+                    }
+
+                    if (path === "poles.count") {
+                        syncPoles();
+                    }
+
+                    // Remove old trails when appearance changes.
+                    if ([
+                        "particleColor",
+                        "particleRadius",
+                        "mouse.color",
+                        "poles.show",
+                        "glow.enabled",
+                        "glow.intensity",
+                        "glow.blur"
+                    ].includes(path)) {
+                        clearFrame = true;
+                    }
+
+                    deactivateMouse();
+                },
+
+                onReset: resetParticles
+            });
+        })
+        .catch(error => {
+            console.error("Could not load settings editor:", error);
+        });
+}
+</script>
+</body>
+</html>

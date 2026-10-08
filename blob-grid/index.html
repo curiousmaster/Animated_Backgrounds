@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dot Blob Background</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    #background {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+// Replace this block with configuration copied from the editor.
+const config = {
+    spacing: 27,
+    minRadius: 0.65,
+    maxRadius: 4.2,
+
+    blobRadius: 190,
+    blobCount: 5,
+    speed: 0.38,
+    blobColor: [80, 160, 255],
+
+    mouseStrength: 1,
+    mouseRadius: 110,
+    mouseColor: [255, 80, 160],
+
+    glow: {
+        enabled: true,
+        intensity: 0.7,
+        blur: 12,
+        radius: 1
+    },
+
+    gridTilt: 15,
+    perspectiveTiltX: 25,
+    perspectiveTiltY: 0,
+    perspective: 1000,
+
+    panel: {
+        enabled: true // false: editor is not imported
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+const radians = degrees => degrees * Math.PI / 180;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    active: false,
+    influence: 0
+};
+
+let width = 0;
+let height = 0;
+let dots = [];
+let blobs = [];
+let gridDirty = true;
+let previousTime = null;
+let animationTime = 0;
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+    return a.map((value, i) => value + (b[i] - value) * t);
+}
+
+function rgb(color) {
+    return `rgb(${color.map(value =>
+        Math.round(clamp(value, 0, 255))
+    ).join(",")})`;
+}
+
+function createBlobs() {
+    const count = Math.max(0, Math.floor(config.blobCount));
+
+    while (blobs.length < count) {
+        blobs.push({
+            phase: blobs.length * 2.3999632297,
+            speedX: 0.65 + Math.random() * 0.5,
+            speedY: 0.55 + Math.random() * 0.5,
+            radiusFactor: 0.8 + Math.random() * 0.4
+        });
+    }
+
+    blobs.length = count;
+}
+
+function rebuildGrid() {
+    dots = [];
+
+    const rz = radians(config.gridTilt);
+    const rx = radians(config.perspectiveTiltX);
+    const ry = radians(config.perspectiveTiltY);
+
+    const cz = Math.cos(rz), sz = Math.sin(rz);
+    const cx = Math.cos(rx), sx = Math.sin(rx);
+    const cy = Math.cos(ry), sy = Math.sin(ry);
+
+    const focal = Math.max(1, config.perspective);
+    const spacing = Math.max(2, config.spacing);
+    const extent = Math.hypot(width, height) * 2 + focal;
+    const steps = Math.ceil(extent / spacing);
+    const margin = Math.max(
+        1, config.minRadius, config.maxRadius
+    ) * 3;
+
+    for (let row = -steps; row <= steps; row++) {
+        const y = row * spacing;
+
+        for (let column = -steps; column <= steps; column++) {
+            const x = column * spacing;
+
+            const x1 = x * cz - y * sz;
+            const y1 = x * sz + y * cz;
+
+            const y2 = y1 * cx;
+            const z2 = y1 * sx;
+
+            const x3 = x1 * cy + z2 * sy;
+            const z3 = -x1 * sy + z2 * cy;
+            const depth = focal + z3;
+
+            if (depth <= 1) continue;
+
+            const scale = focal / depth;
+            const screenX = width / 2 + x3 * scale;
+            const screenY = height / 2 + y2 * scale;
+
+            if (
+                screenX < -margin ||
+                screenX > width + margin ||
+                screenY < -margin ||
+                screenY > height + margin
+            ) continue;
+
+            dots.push({ x: screenX, y: screenY, scale });
+        }
+    }
+}
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    gridDirty = true;
+}
+
+function getBlobPositions(t) {
+    return blobs.map(blob => {
+        let x = width * (
+            0.5 + 0.32 * Math.cos(t * blob.speedX + blob.phase)
+        );
+
+        let y = height * (
+            0.5 + 0.32 *
+            Math.sin(t * blob.speedY + blob.phase * 1.3)
+        );
+
+        const dx = mouse.x - x;
+        const dy = mouse.y - y;
+
+        const attraction = clamp(
+            mouse.influence * config.mouseStrength * 0.3 *
+            Math.exp(-(dx * dx + dy * dy) / (2 * 260 * 260)),
+            0, 1
+        );
+
+        x += dx * attraction;
+        y += dy * attraction;
+
+        return {
+            x,
+            y,
+            radius: Math.max(
+                1, config.blobRadius * blob.radiusFactor
+            )
+        };
+    });
+}
+
+function getAppearance(dot, positions) {
+    let blobInfluence = 0;
+
+    for (const blob of positions) {
+        const dx = dot.x - blob.x;
+        const dy = dot.y - blob.y;
+
+        blobInfluence += Math.exp(
+            -(dx * dx + dy * dy) /
+            (2 * blob.radius * blob.radius)
+        );
+    }
+
+    let mouseInfluence = 0;
+
+    if (mouse.influence > 0.001) {
+        const dx = dot.x - mouse.x;
+        const dy = dot.y - mouse.y;
+        const radius = Math.max(1, config.mouseRadius);
+
+        mouseInfluence =
+            mouse.influence * config.mouseStrength *
+            Math.exp(
+                -(dx * dx + dy * dy) / (2 * radius * radius)
+            );
+    }
+
+    const normalized =
+        1 - Math.exp(-(blobInfluence + mouseInfluence) * 1.3);
+
+    const minimum = Math.max(0, config.minRadius);
+    const maximum = Math.max(minimum, config.maxRadius);
+
+    const radius = Math.min(
+        maximum * 3,
+        (
+            minimum +
+            (maximum - minimum) * Math.pow(normalized, 1.7)
+        ) * dot.scale
+    );
+
+    const blobAmount = 1 - Math.exp(-blobInfluence * 1.3);
+    const mouseAmount = 1 - Math.exp(-mouseInfluence * 1.8);
+
+    let color = mixColor(
+        [255, 255, 255], config.blobColor, blobAmount
+    );
+
+    color = mixColor(color, config.mouseColor, mouseAmount);
+
+    return {
+        radius,
+        color,
+        glowStrength: Math.max(blobAmount, mouseAmount)
+    };
+}
+
+function animate(time) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((time - previousTime) / 1000, 0.05);
+
+    previousTime = time;
+    animationTime += delta * Math.max(0, config.speed);
+
+    if (gridDirty) {
+        gridDirty = false;
+        rebuildGrid();
+    }
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) *
+        (1 - Math.exp(-3.4 * delta));
+
+    const positions = getBlobPositions(animationTime);
+
+    for (const dot of dots) {
+        const { radius, color, glowStrength } =
+            getAppearance(dot, positions);
+
+        if (radius <= 0.05) continue;
+
+        const dotColor = rgb(color);
+
+        if (
+            config.glow.enabled &&
+            config.glow.intensity > 0 &&
+            config.glow.radius > 0 &&
+            glowStrength > 0.05
+        ) {
+            ctx.save();
+
+            ctx.globalAlpha = clamp(
+                glowStrength * config.glow.intensity, 0, 1
+            );
+
+            ctx.shadowColor = dotColor;
+            ctx.shadowBlur =
+                Math.max(0, config.glow.blur) * glowStrength;
+
+            ctx.fillStyle = dotColor;
+            ctx.beginPath();
+            ctx.arc(
+                dot.x, dot.y,
+                radius * config.glow.radius,
+                0, Math.PI * 2
+            );
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        ctx.fillStyle = dotColor;
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    requestAnimationFrame(animate);
+}
+
+// The editor marks its own elements with this attribute.
+window.addEventListener("pointermove", event => {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+    mouse.active = true;
+});
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+createBlobs();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor: nothing is downloaded when disabled.
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if (path === "blobCount") {
+                        createBlobs();
+                    }
+
+                    if ([
+                        "spacing",
+                        "minRadius",
+                        "maxRadius",
+                        "gridTilt",
+                        "perspectiveTiltX",
+                        "perspectiveTiltY",
+                        "perspective"
+                    ].includes(path)) {
+                        gridDirty = true;
+                    }
+
+                    deactivateMouse();
+                }
+            });
+        })
+        .catch(error => {
+            console.error("Could not load settings editor:", error);
+        });
+}
+</script>
+</body>
+</html>

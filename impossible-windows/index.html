@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Impossible Windows</title>
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    world: {
+        particleCount: 180,
+        particleRadius: 2,
+        speed: 35,
+        sway: 35,
+        color: [95, 185, 240],
+        opacity: 0.75,
+        gridSpacing: 65,
+        gridOpacity: 0.1
+    },
+
+    windows: {
+        count: 3,
+        radius: 150,
+        movementSpeed: 0.18,
+        spread: 0.65,
+        timeOffset: 4,
+        reverseTime: true,
+        gravityRotation: 75,
+        magnification: 1.35,
+        borderWidth: 1.2,
+        borderOpacity: 0.65,
+        color: [180, 120, 255]
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 350,
+        attraction: 0.65,
+        smoothing: 7
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.6,
+        blur: 16
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const mod = (v, n) => (v % n + n) % n;
+const radians = degrees => degrees * Math.PI / 180;
+
+function rgb(color) {
+    return `rgb(${color.map(v =>
+        Math.round(clamp(v, 0, 255))
+    ).join(",")})`;
+}
+
+let width = 0;
+let height = 0;
+let particles = [];
+let portals = [];
+
+let time = 0;
+let movementTime = 0;
+let previousTime = null;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+function createParticles() {
+    const count = Math.max(0, Math.floor(config.world.particleCount));
+
+    while (particles.length < count) {
+        particles.push({
+            x: Math.random(),
+            y: Math.random(),
+            phase: Math.random() * TAU,
+            speed: 0.6 + Math.random() * 0.8,
+            size: 0.65 + Math.random() * 0.7
+        });
+    }
+
+    particles.length = count;
+}
+
+function createPortals() {
+    // Each overlap combination is rendered separately.
+    const count = clamp(Math.floor(config.windows.count), 0, 5);
+
+    portals = Array.from({ length: count }, (_, index) => ({
+        phase: index / Math.max(1, count) * TAU,
+        size: 0.85 + index % 3 * 0.12,
+        speedX: 0.75 + index * 0.09,
+        speedY: 0.65 + index * 0.07
+    }));
+}
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function getWindows() {
+    const spread = clamp(config.windows.spread, 0, 1);
+    const influenceRadius = Math.max(1, config.mouse.radius);
+
+    return portals.map(portal => {
+        let x = width * (
+            0.5 + spread * 0.45 *
+            Math.cos(movementTime * portal.speedX + portal.phase)
+        );
+
+        let y = height * (
+            0.5 + spread * 0.45 *
+            Math.sin(movementTime * portal.speedY + portal.phase)
+        );
+
+        if (config.mouse.enabled) {
+            const dx = mouse.x - x;
+            const dy = mouse.y - y;
+
+            const attraction = clamp(
+                mouse.influence *
+                config.mouse.attraction *
+                Math.exp(
+                    -(dx * dx + dy * dy) /
+                    (2 * influenceRadius * influenceRadius)
+                ),
+                0,
+                0.9
+            );
+
+            x += dx * attraction;
+            y += dy * attraction;
+        }
+
+        return {
+            x,
+            y,
+            radius: Math.max(10, config.windows.radius) * portal.size
+        };
+    });
+}
+
+// --------------------------------------------------
+// Disjoint regions: outside, inside, and overlaps
+// --------------------------------------------------
+
+function clipRegion(mask, windows) {
+    windows.forEach((window, index) => {
+        const inside = Boolean(mask & (1 << index));
+        const path = new Path2D();
+
+        if (!inside) {
+            path.rect(0, 0, width, height);
+        }
+
+        path.moveTo(window.x + window.radius, window.y);
+        path.arc(window.x, window.y, window.radius, 0, TAU);
+
+        ctx.clip(path, inside ? "nonzero" : "evenodd");
+    });
+}
+
+function getRules(mask, windows) {
+    let count = 0;
+    let centerX = 0;
+    let centerY = 0;
+    let offset = 0;
+
+    windows.forEach((window, index) => {
+        if (!(mask & (1 << index))) return;
+
+        count++;
+        centerX += window.x;
+        centerY += window.y;
+        offset += config.windows.timeOffset * (index + 1);
+    });
+
+    if (count === 0) {
+        return {
+            time,
+            rotation: 0,
+            scale: 1,
+            x: width / 2,
+            y: height / 2
+        };
+    }
+
+    const direction =
+        config.windows.reverseTime && count % 2 !== 0
+            ? -1
+            : 1;
+
+    return {
+        time: time * direction + offset,
+        rotation: radians(config.windows.gravityRotation * count),
+        scale: Math.pow(
+            clamp(config.windows.magnification, 0.5, 2),
+            count
+        ),
+        x: centerX / count,
+        y: centerY / count
+    };
+}
+
+// --------------------------------------------------
+// One shared world, transformed by each region's rules
+// --------------------------------------------------
+
+function drawWorld(rules) {
+    const diagonal = Math.hypot(width, height);
+
+    // Extra space keeps the transformed world covering the viewport.
+    const extent = diagonal * 2 / Math.min(1, rules.scale);
+    const half = extent / 2;
+
+    const spacing = Math.max(20, config.world.gridSpacing);
+    const cos = Math.cos(rules.rotation);
+    const sin = Math.sin(rules.rotation);
+
+    const drift = rules.time * config.world.speed;
+    const gridShift = mod(drift, spacing);
+
+    ctx.save();
+
+    ctx.translate(rules.x, rules.y);
+    ctx.rotate(rules.rotation);
+    ctx.scale(rules.scale, rules.scale);
+    ctx.translate(-rules.x, -rules.y);
+
+    ctx.strokeStyle = rgb(config.world.color);
+    ctx.lineWidth = 0.6 / rules.scale;
+    ctx.globalAlpha = clamp(config.world.gridOpacity, 0, 1);
+
+    ctx.beginPath();
+
+    for (let x = width / 2 - half;
+         x <= width / 2 + half;
+         x += spacing) {
+        ctx.moveTo(x, height / 2 - half);
+        ctx.lineTo(x, height / 2 + half);
+    }
+
+    for (let y = height / 2 - half + gridShift;
+         y <= height / 2 + half;
+         y += spacing) {
+        ctx.moveTo(width / 2 - half, y);
+        ctx.lineTo(width / 2 + half, y);
+    }
+
+    ctx.stroke();
+
+    ctx.fillStyle = rgb(config.world.color);
+    ctx.globalAlpha = clamp(config.world.opacity, 0, 1);
+
+    for (const particle of particles) {
+        const x = width / 2 - half + particle.x * extent +
+            config.world.sway *
+            Math.sin(rules.time * 0.45 + particle.phase);
+
+        const y = height / 2 - half + mod(
+            particle.y * extent + drift * particle.speed,
+            extent
+        );
+
+        const radius =
+            Math.max(0, config.world.particleRadius) *
+            particle.size;
+
+        if (radius <= 0) continue;
+
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, TAU);
+        ctx.fill();
+
+        // A short tail makes gravity direction visible.
+        ctx.globalAlpha = clamp(config.world.opacity * 0.3, 0, 1);
+        ctx.fillRect(x - radius / 3, y - 10, radius * 2 / 3, 8);
+        ctx.globalAlpha = clamp(config.world.opacity, 0, 1);
+    }
+
+    ctx.restore();
+}
+
+function drawBorders(windows) {
+    if (config.windows.borderWidth <= 0) return;
+
+    ctx.save();
+
+    ctx.strokeStyle = rgb(config.windows.color);
+    ctx.lineWidth = config.windows.borderWidth;
+
+    for (const window of windows) {
+        ctx.beginPath();
+        ctx.arc(window.x, window.y, window.radius, 0, TAU);
+
+        if (config.glow.enabled && config.glow.intensity > 0) {
+            ctx.globalAlpha = clamp(
+                config.windows.borderOpacity * config.glow.intensity,
+                0,
+                1
+            );
+
+            ctx.shadowColor = rgb(config.windows.color);
+            ctx.shadowBlur = Math.max(0, config.glow.blur);
+            ctx.stroke();
+        }
+
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = clamp(config.windows.borderOpacity, 0, 1);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    time += delta;
+    movementTime += delta * config.windows.movementSpeed;
+
+    const smoothing = 1 - Math.exp(
+        -Math.max(0.1, config.mouse.smoothing) * delta
+    );
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) -
+        mouse.influence
+    ) * smoothing;
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    const windows = getWindows();
+    const combinations = 1 << windows.length;
+
+    // Regions are disjoint, so overlaps combine their rules
+    // instead of simply covering the previous window.
+    for (let mask = 0; mask < combinations; mask++) {
+        ctx.save();
+        clipRegion(mask, windows);
+        drawWorld(getRules(mask, windows));
+        ctx.restore();
+    }
+
+    drawBorders(windows);
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+createParticles();
+createPortals();
+requestAnimationFrame(animate);
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+                onChange(path) {
+                    if (path === "world.particleCount") {
+                        createParticles();
+                    }
+
+                    if (path === "windows.count") {
+                        createPortals();
+                    }
+
+                    deactivateMouse();
+                }
+            });
+        })
+        .catch(error => {
+            console.error("Could not load editor:", error);
+        });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page with Animated Background</title>
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    html {
+        min-height: 100%;
+        background: #000;
+    }
+
+    body {
+        margin: 0;
+        min-height: 100vh;
+        color: #fff;
+        font-family: system-ui, sans-serif;
+    }
+
+    /* Fixed animation behind the page content. */
+    #animated-background {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        z-index: 0;
+    }
+
+    /*
+       Empty areas let the pointer reach the animation.
+       Content panels receive pointer events normally.
+    */
+    .page {
+        position: relative;
+        z-index: 1;
+        min-height: 100vh;
+        padding: 80px 24px;
+        pointer-events: none;
+    }
+
+    .content {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: clamp(24px, 5vw, 48px);
+        pointer-events: auto;
+
+        /* Transparent panel: no blur obscures the animation. */
+        background: rgba(0, 0, 0, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 20px;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+    }
+
+    h1 {
+        margin-top: 0;
+        font-size: clamp(32px, 6vw, 56px);
+        letter-spacing: -0.04em;
+        line-height: 1.1;
+    }
+
+    h2 {
+        margin-top: 32px;
+    }
+
+    p {
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 17px;
+        line-height: 1.8;
+    }
+
+    a {
+        color: #a7e4ff;
+    }
+
+    a:focus-visible {
+        outline: 2px solid #a7e4ff;
+        outline-offset: 4px;
+    }
+</style>
+</head>
+
+<body>
+<!-- Animation layer: configured by the script below. -->
+<iframe
+    id="animated-background"
+    title="Animated background"
+    tabindex="-1"
+></iframe>
+
+<main class="page">
+
+    <!-- ==================================================
+         INSERT YOUR OWN HTML HERE
+
+         Replace this section with your page content.
+         Keep class="content" for the transparent panel.
+         ================================================== -->
+
+    <section class="content">
+        <h1>Your content.<br>A living background.</h1>
+
+        <p>
+            Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+            Integer tincidunt, neque vitae pellentesque consequat,
+            purus augue facilisis ipsum, sed posuere lorem velit
+            vitae mauris.
+        </p>
+
+        <h2>A section of your page</h2>
+
+        <p>
+            Suspendisse potenti. Praesent euismod, nibh sit amet
+            fringilla tincidunt, sapien lectus posuere lectus,
+            nec malesuada neque ipsum sed libero. Donec vitae
+            vulputate lorem.
+        </p>
+
+        <p>
+            Curabitur consequat, justo vel tincidunt faucibus,
+            erat augue efficitur lacus, non dignissim neque
+            felis eget enim. Aliquam erat volutpat.
+        </p>
+
+        <h2>Another section</h2>
+
+        <p>
+            Nulla facilisi. Sed at tellus nec ipsum consequat
+            fermentum. Vestibulum ante ipsum primis in faucibus
+            orci luctus et ultrices posuere cubilia curae.
+            Phasellus quis lectus vel arcu consequat malesuada.
+        </p>
+
+        <p>
+            <a href="#more">Example link to more content</a>
+        </p>
+
+        <h2 id="more">More content</h2>
+
+        <p>
+            Mauris pellentesque, metus vel dignissim malesuada,
+            lectus mi tincidunt velit, vitae feugiat arcu ipsum
+            eget lacus. Aenean commodo finibus nibh, in feugiat
+            augue tincidunt vitae.
+        </p>
+    </section>
+
+    <!-- ==================================================
+         END OF YOUR OWN HTML
+         ================================================== -->
+
+</main>
+
+<script>
+"use strict";
+
+// Change this to the directory containing your background.
+const backgroundFolder = "constellation-network";
+
+const frame = document.getElementById("animated-background");
+
+frame.src = backgroundFolder
+    .split("/")
+    .map(segment => encodeURIComponent(segment))
+    .join("/") + "/index.html";
+
+// Prevent cursor effects from lingering when entering page content.
+// This works when the background is served from the same origin.
+document.querySelectorAll(".content").forEach(element => {
+    element.addEventListener("pointerenter", () => {
+        try {
+            frame.contentWindow.dispatchEvent(new Event("blur"));
+        } catch {
+            // The page content remains usable if access is unavailable.
+        }
+    });
+});
+</script>
+</body>
+</html>

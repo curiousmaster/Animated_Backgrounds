@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shadow Organisms</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #080b14;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    organisms: {
+        count: 12,
+        radius: 65,
+        speed: 22,
+        deformation: 0.3,
+        pulseSpeed: 0.7,
+        opacity: 0.85,
+        color: [3, 5, 12],
+        softness: 14,
+        splitInterval: 12,
+        maxCount: 24
+    },
+
+    behavior: {
+        cohesion: 0.12,
+        separation: 0.8,
+        friction: 1.5,
+        fleeStrength: 180,
+        stretch: 1.2
+    },
+
+    background: {
+        color: [25, 35, 55],
+        ambientColor: [55, 65, 95],
+        ambientIntensity: 0.5
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 300,
+        intensity: 0.85,
+        smoothing: 8,
+        color: [150, 190, 255]
+    },
+
+    rendering: {
+        shapePoints: 36
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+function rgb(color) {
+    return `rgb(${color.map(v =>
+        Math.round(clamp(v, 0, 255))
+    ).join(",")})`;
+}
+
+function rgba(color, alpha) {
+    return `rgba(${color.map(v =>
+        Math.round(clamp(v, 0, 255))
+    ).join(",")},${clamp(alpha, 0, 1)})`;
+}
+
+let width = 0;
+let height = 0;
+let organisms = [];
+let time = 0;
+let previousTime = null;
+let lastSplitTime = 0;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+// --------------------------------------------------
+// Organisms
+// --------------------------------------------------
+
+function createOrganism(x, y, size = 1) {
+    const angle = Math.random() * TAU;
+
+    return {
+        x,
+        y,
+        vx: Math.cos(angle) * config.organisms.speed,
+        vy: Math.sin(angle) * config.organisms.speed,
+        phase: Math.random() * TAU,
+        size,
+        light: 0,
+        awayX: 1,
+        awayY: 0,
+        born: time
+    };
+}
+
+function resetOrganisms() {
+    const count = clamp(
+        Math.floor(config.organisms.count),
+        0,
+        Math.floor(config.organisms.maxCount)
+    );
+
+    organisms = Array.from({ length: count }, () =>
+        createOrganism(
+            Math.random() * width,
+            Math.random() * height,
+            0.7 + Math.random() * 0.6
+        )
+    );
+
+    lastSplitTime = time;
+}
+
+function resize() {
+    const oldWidth = width;
+    const oldHeight = height;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (oldWidth > 0 && oldHeight > 0) {
+        for (const organism of organisms) {
+            organism.x *= width / oldWidth;
+            organism.y *= height / oldHeight;
+        }
+    }
+}
+
+// --------------------------------------------------
+// Motion and social behavior
+// --------------------------------------------------
+
+function updateOrganisms(delta) {
+    const forces = [];
+    const radius = Math.max(10, config.organisms.radius);
+    const lightRadius = Math.max(1, config.mouse.radius);
+    const speed = Math.max(0, config.organisms.speed);
+
+    for (const organism of organisms) {
+        let ax = Math.cos(time * 0.35 + organism.phase) * speed;
+        let ay = Math.sin(time * 0.29 + organism.phase * 1.7) * speed;
+
+        let neighbors = 0;
+        let centerX = 0;
+        let centerY = 0;
+
+        for (const other of organisms) {
+            if (other === organism) continue;
+
+            const dx = other.x - organism.x;
+            const dy = other.y - organism.y;
+            const distance = Math.hypot(dx, dy);
+
+            if (distance < radius * 5) {
+                centerX += other.x;
+                centerY += other.y;
+                neighbors++;
+            }
+
+            const separationDistance =
+                radius * (organism.size + other.size) * 1.15;
+
+            if (distance < separationDistance && distance > 0.01) {
+                const strength =
+                    (1 - distance / separationDistance) *
+                    config.behavior.separation *
+                    100;
+
+                ax -= dx / distance * strength;
+                ay -= dy / distance * strength;
+            }
+        }
+
+        if (neighbors > 0) {
+            ax += (centerX / neighbors - organism.x) *
+                config.behavior.cohesion;
+
+            ay += (centerY / neighbors - organism.y) *
+                config.behavior.cohesion;
+        }
+
+        organism.light = 0;
+
+        if (config.mouse.enabled && mouse.influence > 0.001) {
+            const dx = organism.x - mouse.x;
+            const dy = organism.y - mouse.y;
+            const distance = Math.hypot(dx, dy);
+
+            organism.light = clamp(
+                mouse.influence *
+                config.mouse.intensity *
+                Math.exp(
+                    -(distance * distance) /
+                    (2 * lightRadius * lightRadius)
+                ),
+                0,
+                1
+            );
+
+            if (distance > 0.01) {
+                organism.awayX = dx / distance;
+                organism.awayY = dy / distance;
+            } else {
+                organism.awayX = Math.cos(organism.phase);
+                organism.awayY = Math.sin(organism.phase);
+            }
+
+            ax += organism.awayX *
+                organism.light * config.behavior.fleeStrength;
+
+            ay += organism.awayY *
+                organism.light * config.behavior.fleeStrength;
+        }
+
+        forces.push({ ax, ay });
+    }
+
+    const drag = Math.exp(
+        -Math.max(0, config.behavior.friction) * delta
+    );
+
+    organisms.forEach((organism, index) => {
+        organism.vx =
+            (organism.vx + forces[index].ax * delta) * drag;
+
+        organism.vy =
+            (organism.vy + forces[index].ay * delta) * drag;
+
+        const velocity = Math.hypot(organism.vx, organism.vy);
+        const maxSpeed = speed + config.behavior.fleeStrength * 0.5;
+
+        if (velocity > maxSpeed && velocity > 0) {
+            organism.vx *= maxSpeed / velocity;
+            organism.vy *= maxSpeed / velocity;
+        }
+
+        organism.x += organism.vx * delta;
+        organism.y += organism.vy * delta;
+
+        // Reflect at the viewport edges.
+        if (organism.x < 0) {
+            organism.x = 0;
+            organism.vx = Math.abs(organism.vx);
+        } else if (organism.x > width) {
+            organism.x = width;
+            organism.vx = -Math.abs(organism.vx);
+        }
+
+        if (organism.y < 0) {
+            organism.y = 0;
+            organism.vy = Math.abs(organism.vy);
+        } else if (organism.y > height) {
+            organism.y = height;
+            organism.vy = -Math.abs(organism.vy);
+        }
+
+        // Young fragments slowly regain their size.
+        organism.size +=
+            (1 - organism.size) * (1 - Math.exp(-0.06 * delta));
+    });
+}
+
+// --------------------------------------------------
+// Splitting
+// --------------------------------------------------
+
+function maybeSplit() {
+    const interval = config.organisms.splitInterval;
+    const limit = Math.max(0, Math.floor(config.organisms.maxCount));
+
+    // Zero disables splitting.
+    if (
+        interval <= 0 ||
+        time - lastSplitTime < interval ||
+        organisms.length >= limit
+    ) return;
+
+    lastSplitTime = time;
+
+    const candidates = organisms.filter(organism =>
+        organism.size > 0.65 && time - organism.born > 3
+    );
+
+    if (!candidates.length) return;
+
+    // Prefer organisms currently exposed to the mouse light.
+    candidates.sort((a, b) => b.light - a.light);
+    const parent = candidates[0];
+
+    const angle = parent.light > 0.01
+        ? Math.atan2(parent.awayY, parent.awayX) + Math.PI / 2
+        : Math.random() * TAU;
+
+    const nx = Math.cos(angle);
+    const ny = Math.sin(angle);
+    const offset = config.organisms.radius * parent.size * 0.3;
+    const childSize = parent.size / Math.sqrt(2);
+
+    const child = createOrganism(
+        clamp(parent.x + nx * offset, 0, width),
+        clamp(parent.y + ny * offset, 0, height),
+        childSize
+    );
+
+    child.vx = parent.vx + nx * 25;
+    child.vy = parent.vy + ny * 25;
+
+    parent.x = clamp(parent.x - nx * offset, 0, width);
+    parent.y = clamp(parent.y - ny * offset, 0, height);
+    parent.vx -= nx * 25;
+    parent.vy -= ny * 25;
+    parent.size = childSize;
+    parent.born = time;
+
+    organisms.push(child);
+}
+
+// --------------------------------------------------
+// Background and light
+// --------------------------------------------------
+
+function drawBackground() {
+    ctx.fillStyle = rgb(config.background.color);
+    ctx.fillRect(0, 0, width, height);
+
+    const ambientRadius = Math.max(width, height) * 0.8;
+
+    const ambient = ctx.createRadialGradient(
+        width * 0.45, height * 0.4, 0,
+        width * 0.45, height * 0.4, ambientRadius
+    );
+
+    ambient.addColorStop(0, rgba(
+        config.background.ambientColor,
+        config.background.ambientIntensity
+    ));
+
+    ambient.addColorStop(1, rgba(
+        config.background.ambientColor, 0
+    ));
+
+    ctx.fillStyle = ambient;
+    ctx.fillRect(0, 0, width, height);
+
+    if (config.mouse.enabled && mouse.influence > 0.001) {
+        const radius = Math.max(1, config.mouse.radius);
+
+        const light = ctx.createRadialGradient(
+            mouse.x, mouse.y, 0,
+            mouse.x, mouse.y, radius * 2
+        );
+
+        light.addColorStop(0, rgba(
+            config.mouse.color,
+            mouse.influence * config.mouse.intensity * 0.7
+        ));
+
+        light.addColorStop(1, rgba(config.mouse.color, 0));
+
+        ctx.fillStyle = light;
+        ctx.fillRect(0, 0, width, height);
+    }
+}
+
+// --------------------------------------------------
+// Smooth, deforming silhouettes
+// --------------------------------------------------
+
+function organismPath(organism) {
+    const count = Math.max(
+        12, Math.floor(config.rendering.shapePoints)
+    );
+
+    const radius = Math.max(1, config.organisms.radius) * organism.size;
+    const deformation = clamp(config.organisms.deformation, 0, 0.6);
+
+    const pulseTime = time * config.organisms.pulseSpeed;
+    const stretch = 1 + organism.light * config.behavior.stretch;
+
+    const rotation = organism.light > 0.01
+        ? Math.atan2(organism.awayY, organism.awayX)
+        : organism.phase + time * 0.08;
+
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
+
+    const points = [];
+
+    for (let index = 0; index < count; index++) {
+        const angle = index / count * TAU;
+
+        const ripple =
+            1 + deformation * (
+                0.55 * Math.sin(angle * 3 + pulseTime + organism.phase) +
+                0.3 * Math.sin(angle * 5 - pulseTime * 0.7) +
+                0.15 * Math.cos(angle * 7 + organism.phase)
+            );
+
+        const localX = Math.cos(angle) * radius * ripple * stretch;
+        const localY = Math.sin(angle) * radius * ripple /
+            Math.sqrt(stretch);
+
+        points.push({
+            x: organism.x + localX * cos - localY * sin,
+            y: organism.y + localX * sin + localY * cos
+        });
+    }
+
+    const path = new Path2D();
+
+    const first = points[0];
+    const last = points[points.length - 1];
+
+    path.moveTo(
+        (first.x + last.x) / 2,
+        (first.y + last.y) / 2
+    );
+
+    for (let index = 0; index < points.length; index++) {
+        const point = points[index];
+        const next = points[(index + 1) % points.length];
+
+        path.quadraticCurveTo(
+            point.x,
+            point.y,
+            (point.x + next.x) / 2,
+            (point.y + next.y) / 2
+        );
+    }
+
+    path.closePath();
+    return path;
+}
+
+function drawOrganisms() {
+    ctx.save();
+
+    ctx.fillStyle = rgb(config.organisms.color);
+    ctx.globalAlpha = clamp(config.organisms.opacity, 0, 1);
+    ctx.filter = `blur(${Math.max(0, config.organisms.softness)}px)`;
+
+    for (const organism of organisms) {
+        ctx.fill(organismPath(organism));
+    }
+
+    ctx.restore();
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    time += delta;
+
+    const smoothing = 1 - Math.exp(
+        -Math.max(0.1, config.mouse.smoothing) * delta
+    );
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) -
+        mouse.influence
+    ) * smoothing;
+
+    updateOrganisms(delta);
+    maybeSplit();
+
+    drawBackground();
+    drawOrganisms();
+
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+resetOrganisms();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if (path === "organisms.count") {
+                        resetOrganisms();
+                    }
+
+                    if (path === "organisms.maxCount") {
+                        organisms.length = Math.min(
+                            organisms.length,
+                            Math.floor(config.organisms.maxCount)
+                        );
+                    }
+
+                    deactivateMouse();
+                },
+
+                onReset: resetOrganisms
+            });
+        })
+        .catch(error => {
+            console.error("Could not load editor:", error);
+        });
+}
+</script>
+</body>
+</html>

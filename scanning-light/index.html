@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scanning Light</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+// Replace this block with configuration copied from the editor.
+const config = {
+    grid: {
+        spacing: 26,
+        rotation: 15,
+        minRadius: 0.6,
+        maxRadius: 3.8,
+        baseOpacity: 0.18,
+        color: [180, 200, 220]
+    },
+
+    beams: {
+        count: 3,
+        width: 65,
+        angle: -25,
+        angleSpread: 35,
+        speed: 90,           // Pixels per second; negative reverses
+        intensity: 1,
+        fadeDuration: 1.2,   // Seconds for illumination to fall to 1%
+        color: [70, 220, 180]
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 150,
+        intensity: 1,
+        smoothing: 12,
+        color: [255, 100, 180]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.7,
+        blur: 12
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+function rgb(color) {
+    return `rgb(${color.map(value =>
+        Math.round(clamp(value, 0, 255))
+    ).join(",")})`;
+}
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+
+    return a.map((value, index) =>
+        value + (b[index] - value) * t
+    );
+}
+
+let width = 0;
+let height = 0;
+let dots = [];
+let beams = [];
+let gridDirty = true;
+let previousTime = null;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+// --------------------------------------------------
+// Stationary grid
+// --------------------------------------------------
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    gridDirty = true;
+}
+
+function rebuildGrid() {
+    dots = [];
+
+    const spacing = Math.max(6, config.grid.spacing);
+    const angle = config.grid.rotation * Math.PI / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    const margin = Math.max(
+        1, config.grid.minRadius, config.grid.maxRadius
+    );
+
+    const halfX =
+        Math.abs(cos) * width / 2 +
+        Math.abs(sin) * height / 2 +
+        margin;
+
+    const halfY =
+        Math.abs(sin) * width / 2 +
+        Math.abs(cos) * height / 2 +
+        margin;
+
+    const columns = Math.ceil(halfX / spacing);
+    const rows = Math.ceil(halfY / spacing);
+
+    for (let row = -rows; row <= rows; row++) {
+        for (let column = -columns; column <= columns; column++) {
+            const localX = column * spacing;
+            const localY = row * spacing;
+
+            const x = width / 2 + localX * cos - localY * sin;
+            const y = height / 2 + localX * sin + localY * cos;
+
+            if (
+                x < -margin ||
+                x > width + margin ||
+                y < -margin ||
+                y > height + margin
+            ) continue;
+
+            dots.push({
+                x,
+                y,
+                beamLight: 0,
+                mouseLight: 0
+            });
+        }
+    }
+}
+
+// --------------------------------------------------
+// Moving scanning beams
+// --------------------------------------------------
+
+function createBeams() {
+    const count = Math.max(0, Math.floor(config.beams.count));
+
+    beams = Array.from({ length: count }, (_, index) => ({
+        phase: index / Math.max(1, count),
+        speedFactor: 0.85 + index % 3 * 0.15
+    }));
+}
+
+function getBeamPositions(delta) {
+    return beams.map((beam, index) => {
+        const fraction = beams.length <= 1
+            ? 0
+            : index / (beams.length - 1) - 0.5;
+
+        const angle = (
+            config.beams.angle +
+            fraction * config.beams.angleSpread
+        ) * Math.PI / 180;
+
+        // The beam line follows angle; its normal is perpendicular.
+        const nx = -Math.sin(angle);
+        const ny = Math.cos(angle);
+
+        const halfExtent =
+            Math.abs(nx) * width / 2 +
+            Math.abs(ny) * height / 2;
+
+        // Wrap outside the viewport so the reset stays hidden.
+        const padding = Math.max(1, config.beams.width) * 4;
+        const span = Math.max(1, (halfExtent + padding) * 2);
+
+        beam.phase +=
+            delta * config.beams.speed * beam.speedFactor / span;
+
+        beam.phase = (beam.phase % 1 + 1) % 1;
+
+        return {
+            nx,
+            ny,
+            position: -span / 2 + beam.phase * span
+        };
+    });
+}
+
+// --------------------------------------------------
+// Illumination and rendering
+// --------------------------------------------------
+
+function drawDot(dot, beamAmount, mouseAmount) {
+    const amount =
+        1 - (1 - beamAmount) * (1 - mouseAmount);
+
+    const minimum = Math.max(0, config.grid.minRadius);
+    const maximum = Math.max(minimum, config.grid.maxRadius);
+
+    const radius = minimum + (maximum - minimum) * amount;
+    if (radius <= 0.05) return;
+
+    // Weighted blending avoids one source always overriding the other.
+    const sum = beamAmount + mouseAmount;
+
+    const lightColor = sum > 0
+        ? mixColor(
+            config.beams.color,
+            config.mouse.color,
+            mouseAmount / sum
+        )
+        : config.grid.color;
+
+    const color = rgb(mixColor(
+        config.grid.color,
+        lightColor,
+        amount
+    ));
+
+    const baseOpacity = clamp(config.grid.baseOpacity, 0, 1);
+    const opacity = baseOpacity + (1 - baseOpacity) * amount;
+
+    if (
+        config.glow.enabled &&
+        config.glow.intensity > 0 &&
+        amount > 0.01
+    ) {
+        ctx.save();
+
+        ctx.globalAlpha = clamp(
+            amount * config.glow.intensity, 0, 1
+        );
+
+        ctx.shadowColor = color;
+        ctx.shadowBlur = Math.max(0, config.glow.blur);
+        ctx.fillStyle = color;
+
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, radius, 0, TAU);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = color;
+
+    ctx.beginPath();
+    ctx.arc(dot.x, dot.y, radius, 0, TAU);
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
+}
+
+function updateAndDrawDots(positions, delta) {
+    const beamWidth = Math.max(1, config.beams.width);
+    const mouseRadius = Math.max(1, config.mouse.radius);
+
+    const fadeDuration = Math.max(0, config.beams.fadeDuration);
+
+    const decay = fadeDuration === 0
+        ? 0
+        : Math.exp(-Math.log(100) * delta / fadeDuration);
+
+    for (const dot of dots) {
+        let beamSignal = 0;
+
+        for (const beam of positions) {
+            const projection =
+                (dot.x - width / 2) * beam.nx +
+                (dot.y - height / 2) * beam.ny;
+
+            const distance = projection - beam.position;
+
+            beamSignal += Math.exp(
+                -(distance * distance) /
+                (2 * beamWidth * beamWidth)
+            );
+        }
+
+        const beamTarget = clamp(
+            beamSignal * Math.max(0, config.beams.intensity),
+            0,
+            1
+        );
+
+        let mouseTarget = 0;
+
+        if (config.mouse.enabled && mouse.influence > 0.001) {
+            const dx = dot.x - mouse.x;
+            const dy = dot.y - mouse.y;
+
+            mouseTarget = clamp(
+                mouse.influence *
+                Math.max(0, config.mouse.intensity) *
+                Math.exp(
+                    -(dx * dx + dy * dy) /
+                    (2 * mouseRadius * mouseRadius)
+                ),
+                0,
+                1
+            );
+        }
+
+        // Light up immediately, then decay after the source passes.
+        dot.beamLight = Math.max(
+            beamTarget,
+            dot.beamLight * decay
+        );
+
+        dot.mouseLight = Math.max(
+            mouseTarget,
+            dot.mouseLight * decay
+        );
+
+        drawDot(dot, dot.beamLight, dot.mouseLight);
+    }
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+
+    const smoothing =
+        1 - Math.exp(-Math.max(0.1, config.mouse.smoothing) * delta);
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence +=
+        ((mouse.active && config.mouse.enabled ? 1 : 0) -
+            mouse.influence) * smoothing;
+
+    if (gridDirty) {
+        gridDirty = false;
+        rebuildGrid();
+    }
+
+    const positions = getBeamPositions(delta);
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    updateAndDrawDots(positions, delta);
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+createBeams();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if ([
+                        "grid.spacing",
+                        "grid.rotation",
+                        "grid.minRadius",
+                        "grid.maxRadius"
+                    ].includes(path)) {
+                        gridDirty = true;
+                    }
+
+                    if (path === "beams.count") {
+                        createBeams();
+                    }
+
+                    if (
+                        path === "mouse.enabled" &&
+                        !config.mouse.enabled
+                    ) {
+                        for (const dot of dots) {
+                            dot.mouseLight = 0;
+                        }
+                    }
+
+                    deactivateMouse();
+                },
+
+                onClear() {
+                    for (const dot of dots) {
+                        dot.beamLight = 0;
+                        dot.mouseLight = 0;
+                    }
+                }
+            });
+        })
+        .catch(error => {
+            console.error("Could not load settings editor:", error);
+        });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Woven Time</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    fabric: {
+        spacing: 34,
+        rotation: -15,
+        lineWidth: 1,
+        opacity: 0.65,
+        colorA: [65, 210, 220],
+        colorB: [190, 100, 255]
+    },
+
+    time: {
+        speed: 0.8,
+        variation: 0.85,
+        pauseStrength: 0.7,
+        recovery: 1.5
+    },
+
+    weave: {
+        amplitude: 22,
+        wavelength: 280,
+        knotStrength: 0.65,
+        knotFrequency: 0.6,
+        crossingGap: 5
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 200,
+        synchronization: 5,
+        calmness: 0.85,
+        smoothing: 10,
+        color: [255, 185, 110]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.5,
+        blur: 8
+    },
+
+    rendering: {
+        sampleSpacing: 10
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const radians = degrees => degrees * Math.PI / 180;
+
+function rgb(color) {
+    return `rgb(${color.map(v =>
+        Math.round(clamp(v, 0, 255))
+    ).join(",")})`;
+}
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+    return a.map((value, i) => value + (b[i] - value) * t);
+}
+
+let width = 0;
+let height = 0;
+let extent = 0;
+let threads = [];
+let gridDirty = true;
+let previousTime = null;
+let globalTime = 0;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    gridDirty = true;
+}
+
+// --------------------------------------------------
+// Each sampled part of each thread has its own clock.
+// --------------------------------------------------
+
+function rebuildFabric() {
+    threads = [];
+
+    const spacing = Math.max(16, config.fabric.spacing);
+    const sampleSpacing = Math.max(4, config.rendering.sampleSpacing);
+
+    extent = Math.hypot(width, height) / 2 +
+        Math.max(0, config.weave.amplitude) * 3 + spacing * 2;
+
+    const halfThreads = Math.ceil(extent / spacing);
+    const samples = Math.ceil(extent * 2 / sampleSpacing);
+
+    for (let axis = 0; axis < 2; axis++) {
+        for (let index = -halfThreads; index <= halfThreads; index++) {
+            const phase = index * 1.73 + axis * 2.1;
+
+            threads.push({
+                axis,
+                index,
+                phase,
+                samples: Array.from(
+                    { length: samples + 1 },
+                    (_, sample) => ({
+                        along: -extent + sample / samples * extent * 2,
+                        clock: globalTime,
+                        calm: 0
+                    })
+                )
+            });
+        }
+    }
+}
+
+function toScreen(x, y, cos, sin) {
+    return {
+        x: width / 2 + x * cos - y * sin,
+        y: height / 2 + x * sin + y * cos
+    };
+}
+
+function updateAndShape(thread, delta, cos, sin) {
+    const spacing = Math.max(16, config.fabric.spacing);
+    const wavelength = Math.max(40, config.weave.wavelength);
+    const amplitude = Math.max(0, config.weave.amplitude);
+    const mouseRadius = Math.max(1, config.mouse.radius);
+
+    const points = [];
+
+    for (const sample of thread.samples) {
+        const across = thread.index * spacing;
+        const baseX = thread.axis === 0 ? sample.along : across;
+        const baseY = thread.axis === 0 ? across : sample.along;
+
+        const baseScreen = toScreen(baseX, baseY, cos, sin);
+
+        const dx = baseScreen.x - mouse.x;
+        const dy = baseScreen.y - mouse.y;
+
+        const influence = config.mouse.enabled
+            ? mouse.influence * Math.exp(
+                -(dx * dx + dy * dy) /
+                (2 * mouseRadius * mouseRadius)
+            )
+            : 0;
+
+        const localVariation = Math.sin(
+            sample.along / wavelength * 1.4 + thread.phase
+        );
+
+        const pause = (
+            0.5 + 0.5 * Math.sin(
+                globalTime * 0.55 +
+                thread.phase +
+                sample.along / wavelength
+            )
+        ) ** 8;
+
+        const rate = Math.max(
+            0.02,
+            1 +
+            config.time.variation * localVariation -
+            config.time.pauseStrength * pause
+        );
+
+        sample.clock += delta * config.time.speed * rate;
+
+        // Mouse aligns local clocks with the shared clock.
+        const synchronization = Math.max(
+            0, config.mouse.synchronization
+        ) * influence;
+
+        const recovery = Math.max(0, config.time.recovery);
+
+        // A gentle recovery keeps clock offsets bounded.
+        sample.clock += (globalTime - sample.clock) * (
+            1 - Math.exp(
+                -(synchronization + recovery * 0.04) * delta
+            )
+        );
+
+        const calmRate = influence > sample.calm
+            ? Math.max(0.1, config.mouse.synchronization)
+            : Math.max(0.1, recovery);
+
+        sample.calm += (influence - sample.calm) *
+            (1 - Math.exp(-calmRate * delta));
+
+        const spatialPhase = sample.along / wavelength * TAU;
+
+        const knotEnvelope = Math.pow(
+            0.5 + 0.5 * Math.sin(
+                spatialPhase * config.weave.knotFrequency +
+                thread.phase +
+                sample.clock * 0.3
+            ),
+            4
+        );
+
+        const motion =
+            0.6 * Math.sin(spatialPhase + sample.clock) +
+            0.25 * Math.sin(
+                spatialPhase * 0.6 -
+                sample.clock * 0.7 +
+                thread.phase
+            ) +
+            config.weave.knotStrength *
+            knotEnvelope *
+            Math.sin(spatialPhase * 3 + sample.clock * 1.3);
+
+        const displacement =
+            amplitude * motion *
+            (1 - sample.calm * clamp(config.mouse.calmness, 0, 1));
+
+        const x = thread.axis === 0
+            ? sample.along
+            : across + displacement;
+
+        const y = thread.axis === 0
+            ? across + displacement
+            : sample.along;
+
+        const point = toScreen(x, y, cos, sin);
+
+        points.push({
+            ...point,
+            along: sample.along,
+            calm: sample.calm
+        });
+    }
+
+    return points;
+}
+
+// --------------------------------------------------
+// Rendering threads and woven crossings
+// --------------------------------------------------
+
+function stroke(path, color, width, opacity) {
+    if (width <= 0 || opacity <= 0) return;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+
+    if (config.glow.enabled && config.glow.intensity > 0) {
+        ctx.save();
+
+        ctx.globalAlpha =
+            opacity * clamp(config.glow.intensity, 0, 1);
+
+        ctx.shadowColor = color;
+        ctx.shadowBlur = Math.max(0, config.glow.blur);
+        ctx.stroke(path);
+
+        ctx.restore();
+    }
+
+    ctx.globalAlpha = opacity;
+    ctx.stroke(path);
+    ctx.globalAlpha = 1;
+}
+
+function drawThread(thread, points) {
+    const bands = 8;
+    const paths = Array.from({ length: bands }, () => new Path2D());
+
+    const spacing = Math.max(16, config.fabric.spacing);
+    const gap = clamp(config.weave.crossingGap, 0, spacing * 0.35);
+
+    for (let i = 1; i < points.length; i++) {
+        const before = points[i - 1];
+        const point = points[i];
+
+        const midpoint = (before.along + point.along) / 2;
+        const crossingIndex = Math.round(midpoint / spacing);
+        const crossingDistance = Math.abs(
+            midpoint - crossingIndex * spacing
+        );
+
+        // Alternating over/under pattern.
+        const parity = ((thread.index + crossingIndex) % 2 + 2) % 2;
+        const under = thread.axis === parity;
+
+        if (under && crossingDistance < gap) continue;
+
+        const calm = (before.calm + point.calm) / 2;
+        const band = Math.min(bands - 1, Math.floor(calm * bands));
+
+        paths[band].moveTo(before.x, before.y);
+        paths[band].lineTo(point.x, point.y);
+    }
+
+    const baseColor = thread.axis === 0
+        ? config.fabric.colorA
+        : config.fabric.colorB;
+
+    for (let band = 0; band < bands; band++) {
+        const amount = band === 0 ? 0 : band / (bands - 1);
+
+        const color = rgb(mixColor(
+            baseColor,
+            config.mouse.color,
+            amount
+        ));
+
+        stroke(
+            paths[band],
+            color,
+            Math.max(0, config.fabric.lineWidth),
+            clamp(config.fabric.opacity, 0, 1)
+        );
+    }
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    globalTime += delta * config.time.speed;
+
+    const smoothing = 1 - Math.exp(
+        -Math.max(0.1, config.mouse.smoothing) * delta
+    );
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) -
+        mouse.influence
+    ) * smoothing;
+
+    if (gridDirty) {
+        gridDirty = false;
+        rebuildFabric();
+    }
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+    ctx.lineCap = "round";
+
+    const angle = radians(config.fabric.rotation);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    for (const thread of threads) {
+        const points = updateAndShape(thread, delta, cos, sin);
+        drawThread(thread, points);
+    }
+
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if ([
+                        "fabric.spacing",
+                        "weave.amplitude",
+                        "rendering.sampleSpacing"
+                    ].includes(path)) {
+                        gridDirty = true;
+                    }
+
+                    deactivateMouse();
+                },
+
+                onReset() {
+                    gridDirty = true;
+                }
+            });
+        })
+        .catch(error => {
+            console.error("Could not load editor:", error);
+        });
+}
+</script>
+</body>
+</html>

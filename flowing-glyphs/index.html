@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flowing Glyphs</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+// Replace with configuration copied from the editor.
+const config = {
+    glyphs: {
+        characters: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ<>/{}[]",
+        spacing: 24,
+        fontSize: 16,
+        density: 0.8,
+        updateRate: 2,       // Character changes per second
+        color: [70, 210, 160],
+        opacity: 0.8
+    },
+
+    flow: {
+        speed: 55,          // Pixels per second
+        direction: 90,      // 0 = right, 90 = down
+        streamLength: 260,
+        streamSpacing: 650,
+        speedVariation: 0.35,
+        headColor: [220, 255, 235]
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 170,
+        scrambleRate: 24,
+        smoothing: 12,
+        color: [255, 100, 180]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.6,
+        blur: 8
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+
+    return a.map((value, index) =>
+        value + (b[index] - value) * t
+    );
+}
+
+function rgb(color) {
+    return `rgb(${color.map(value =>
+        Math.round(clamp(value, 0, 255))
+    ).join(",")})`;
+}
+
+function modulo(value, divisor) {
+    return (value % divisor + divisor) % divisor;
+}
+
+let width = 0;
+let height = 0;
+let cells = [];
+let lanes = [];
+let characters = [];
+let gridDirty = true;
+let previousTime = null;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+// --------------------------------------------------
+// Character set
+// --------------------------------------------------
+
+function refreshCharacters() {
+    characters = Array.from(config.glyphs.characters);
+
+    if (!characters.length) {
+        characters = ["0", "1"];
+    }
+
+    for (const cell of cells) {
+        cell.character = randomCharacter();
+    }
+}
+
+function randomCharacter() {
+    return characters[
+        Math.floor(Math.random() * characters.length)
+    ];
+}
+
+// --------------------------------------------------
+// Flow-aligned glyph grid
+// --------------------------------------------------
+
+function rebuildGrid() {
+    cells = [];
+    lanes = [];
+
+    const spacing = Math.max(10, config.glyphs.spacing);
+    const angle = config.flow.direction * Math.PI / 180;
+
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const nx = -dy;
+    const ny = dx;
+
+    const margin = Math.max(spacing, config.glyphs.fontSize);
+
+    const alongExtent =
+        Math.abs(dx) * width / 2 +
+        Math.abs(dy) * height / 2 +
+        margin;
+
+    const acrossExtent =
+        Math.abs(nx) * width / 2 +
+        Math.abs(ny) * height / 2 +
+        margin;
+
+    const alongCount = Math.ceil(alongExtent / spacing);
+    const acrossCount = Math.ceil(acrossExtent / spacing);
+
+    const streamSpacing = Math.max(20, config.flow.streamSpacing);
+
+    for (let laneIndex = -acrossCount;
+         laneIndex <= acrossCount;
+         laneIndex++) {
+
+        const lane = {
+            phase: Math.random() * streamSpacing,
+            randomSpeed: Math.random() * 2 - 1
+        };
+
+        lanes.push(lane);
+
+        const across = laneIndex * spacing;
+
+        for (let index = -alongCount; index <= alongCount; index++) {
+            const along = index * spacing;
+
+            const x = width / 2 + along * dx + across * nx;
+            const y = height / 2 + along * dy + across * ny;
+
+            if (
+                x < -margin ||
+                x > width + margin ||
+                y < -margin ||
+                y > height + margin
+            ) continue;
+
+            cells.push({
+                x,
+                y,
+                along,
+                lane,
+                visibility: Math.random(),
+                character: randomCharacter()
+            });
+        }
+    }
+}
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    gridDirty = true;
+}
+
+// --------------------------------------------------
+// Streams and character animation
+// --------------------------------------------------
+
+function updateLanes(delta) {
+    const streamSpacing = Math.max(20, config.flow.streamSpacing);
+    const variation = clamp(config.flow.speedVariation, 0, 0.95);
+
+    for (const lane of lanes) {
+        const speed =
+            config.flow.speed *
+            (1 + lane.randomSpeed * variation);
+
+        lane.phase = modulo(
+            lane.phase + speed * delta,
+            streamSpacing
+        );
+    }
+}
+
+function drawGlyph(cell, color, opacity, headAmount) {
+    if (opacity <= 0.005) return;
+
+    ctx.fillStyle = color;
+
+    if (
+        config.glow.enabled &&
+        config.glow.intensity > 0
+    ) {
+        ctx.save();
+
+        ctx.globalAlpha =
+            opacity * clamp(config.glow.intensity, 0, 1);
+
+        ctx.shadowColor = color;
+        ctx.shadowBlur =
+            Math.max(0, config.glow.blur) *
+            (0.4 + headAmount * 0.6);
+
+        ctx.fillText(cell.character, cell.x, cell.y);
+        ctx.restore();
+    }
+
+    ctx.globalAlpha = opacity;
+    ctx.fillText(cell.character, cell.x, cell.y);
+    ctx.globalAlpha = 1;
+}
+
+function drawCells(delta) {
+    const density = clamp(config.glyphs.density, 0, 1);
+
+    const streamSpacing = Math.max(20, config.flow.streamSpacing);
+    const streamLength = clamp(
+        config.flow.streamLength,
+        1,
+        streamSpacing
+    );
+
+    const direction = config.flow.speed < 0 ? -1 : 1;
+    const mouseRadius = Math.max(1, config.mouse.radius);
+
+    ctx.font =
+        `${Math.max(6, config.glyphs.fontSize)}px monospace`;
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    for (const cell of cells) {
+        if (cell.visibility >= density) continue;
+
+        // Distance behind the moving stream head.
+        const behind = modulo(
+            (cell.lane.phase - cell.along) * direction,
+            streamSpacing
+        );
+
+        let streamAmount = 0;
+        let headAmount = 0;
+
+        if (behind < streamLength) {
+            streamAmount = Math.pow(
+                1 - behind / streamLength,
+                1.6
+            );
+
+            headAmount = Math.exp(
+                -behind / Math.max(8, config.glyphs.spacing)
+            );
+        }
+
+        let mouseAmount = 0;
+
+        if (config.mouse.enabled && mouse.influence > 0.001) {
+            const dx = cell.x - mouse.x;
+            const dy = cell.y - mouse.y;
+
+            mouseAmount = mouse.influence * Math.exp(
+                -(dx * dx + dy * dy) /
+                (2 * mouseRadius * mouseRadius)
+            );
+        }
+
+        const updateRate =
+            Math.max(0, config.glyphs.updateRate) +
+            mouseAmount * Math.max(0, config.mouse.scrambleRate);
+
+        // Frame-rate-independent probability of a character change.
+        if (Math.random() < 1 - Math.exp(-updateRate * delta)) {
+            cell.character = randomCharacter();
+        }
+
+        let color = mixColor(
+            config.glyphs.color,
+            config.flow.headColor,
+            headAmount
+        );
+
+        color = mixColor(
+            color,
+            config.mouse.color,
+            mouseAmount
+        );
+
+        const illumination =
+            1 - (1 - streamAmount) * (1 - mouseAmount);
+
+        const opacity = clamp(
+            config.glyphs.opacity * illumination,
+            0,
+            1
+        );
+
+        drawGlyph(cell, rgb(color), opacity, headAmount);
+    }
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+
+    const smoothing =
+        1 - Math.exp(-Math.max(0.1, config.mouse.smoothing) * delta);
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence +=
+        ((mouse.active && config.mouse.enabled ? 1 : 0) -
+            mouse.influence) * smoothing;
+
+    if (gridDirty) {
+        gridDirty = false;
+        rebuildGrid();
+    }
+
+    updateLanes(delta);
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    drawCells(delta);
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+refreshCharacters();
+resize();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if ([
+                        "glyphs.spacing",
+                        "glyphs.fontSize",
+                        "flow.direction"
+                    ].includes(path)) {
+                        gridDirty = true;
+                    }
+
+                    if (path === "glyphs.characters") {
+                        refreshCharacters();
+                    }
+
+                    deactivateMouse();
+                },
+
+                onReset() {
+                    gridDirty = true;
+                }
+            });
+        })
+        .catch(error => {
+            console.error("Could not load settings editor:", error);
+        });
+}
+</script>
+</body>
+</html>

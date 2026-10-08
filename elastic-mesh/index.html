@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elastic Mesh</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+// Replace this block with configuration copied from the editor.
+const config = {
+    mesh: {
+        spacing: 40,
+        rotation: 0,
+        stiffness: 35,
+        coupling: 25,
+        damping: 7,
+        maxDisplacement: 160,
+        lineWidth: 0.8,
+        opacity: 0.55,
+        color: [90, 180, 255],
+        showDots: true,
+        dotRadius: 1.4
+    },
+
+    motion: {
+        enabled: true,
+        amplitude: 12,
+        wavelength: 350,
+        speed: 0.7
+    },
+
+    mouse: {
+        enabled: true,
+        mode: "attract",       // "attract" or "repel"
+        radius: 220,
+        strength: 450,
+        smoothing: 10,
+        color: [255, 90, 170]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.5,
+        blur: 8
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+
+const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+
+    return a.map((value, index) =>
+        value + (b[index] - value) * t
+    );
+}
+
+function rgb(color) {
+    return `rgb(${color.map(value =>
+        Math.round(clamp(value, 0, 255))
+    ).join(",")})`;
+}
+
+let width = 0;
+let height = 0;
+let columns = 0;
+let rows = 0;
+let nodes = [];
+let meshDirty = true;
+let previousTime = null;
+let motionTime = 0;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+// --------------------------------------------------
+// Generate mesh
+// --------------------------------------------------
+
+function rebuildMesh() {
+    nodes = [];
+
+    const spacing = Math.max(12, config.mesh.spacing);
+    const angle = config.mesh.rotation * Math.PI / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    const margin = Math.max(
+        0, config.mesh.maxDisplacement
+    ) + Math.max(0, config.motion.amplitude) + spacing * 2;
+
+    const halfX =
+        Math.abs(cos) * width / 2 +
+        Math.abs(sin) * height / 2 +
+        margin;
+
+    const halfY =
+        Math.abs(sin) * width / 2 +
+        Math.abs(cos) * height / 2 +
+        margin;
+
+    const halfColumns = Math.ceil(halfX / spacing);
+    const halfRows = Math.ceil(halfY / spacing);
+
+    columns = halfColumns * 2 + 1;
+    rows = halfRows * 2 + 1;
+
+    for (let row = 0; row < rows; row++) {
+        for (let column = 0; column < columns; column++) {
+            const localX = (column - halfColumns) * spacing;
+            const localY = (row - halfRows) * spacing;
+
+            nodes.push({
+                baseX: width / 2 + localX * cos - localY * sin,
+                baseY: height / 2 + localX * sin + localY * cos,
+
+                dx: 0,
+                dy: 0,
+                vx: 0,
+                vy: 0,
+
+                ax: 0,
+                ay: 0,
+
+                pinned:
+                    row === 0 ||
+                    column === 0 ||
+                    row === rows - 1 ||
+                    column === columns - 1
+            });
+        }
+    }
+}
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    meshDirty = true;
+}
+
+// --------------------------------------------------
+// Elastic simulation
+// --------------------------------------------------
+
+function simulate(delta) {
+    const stiffness = Math.max(0, config.mesh.stiffness);
+    const coupling = Math.max(0, config.mesh.coupling);
+    const damping = Math.max(0, config.mesh.damping);
+
+    const wavelength = Math.max(30, config.motion.wavelength);
+    const amplitude = config.motion.enabled
+        ? Math.max(0, config.motion.amplitude)
+        : 0;
+
+    const mouseRadius = Math.max(1, config.mouse.radius);
+    const mouseDirection =
+        config.mouse.mode === "repel" ? -1 : 1;
+
+    // Calculate forces first, using the same state for every node.
+    for (let row = 1; row < rows - 1; row++) {
+        for (let column = 1; column < columns - 1; column++) {
+            const index = row * columns + column;
+            const node = nodes[index];
+
+            const left = nodes[index - 1];
+            const right = nodes[index + 1];
+            const above = nodes[index - columns];
+            const below = nodes[index + columns];
+
+            const phaseX = node.baseX / wavelength * TAU;
+            const phaseY = node.baseY / wavelength * TAU;
+
+            const targetX = amplitude *
+                Math.sin(phaseY + motionTime) *
+                Math.cos(phaseX * 0.6 - motionTime * 0.7);
+
+            const targetY = amplitude *
+                Math.cos(phaseX + motionTime * 0.8) *
+                Math.sin(phaseY * 0.7 - motionTime * 0.6);
+
+            // Anchor springs pull nodes toward their moving rest positions.
+            node.ax = stiffness * (targetX - node.dx);
+            node.ay = stiffness * (targetY - node.dy);
+
+            // Neighbor coupling spreads deformation through the mesh.
+            node.ax += coupling * (
+                left.dx + right.dx + above.dx + below.dx -
+                node.dx * 4
+            );
+
+            node.ay += coupling * (
+                left.dy + right.dy + above.dy + below.dy -
+                node.dy * 4
+            );
+
+            if (
+                config.mouse.enabled &&
+                mouse.influence > 0.001
+            ) {
+                const x = node.baseX + node.dx;
+                const y = node.baseY + node.dy;
+
+                const dx = mouse.x - x;
+                const dy = mouse.y - y;
+                const distance = Math.hypot(dx, dy);
+
+                const influence = Math.exp(
+                    -(distance * distance) /
+                    (2 * mouseRadius * mouseRadius)
+                );
+
+                const force =
+                    Math.max(0, config.mouse.strength) *
+                    mouse.influence *
+                    influence *
+                    mouseDirection;
+
+                // Soft normalization avoids a singularity at the cursor.
+                const divisor = Math.max(30, distance);
+
+                node.ax += dx / divisor * force;
+                node.ay += dy / divisor * force;
+            }
+        }
+    }
+
+    const drag = Math.exp(-damping * delta);
+    const limit = Math.max(0, config.mesh.maxDisplacement);
+
+    // Integrate only after all forces have been calculated.
+    for (const node of nodes) {
+        if (node.pinned) continue;
+
+        node.vx = (node.vx + node.ax * delta) * drag;
+        node.vy = (node.vy + node.ay * delta) * drag;
+
+        node.dx += node.vx * delta;
+        node.dy += node.vy * delta;
+
+        const displacement = Math.hypot(node.dx, node.dy);
+
+        if (displacement > limit && displacement > 0) {
+            const nx = node.dx / displacement;
+            const ny = node.dy / displacement;
+
+            node.dx = nx * limit;
+            node.dy = ny * limit;
+
+            // Remove velocity pushing beyond the displacement limit.
+            const outward = node.vx * nx + node.vy * ny;
+
+            if (outward > 0) {
+                node.vx -= outward * nx;
+                node.vy -= outward * ny;
+            }
+        }
+    }
+}
+
+// --------------------------------------------------
+// Drawing
+// --------------------------------------------------
+
+function nodePosition(node) {
+    return {
+        x: node.baseX + node.dx,
+        y: node.baseY + node.dy
+    };
+}
+
+function drawMesh() {
+    const lines = new Path2D();
+    const dots = new Path2D();
+
+    const radius = Math.max(0, config.mesh.dotRadius);
+
+    for (let row = 0; row < rows; row++) {
+        for (let column = 0; column < columns; column++) {
+            const index = row * columns + column;
+            const point = nodePosition(nodes[index]);
+
+            if (column < columns - 1) {
+                const next = nodePosition(nodes[index + 1]);
+
+                lines.moveTo(point.x, point.y);
+                lines.lineTo(next.x, next.y);
+            }
+
+            if (row < rows - 1) {
+                const next = nodePosition(nodes[index + columns]);
+
+                lines.moveTo(point.x, point.y);
+                lines.lineTo(next.x, next.y);
+            }
+
+            if (
+                config.mesh.showDots &&
+                radius > 0 &&
+                point.x >= -radius &&
+                point.x <= width + radius &&
+                point.y >= -radius &&
+                point.y <= height + radius
+            ) {
+                dots.moveTo(point.x + radius, point.y);
+                dots.arc(point.x, point.y, radius, 0, TAU);
+            }
+        }
+    }
+
+    let color = rgb(config.mesh.color);
+
+    if (
+        config.mouse.enabled &&
+        mouse.influence > 0.001
+    ) {
+        const radius = Math.max(1, config.mouse.radius);
+
+        const gradient = ctx.createRadialGradient(
+            mouse.x, mouse.y, 0,
+            mouse.x, mouse.y, radius * 2
+        );
+
+        gradient.addColorStop(0, rgb(mixColor(
+            config.mesh.color,
+            config.mouse.color,
+            mouse.influence
+        )));
+
+        gradient.addColorStop(1, rgb(config.mesh.color));
+        color = gradient;
+    }
+
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = Math.max(0.01, config.mesh.lineWidth);
+
+    const opacity = clamp(config.mesh.opacity, 0, 1);
+
+    function draw() {
+        if (config.mesh.lineWidth > 0) ctx.stroke(lines);
+        if (config.mesh.showDots && radius > 0) ctx.fill(dots);
+    }
+
+    if (
+        config.glow.enabled &&
+        config.glow.intensity > 0
+    ) {
+        ctx.save();
+
+        ctx.globalAlpha =
+            opacity * clamp(config.glow.intensity, 0, 1);
+
+        ctx.shadowColor = rgb(config.mesh.color);
+        ctx.shadowBlur = Math.max(0, config.glow.blur);
+
+        draw();
+        ctx.restore();
+    }
+
+    ctx.globalAlpha = opacity;
+    draw();
+    ctx.globalAlpha = 1;
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+
+    const smoothing =
+        1 - Math.exp(-Math.max(0.1, config.mouse.smoothing) * delta);
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence +=
+        ((mouse.active && config.mouse.enabled ? 1 : 0) -
+            mouse.influence) * smoothing;
+
+    if (meshDirty) {
+        meshDirty = false;
+        rebuildMesh();
+    }
+
+    // Small simulation steps keep the springs stable.
+    const steps = Math.max(1, Math.ceil(delta / (1 / 240)));
+    const stepDelta = delta / steps;
+
+    for (let step = 0; step < steps; step++) {
+        motionTime += stepDelta * config.motion.speed;
+        simulate(stepDelta);
+    }
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    drawMesh();
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if ([
+                        "mesh.spacing",
+                        "mesh.rotation",
+                        "mesh.maxDisplacement",
+                        "motion.amplitude"
+                    ].includes(path)) {
+                        meshDirty = true;
+                    }
+
+                    deactivateMouse();
+                },
+
+                onReset() {
+                    meshDirty = true;
+                    deactivateMouse();
+                }
+            });
+        })
+        .catch(error => {
+            console.error("Could not load settings editor:", error);
+        });
+}
+</script>
+</body>
+</html>

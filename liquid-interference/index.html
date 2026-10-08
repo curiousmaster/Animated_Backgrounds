@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liquid Interference</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+// Replace this block with configuration copied from the editor.
+const config = {
+    waves: {
+        sourceCount: 4,
+        wavelength: 180,
+        speed: 1,
+        movementSpeed: 0.2,
+        spread: 0.65
+    },
+
+    appearance: {
+        colorA: [20, 210, 220],
+        colorB: [160, 70, 255],
+        brightness: 0.85,
+        contrast: 2.5,
+        bandFrequency: 2,
+        smoothing: true
+    },
+
+    mouse: {
+        enabled: true,
+        strength: 1,
+        radius: 350,
+        smoothing: 10,
+        color: [255, 100, 170]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.55,
+        blur: 18
+    },
+
+    rendering: {
+        resolution: 5 // Pixels per sample; lower = more detail
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+// Render the wave field at a lower resolution,
+// then scale it to the screen.
+const fieldCanvas = document.createElement("canvas");
+const fieldCtx = fieldCanvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+let width = 0;
+let height = 0;
+let fieldWidth = 0;
+let fieldHeight = 0;
+let imageData;
+let sources = [];
+let fieldDirty = true;
+let previousTime = null;
+let waveTime = 0;
+let movementTime = 0;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+// --------------------------------------------------
+// Canvas and wave sources
+// --------------------------------------------------
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fieldDirty = true;
+}
+
+function rebuildField() {
+    const resolution = Math.max(2, config.rendering.resolution);
+
+    fieldWidth = Math.max(1, Math.ceil(width / resolution));
+    fieldHeight = Math.max(1, Math.ceil(height / resolution));
+
+    fieldCanvas.width = fieldWidth;
+    fieldCanvas.height = fieldHeight;
+
+    imageData = fieldCtx.createImageData(fieldWidth, fieldHeight);
+}
+
+function createSources() {
+    const count = Math.max(
+        0, Math.floor(config.waves.sourceCount)
+    );
+
+    sources = Array.from({ length: count }, (_, index) => ({
+        phase: index * 2.3999632297,
+        speedX: 0.7 + index % 3 * 0.17,
+        speedY: 0.6 + index % 4 * 0.13,
+        wavePhase: index * 1.3
+    }));
+}
+
+function getSourcePositions() {
+    const spread = clamp(config.waves.spread, 0, 1);
+
+    return sources.map(source => ({
+        x: width * (
+            0.5 + spread * 0.5 *
+            Math.cos(movementTime * source.speedX + source.phase)
+        ),
+
+        y: height * (
+            0.5 + spread * 0.5 *
+            Math.sin(movementTime * source.speedY + source.phase)
+        ),
+
+        phase: source.wavePhase
+    }));
+}
+
+// --------------------------------------------------
+// Interference field
+// --------------------------------------------------
+
+function renderField() {
+    const positions = getSourcePositions();
+    const pixels = imageData.data;
+
+    const wavelength = Math.max(10, config.waves.wavelength);
+    const waveNumber = TAU / wavelength;
+
+    const contrast = Math.max(0.1, config.appearance.contrast);
+    const frequency = Math.max(
+        0.1, config.appearance.bandFrequency
+    );
+
+    const brightness = Math.max(0, config.appearance.brightness);
+    const mouseRadius = Math.max(1, config.mouse.radius);
+
+    const mouseStrength = config.mouse.enabled
+        ? mouse.influence * Math.max(0, config.mouse.strength)
+        : 0;
+
+    const colorA = config.appearance.colorA;
+    const colorB = config.appearance.colorB;
+    const mouseColor = config.mouse.color;
+
+    let pixel = 0;
+
+    for (let row = 0; row < fieldHeight; row++) {
+        const y = (row + 0.5) / fieldHeight * height;
+
+        for (let column = 0; column < fieldWidth; column++) {
+            const x = (column + 0.5) / fieldWidth * width;
+
+            let field = 0;
+
+            for (const source of positions) {
+                const distance = Math.hypot(
+                    x - source.x,
+                    y - source.y
+                );
+
+                field += Math.sin(
+                    distance * waveNumber -
+                    waveTime +
+                    source.phase
+                );
+            }
+
+            let mouseAmount = 0;
+
+            if (mouseStrength > 0.001) {
+                const distance = Math.hypot(
+                    x - mouse.x,
+                    y - mouse.y
+                );
+
+                mouseAmount = mouseStrength * Math.exp(
+                    -(distance * distance) /
+                    (2 * mouseRadius * mouseRadius)
+                );
+
+                field += mouseAmount * Math.sin(
+                    distance * waveNumber - waveTime
+                );
+            }
+
+            const hasSources =
+                positions.length > 0 || mouseAmount > 0.001;
+
+            // Normalize interference while retaining variation.
+            const denominator = Math.sqrt(
+                Math.max(1, positions.length + mouseAmount * mouseAmount)
+            );
+
+            field /= denominator;
+
+            const band =
+                0.5 + 0.5 * Math.sin(field * Math.PI * frequency);
+
+            const intensity = hasSources
+                ? Math.pow(band, contrast) * brightness
+                : 0;
+
+            const paletteAmount =
+                0.5 + 0.5 * Math.sin(
+                    field * 1.4 + waveTime * 0.15
+                );
+
+            const tint = clamp(mouseAmount * 0.7, 0, 1);
+
+            for (let channel = 0; channel < 3; channel++) {
+                let color =
+                    colorA[channel] +
+                    (colorB[channel] - colorA[channel]) *
+                    paletteAmount;
+
+                color += (mouseColor[channel] - color) * tint;
+
+                pixels[pixel + channel] = clamp(
+                    color * intensity, 0, 255
+                );
+            }
+
+            pixels[pixel + 3] = 255;
+            pixel += 4;
+        }
+    }
+
+    fieldCtx.putImageData(imageData, 0, 0);
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+
+    waveTime += delta * config.waves.speed;
+    movementTime += delta * config.waves.movementSpeed;
+
+    const smoothing =
+        1 - Math.exp(-Math.max(0.1, config.mouse.smoothing) * delta);
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence +=
+        ((mouse.active && config.mouse.enabled ? 1 : 0) -
+            mouse.influence) * smoothing;
+
+    if (fieldDirty) {
+        fieldDirty = false;
+        rebuildField();
+    }
+
+    renderField();
+
+    ctx.imageSmoothingEnabled = config.appearance.smoothing;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.drawImage(fieldCanvas, 0, 0, width, height);
+
+    if (
+        config.glow.enabled &&
+        config.glow.intensity > 0
+    ) {
+        ctx.save();
+
+        ctx.globalCompositeOperation = "screen";
+        ctx.globalAlpha = clamp(config.glow.intensity, 0, 1);
+        ctx.filter = `blur(${Math.max(0, config.glow.blur)}px)`;
+
+        ctx.drawImage(fieldCanvas, 0, 0, width, height);
+        ctx.restore();
+    }
+
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+createSources();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if (path === "waves.sourceCount") {
+                        createSources();
+                    }
+
+                    if (path === "rendering.resolution") {
+                        fieldDirty = true;
+                    }
+
+                    deactivateMouse();
+                }
+            });
+        })
+        .catch(error => {
+            console.error("Could not load settings editor:", error);
+        });
+}
+</script>
+</body>
+</html>

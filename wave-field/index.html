@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interactive Wave Field</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    #background {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+// Replace this block with configuration copied from the editor.
+const config = {
+    // Stationary grid
+    spacing: 24,
+    minRadius: 0.6,
+    maxRadius: 4,
+    gridTilt: 15,
+
+    // Moving waves
+    waveCount: 3,
+    wavelength: 240,
+    waveSpeed: 65,       // Pixels per second
+    amplitude: 0.85,     // Wave influence
+    waveColor: [80, 170, 255],
+
+    // Mouse ripples
+    mouseEnabled: true,
+    mouseColor: [255, 90, 170],
+    rippleStrength: 1,
+    rippleSpeed: 180,    // Pixels per second
+    rippleWidth: 45,     // Width of each ripple ring
+    rippleDecay: 0.7,    // Higher = faster fading
+    rippleInterval: 0.12,
+    maxRipples: 30,
+
+    // Glow
+    glow: {
+        enabled: true,
+        intensity: 0.6,
+        blur: 12,
+        radius: 1
+    },
+
+    // Optional editor
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+
+const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+    return a.map((value, index) =>
+        value + (b[index] - value) * t
+    );
+}
+
+function rgb(color) {
+    return `rgb(${color.map(value =>
+        Math.round(clamp(value, 0, 255))
+    ).join(",")})`;
+}
+
+let width = 0;
+let height = 0;
+let dots = [];
+let waves = [];
+let ripples = [];
+
+let gridDirty = true;
+let previousTime = null;
+let elapsed = 0;
+let waveTravel = 0;
+let lastRippleTime = -Infinity;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    active: false
+};
+
+// --------------------------------------------------
+// Stationary rotated grid
+// --------------------------------------------------
+
+function rebuildGrid() {
+    dots = [];
+
+    const spacing = Math.max(4, config.spacing);
+    const angle = config.gridTilt * Math.PI / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    const margin = Math.max(
+        1, config.minRadius, config.maxRadius
+    );
+
+    // Bounds of the viewport in unrotated grid coordinates.
+    const halfX =
+        Math.abs(cos) * width / 2 +
+        Math.abs(sin) * height / 2 +
+        margin;
+
+    const halfY =
+        Math.abs(sin) * width / 2 +
+        Math.abs(cos) * height / 2 +
+        margin;
+
+    const columns = Math.ceil(halfX / spacing);
+    const rows = Math.ceil(halfY / spacing);
+
+    for (let row = -rows; row <= rows; row++) {
+        for (let column = -columns; column <= columns; column++) {
+            const localX = column * spacing;
+            const localY = row * spacing;
+
+            const x =
+                width / 2 + localX * cos - localY * sin;
+
+            const y =
+                height / 2 + localX * sin + localY * cos;
+
+            if (
+                x < -margin ||
+                x > width + margin ||
+                y < -margin ||
+                y > height + margin
+            ) continue;
+
+            dots.push({ x, y });
+        }
+    }
+}
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    gridDirty = true;
+}
+
+// --------------------------------------------------
+// Overlapping traveling waves
+// --------------------------------------------------
+
+function createWaves() {
+    const count = Math.max(0, Math.floor(config.waveCount));
+
+    waves = Array.from({ length: count }, (_, index) => {
+        // Different directions, phases and wavelengths.
+        const angle = index * 2.3999632297 + 0.35;
+
+        return {
+            dx: Math.cos(angle),
+            dy: Math.sin(angle),
+            phase: index * 1.7,
+            wavelengthFactor: 1 + index % 3 * 0.22,
+            speedFactor: 0.8 + index % 4 * 0.13
+        };
+    });
+}
+
+function waveInfluence(dot) {
+    if (!waves.length) return 0;
+
+    let sum = 0;
+
+    for (const wave of waves) {
+        const distance =
+            (dot.x - width / 2) * wave.dx +
+            (dot.y - height / 2) * wave.dy;
+
+        const wavelength = Math.max(
+            1, config.wavelength * wave.wavelengthFactor
+        );
+
+        const phase =
+            TAU *
+            (distance - waveTravel * wave.speedFactor) /
+            wavelength +
+            wave.phase;
+
+        // Smooth narrow wave crests.
+        const crest = (Math.sin(phase) + 1) / 2;
+
+        sum += Math.pow(crest, 3);
+    }
+
+    return clamp(
+        sum / waves.length * Math.max(0, config.amplitude),
+        0,
+        1
+    );
+}
+
+// --------------------------------------------------
+// Expanding mouse ripples
+// --------------------------------------------------
+
+function addRipple(x, y, force = false) {
+    if (!config.mouseEnabled || config.maxRipples <= 0) return;
+
+    if (
+        !force &&
+        elapsed - lastRippleTime < config.rippleInterval
+    ) return;
+
+    lastRippleTime = elapsed;
+
+    ripples.push({
+        x,
+        y,
+        born: elapsed,
+        radius: 0
+    });
+
+    const limit = Math.max(0, Math.floor(config.maxRipples));
+
+    if (ripples.length > limit) {
+        ripples.splice(0, ripples.length - limit);
+    }
+}
+
+function updateRipples(delta) {
+    const speed = Math.max(0, config.rippleSpeed);
+    const decay = Math.max(0, config.rippleDecay);
+    const diagonal = Math.hypot(width, height);
+    const ringWidth = Math.max(1, config.rippleWidth);
+
+    for (const ripple of ripples) {
+        ripple.radius += speed * delta;
+    }
+
+    ripples = ripples.filter(ripple => {
+        const age = elapsed - ripple.born;
+        const opacity = Math.exp(-age * decay);
+
+        return (
+            age < 30 &&
+            opacity > 0.005 &&
+            ripple.radius < diagonal + ringWidth * 4
+        );
+    });
+}
+
+function rippleInfluence(dot) {
+    if (!config.mouseEnabled) return 0;
+
+    const ringWidth = Math.max(1, config.rippleWidth);
+    const decay = Math.max(0, config.rippleDecay);
+
+    let influence = 0;
+
+    for (const ripple of ripples) {
+        const distance = Math.hypot(
+            dot.x - ripple.x,
+            dot.y - ripple.y
+        );
+
+        const ringDistance = distance - ripple.radius;
+        const age = elapsed - ripple.born;
+
+        influence +=
+            Math.exp(
+                -(ringDistance * ringDistance) /
+                (2 * ringWidth * ringWidth)
+            ) *
+            Math.exp(-age * decay);
+    }
+
+    return 1 - Math.exp(
+        -influence * Math.max(0, config.rippleStrength)
+    );
+}
+
+// --------------------------------------------------
+// Draw dots
+// --------------------------------------------------
+
+function drawDot(dot, waveAmount, mouseAmount) {
+    const amount = 1 - (1 - waveAmount) * (1 - mouseAmount);
+
+    const minimum = Math.max(0, config.minRadius);
+    const maximum = Math.max(minimum, config.maxRadius);
+
+    const radius =
+        minimum + (maximum - minimum) * amount;
+
+    if (radius <= 0.05) return;
+
+    let color = mixColor(
+        [255, 255, 255],
+        config.waveColor,
+        waveAmount
+    );
+
+    color = mixColor(color, config.mouseColor, mouseAmount);
+
+    const dotColor = rgb(color);
+
+    if (
+        config.glow.enabled &&
+        config.glow.intensity > 0 &&
+        config.glow.radius > 0 &&
+        amount > 0.05
+    ) {
+        ctx.save();
+
+        ctx.globalAlpha = clamp(
+            amount * config.glow.intensity, 0, 1
+        );
+
+        ctx.shadowColor = dotColor;
+        ctx.shadowBlur = Math.max(0, config.glow.blur) * amount;
+        ctx.fillStyle = dotColor;
+
+        ctx.beginPath();
+        ctx.arc(
+            dot.x,
+            dot.y,
+            radius * config.glow.radius,
+            0,
+            TAU
+        );
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    ctx.fillStyle = dotColor;
+    ctx.beginPath();
+    ctx.arc(dot.x, dot.y, radius, 0, TAU);
+    ctx.fill();
+}
+
+function animate(time) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((time - previousTime) / 1000, 0.05);
+
+    previousTime = time;
+
+    elapsed += delta;
+    waveTravel += delta * config.waveSpeed;
+
+    if (gridDirty) {
+        gridDirty = false;
+        rebuildGrid();
+    }
+
+    // Emit ripples even when the cursor remains stationary.
+    if (mouse.active) {
+        addRipple(mouse.x, mouse.y);
+    }
+
+    updateRipples(delta);
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    for (const dot of dots) {
+        drawDot(
+            dot,
+            waveInfluence(dot),
+            rippleInfluence(dot)
+        );
+    }
+
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function isEditorTarget(target) {
+    return (
+        target instanceof Element &&
+        target.closest("[data-background-editor]")
+    );
+}
+
+window.addEventListener("pointermove", event => {
+    if (isEditorTarget(event.target)) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+    mouse.active = true;
+
+    addRipple(mouse.x, mouse.y);
+});
+
+window.addEventListener("pointerdown", event => {
+    if (isEditorTarget(event.target)) return;
+
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+    mouse.active = true;
+
+    addRipple(mouse.x, mouse.y, true);
+});
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+// --------------------------------------------------
+// Initialize animation
+// --------------------------------------------------
+
+window.addEventListener("resize", resize);
+
+resize();
+createWaves();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Load optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if ([
+                        "spacing",
+                        "minRadius",
+                        "maxRadius",
+                        "gridTilt"
+                    ].includes(path)) {
+                        gridDirty = true;
+                    }
+
+                    if (path === "waveCount") {
+                        createWaves();
+                    }
+
+                    if (path === "maxRipples") {
+                        const limit = Math.max(
+                            0, Math.floor(config.maxRipples)
+                        );
+
+                        if (limit === 0) {
+                            ripples = [];
+                        } else {
+                            ripples = ripples.slice(-limit);
+                        }
+                    }
+
+                    if (
+                        path === "mouseEnabled" &&
+                        !config.mouseEnabled
+                    ) {
+                        ripples = [];
+                    }
+
+                    deactivateMouse();
+                },
+
+                onClearRipples() {
+                    ripples = [];
+                }
+            });
+        })
+        .catch(error => {
+            console.error("Could not load settings editor:", error);
+        });
+}
+</script>
+</body>
+</html>

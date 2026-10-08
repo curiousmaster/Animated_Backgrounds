@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Background Gallery</title>
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+        color: #fff;
+        font-family: system-ui, sans-serif;
+    }
+
+    #background {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+    }
+
+	.panel {
+		position: fixed;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		width: min(440px, calc(100% - 40px));
+		padding: 32px;
+
+		background: rgba(0, 0, 0, 0.7);
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+
+		border: 1px solid rgba(255, 255, 255, 0.25);
+		border-radius: 20px;
+		text-align: center;
+
+		box-shadow: none;
+		text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+	}
+
+    .eyebrow {
+        margin: 0 0 12px;
+        color: #a8c9df;
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+    }
+
+    h1 {
+        margin: 0 0 12px;
+        font-size: clamp(26px, 5vw, 36px);
+        font-weight: 600;
+        letter-spacing: -0.04em;
+    }
+
+    .description {
+        margin: 0 0 26px;
+        color: rgba(255, 255, 255, 0.75);
+        font-size: 14px;
+        line-height: 1.65;
+    }
+
+    label {
+        display: block;
+        margin-bottom: 10px;
+        text-align: left;
+        font-size: 12px;
+        color: #c7d5df;
+    }
+
+    select {
+        width: 100%;
+        padding: 13px 14px;
+        color: #fff;
+        background: rgba(5, 10, 18, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 10px;
+        font: 14px system-ui, sans-serif;
+        cursor: pointer;
+    }
+
+    option {
+        color: #fff;
+        background: #111820;
+    }
+
+    .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+    }
+
+    button, .open-link {
+        flex: 1;
+        padding: 11px 12px;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 10px;
+        font: 12px system-ui, sans-serif;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    button:hover, .open-link:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+
+    :focus-visible {
+        outline: 2px solid #8acde5;
+        outline-offset: 3px;
+    }
+
+    .hint {
+        margin: 20px 0 0;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 11px;
+        line-height: 1.6;
+    }
+
+    #show-panel {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(15, 20, 28, 0.6);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    }
+
+    [hidden] {
+        display: none !important;
+    }
+</style>
+</head>
+
+<body>
+<iframe
+    id="background"
+    title="Selected animated background"
+></iframe>
+
+<main class="panel" id="panel">
+    <p class="eyebrow">Interactive background collection</p>
+
+    <h1>A little moving magic.</h1>
+
+    <p class="description">
+        Choose a world to explore. Move your mouse across
+        the background and see how it responds.
+    </p>
+
+    <label for="background-select">Choose your background</label>
+    <select id="background-select"></select>
+
+    <div class="actions">
+        <button id="hide-panel" type="button">
+            Hide panel
+        </button>
+
+        <a
+            class="open-link"
+            id="open-background"
+            target="_blank"
+            rel="noopener"
+        >
+            Open background ↗
+        </a>
+    </div>
+
+    <p class="hint">
+        Your selection is remembered.<br>
+        Hide the panel to explore the entire background.
+    </p>
+</main>
+
+<button id="show-panel" type="button" hidden>
+    Show selection
+</button>
+
+<script>
+"use strict";
+
+// Change "folder" to match your directory names.
+// Each directory should contain its own index.html.
+const backgrounds = [
+    { name: "Blob Grid",             folder: "blob-grid" },
+    { name: "Wave Field",            folder: "wave-field" },
+    { name: "Magnetic Particles",    folder: "magnetic-particles" },
+    { name: "Topographic Contours",  folder: "topographic-contours" },
+    { name: "Aurora Ribbons",        folder: "aurora-ribbons" },
+    { name: "Elastic Mesh",          folder: "elastic-mesh" },
+    { name: "Constellation Network", folder: "constellation-network" },
+    { name: "Liquid Interference",   folder: "liquid-interference" },
+    { name: "Scanning Light",        folder: "scanning-light" },
+    { name: "Flowing Glyphs",        folder: "flowing-glyphs" },
+    { name: "Orbital Trails",        folder: "orbital-trails" },
+    { name: "Impossible Windows",    folder: "impossible-windows" },
+    { name: "Memory Fossils",        folder: "memory-fossils" },
+    { name: "Shadow Organisms",      folder: "shadow-organisms" },
+    { name: "Woven Time",            folder: "woven-time" },
+    { name: "Borrowed Dimensions",   folder: "borrowed-dimensions" },
+    { name: "Living Atlas",          folder: "living-atlas" }
+];
+
+const frame = document.getElementById("background");
+const select = document.getElementById("background-select");
+const panel = document.getElementById("panel");
+const showButton = document.getElementById("show-panel");
+const hideButton = document.getElementById("hide-panel");
+const openLink = document.getElementById("open-background");
+
+const storageKey = "background-gallery-selection";
+
+for (const background of backgrounds) {
+    const option = document.createElement("option");
+    option.value = background.folder;
+    option.textContent = background.name;
+    select.appendChild(option);
+}
+
+function backgroundURL(folder) {
+    const path = folder
+        .split("/")
+        .map(segment => encodeURIComponent(segment))
+        .join("/");
+
+    return `${path}/index.html`;
+}
+
+function selectBackground(folder) {
+    const background = backgrounds.find(item => item.folder === folder)
+        || backgrounds[0];
+
+    select.value = background.folder;
+
+    const url = backgroundURL(background.folder);
+    frame.src = url;
+    frame.title = `${background.name} animated background`;
+    openLink.href = url;
+
+    try {
+        localStorage.setItem(storageKey, background.folder);
+    } catch {
+        // Selection still works when storage is unavailable.
+    }
+}
+
+function setPanelVisible(visible) {
+    panel.hidden = !visible;
+    showButton.hidden = visible;
+
+    if (visible) {
+        select.focus();
+    } else {
+        showButton.focus();
+    }
+}
+
+select.addEventListener("change", () => {
+    selectBackground(select.value);
+});
+
+hideButton.addEventListener("click", () => setPanelVisible(false));
+showButton.addEventListener("click", () => setPanelVisible(true));
+
+let savedSelection = null;
+
+try {
+    savedSelection = localStorage.getItem(storageKey);
+} catch {
+    // Use the first background when storage is unavailable.
+}
+
+selectBackground(savedSelection);
+
+// The foreground panel blocks pointer events from reaching the iframe.
+// Deactivate its cursor interaction when entering foreground controls.
+function deactivateBackgroundPointer() {
+    try {
+        frame.contentWindow.dispatchEvent(new Event("blur"));
+    } catch {
+        // Applicable when the background is served from the same origin.
+    }
+}
+
+panel.addEventListener("pointerenter", deactivateBackgroundPointer);
+showButton.addEventListener("pointerenter", deactivateBackgroundPointer);
+</script>
+</body>
+</html>

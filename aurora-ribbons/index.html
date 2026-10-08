@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aurora Ribbons</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+// Replace with configuration copied from the editor.
+const config = {
+    ribbons: {
+        count: 5,
+        width: 90,
+        amplitude: 100,
+        wavelength: 600,
+        speed: 0.35,
+        spread: 0.65,
+        rotation: -15,
+        opacity: 0.3,
+        colorA: [40, 230, 170],
+        colorB: [120, 90, 255],
+        edgeOpacity: 0.65
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 260,
+        strength: 0.75,
+        smoothing: 7,
+        color: [255, 100, 180]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.6,
+        blur: 25
+    },
+
+    resolution: 16,
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+
+    return a.map((value, index) =>
+        value + (b[index] - value) * t
+    );
+}
+
+function rgba(color, alpha = 1) {
+    const channels = color.map(value =>
+        Math.round(clamp(value, 0, 255))
+    );
+
+    return `rgba(${channels.join(",")},${clamp(alpha, 0, 1)})`;
+}
+
+let width = 0;
+let height = 0;
+let previousTime = null;
+let time = 0;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    influence: 0,
+    active: false,
+    initialized: false
+};
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// --------------------------------------------------
+// Ribbon geometry
+// --------------------------------------------------
+
+function createRibbon(index, count, extent, localMouse) {
+    const phase = index * 1.618;
+    const step = Math.max(4, config.resolution);
+    const segments = Math.max(2, Math.ceil(extent * 2 / step));
+
+    const base =
+        (index - (count - 1) / 2) *
+        Math.min(width, height) *
+        config.ribbons.spread /
+        Math.max(1, count - 1);
+
+    const wavelength = Math.max(40, config.ribbons.wavelength);
+    const amplitude = Math.max(0, config.ribbons.amplitude);
+    const radius = Math.max(1, config.mouse.radius);
+    const points = [];
+
+    for (let segment = 0; segment <= segments; segment++) {
+        const x = -extent + segment / segments * extent * 2;
+
+        let y = base + amplitude * (
+            0.65 * Math.sin(
+                x / wavelength * TAU + time + phase
+            ) +
+            0.35 * Math.sin(
+                x / wavelength * TAU * 0.57 -
+                time * 0.7 + phase * 1.3
+            )
+        );
+
+        let mouseAmount = 0;
+
+        if (config.mouse.enabled && mouse.influence > 0.001) {
+            const dx = localMouse.x - x;
+            const dy = localMouse.y - y;
+
+            mouseAmount =
+                mouse.influence *
+                Math.exp(
+                    -(dx * dx + dy * dy) /
+                    (2 * radius * radius)
+                );
+
+            y += dy * clamp(
+                mouseAmount * config.mouse.strength,
+                0,
+                1
+            );
+        }
+
+        const breathing =
+            0.8 + 0.2 *
+            Math.sin(x / wavelength * TAU * 0.8 - time + phase);
+
+        points.push({
+            x,
+            y,
+            halfWidth:
+                Math.max(0, config.ribbons.width) *
+                breathing / 2,
+            mouseAmount
+        });
+    }
+
+    // Offset both edges along the centerline's normal.
+    const upper = [];
+    const lower = [];
+
+    for (let i = 0; i < points.length; i++) {
+        const previous = points[Math.max(0, i - 1)];
+        const next = points[Math.min(points.length - 1, i + 1)];
+
+        const dx = next.x - previous.x;
+        const dy = next.y - previous.y;
+        const length = Math.max(0.001, Math.hypot(dx, dy));
+
+        const nx = -dy / length;
+        const ny = dx / length;
+        const point = points[i];
+
+        upper.push({
+            x: point.x + nx * point.halfWidth,
+            y: point.y + ny * point.halfWidth
+        });
+
+        lower.push({
+            x: point.x - nx * point.halfWidth,
+            y: point.y - ny * point.halfWidth
+        });
+    }
+
+    const shape = new Path2D();
+    shape.moveTo(upper[0].x, upper[0].y);
+
+    for (let i = 1; i < upper.length; i++) {
+        shape.lineTo(upper[i].x, upper[i].y);
+    }
+
+    for (let i = lower.length - 1; i >= 0; i--) {
+        shape.lineTo(lower[i].x, lower[i].y);
+    }
+
+    shape.closePath();
+
+    const edge = new Path2D();
+    edge.moveTo(upper[0].x, upper[0].y);
+
+    for (let i = 1; i < upper.length; i++) {
+        edge.lineTo(upper[i].x, upper[i].y);
+    }
+
+    return { shape, edge };
+}
+
+// --------------------------------------------------
+// Draw ribbons
+// --------------------------------------------------
+
+function drawRibbons() {
+    const count = Math.max(0, Math.floor(config.ribbons.count));
+    if (!count || config.ribbons.width <= 0) return;
+
+    const angle = config.ribbons.rotation * Math.PI / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    const dx = mouse.x - width / 2;
+    const dy = mouse.y - height / 2;
+
+    // Inverse rotation keeps interaction in screen coordinates.
+    const localMouse = {
+        x: dx * cos + dy * sin,
+        y: -dx * sin + dy * cos
+    };
+
+    const extent =
+        Math.hypot(width, height) / 2 +
+        config.ribbons.width * 2;
+
+    ctx.save();
+    ctx.translate(width / 2, height / 2);
+    ctx.rotate(angle);
+
+    // Overlapping ribbons add light.
+    ctx.globalCompositeOperation = "lighter";
+
+    for (let index = 0; index < count; index++) {
+        const blend = count === 1 ? 0.5 : index / (count - 1);
+
+        const color = mixColor(
+            config.ribbons.colorA,
+            config.ribbons.colorB,
+            blend
+        );
+
+        const { shape, edge } = createRibbon(
+            index, count, extent, localMouse
+        );
+
+        const gradient = ctx.createLinearGradient(
+            -extent, 0, extent, 0
+        );
+
+        gradient.addColorStop(
+            0, rgba(config.ribbons.colorA, 0)
+        );
+        gradient.addColorStop(
+            0.2, rgba(color, config.ribbons.opacity)
+        );
+        gradient.addColorStop(
+            0.8, rgba(color, config.ribbons.opacity)
+        );
+        gradient.addColorStop(
+            1, rgba(config.ribbons.colorB, 0)
+        );
+
+        ctx.fillStyle = gradient;
+        ctx.fill(shape);
+
+        // Bright upper edge creates a curtain-like appearance.
+        ctx.strokeStyle = rgba(color);
+        ctx.lineWidth = 1.2;
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+
+        const edgeAlpha =
+            clamp(config.ribbons.opacity, 0, 1) *
+            clamp(config.ribbons.edgeOpacity, 0, 1);
+
+        if (config.glow.enabled && config.glow.intensity > 0) {
+            ctx.save();
+
+            ctx.globalAlpha =
+                edgeAlpha * clamp(config.glow.intensity, 0, 1);
+
+            ctx.shadowColor = rgba(color);
+            ctx.shadowBlur = Math.max(0, config.glow.blur);
+            ctx.stroke(edge);
+
+            ctx.restore();
+        }
+
+        ctx.globalAlpha = edgeAlpha;
+        ctx.stroke(edge);
+        ctx.globalAlpha = 1;
+
+        // Color the part of each ribbon near the mouse.
+        if (
+            config.mouse.enabled &&
+            mouse.influence > 0.001 &&
+            config.mouse.strength > 0
+        ) {
+            const radius = Math.max(1, config.mouse.radius);
+
+            const highlight = ctx.createRadialGradient(
+                localMouse.x, localMouse.y, 0,
+                localMouse.x, localMouse.y, radius
+            );
+
+            highlight.addColorStop(0, rgba(
+                config.mouse.color,
+                config.ribbons.opacity * mouse.influence
+            ));
+
+            highlight.addColorStop(
+                1, rgba(config.mouse.color, 0)
+            );
+
+            ctx.fillStyle = highlight;
+            ctx.fill(shape);
+        }
+    }
+
+    ctx.restore();
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    time += delta * config.ribbons.speed;
+
+    const smoothing =
+        1 - Math.exp(-Math.max(0.1, config.mouse.smoothing) * delta);
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence +=
+        ((mouse.active && config.mouse.enabled ? 1 : 0) -
+            mouse.influence) * smoothing;
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    drawRibbons();
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+                onChange: deactivateMouse
+            });
+        })
+        .catch(error => {
+            console.error("Could not load settings editor:", error);
+        });
+}
+</script>
+</body>
+</html>

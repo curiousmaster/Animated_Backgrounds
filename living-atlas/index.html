@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Living Atlas</title>
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+<body>
+<canvas id="atlas" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    terrain: {
+        scale: 260,
+        speed: 0.14,
+        amplitude: 1,
+        mouseHeight: 0.9
+    },
+    grid: {
+        enabled: true,
+        spacing: 28,
+        rotation: 15,
+        tiltX: 20,
+        minRadius: 0.45,
+        maxRadius: 2.8,
+        opacity: 0.45
+    },
+    contours: {
+        enabled: true,
+        interval: 0.18,
+        lineWidth: 0.7,
+        opacity: 0.2,
+        sampling: 24
+    },
+    network: {
+        enabled: true,
+        count: 55,
+        speed: 16,
+        connectionDistance: 110,
+        opacity: 0.35,
+        pointRadius: 1.6
+    },
+    ripples: {
+        enabled: true,
+        speed: 150,
+        width: 35,
+        strength: 0.35,
+        decay: 0.8,
+        interval: 0.25
+    },
+    memories: {
+        enabled: true,
+        lifetime: 25,
+        growthSpeed: 18,
+        branchLength: 20,
+        maxDepth: 3,
+        lingerTime: 2.5,
+        maxCount: 16
+    },
+    aurora: {
+        enabled: true,
+        speed: 0.12,
+        width: 100,
+        opacity: 0.08,
+        fragmentSize: 6
+    },
+    mouse: {
+        enabled: true,
+        radius: 190,
+        smoothing: 8,
+        spotlight: 0.1
+    },
+    colors: {
+        terrain: [55, 165, 165],
+        network: [100, 170, 225],
+        aurora: [125, 80, 220],
+        mouse: [255, 175, 105],
+        fossil: [170, 135, 220]
+    },
+    glow: {
+        enabled: true,
+        intensity: 0.35,
+        blur: 8
+    },
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("atlas");
+const ctx = canvas.getContext("2d");
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rgb = c => `rgb(${c.map(v => Math.round(clamp(v, 0, 255))).join(",")})`;
+const rgba = (c, a) => `rgba(${c.join(",")},${clamp(a, 0, 1)})`;
+const mix = (a, b, t) => a.map((v, i) =>
+    v + (b[i] - v) * clamp(t, 0, 1)
+);
+
+let width = 0, height = 0;
+let time = 0, terrainTime = 0, scanTime = 0, previous = null;
+let dots = [], nodes = [], ripples = [], memories = [], dust = [];
+let gridDirty = true;
+let lastRipple = -Infinity, lastMemory = -Infinity;
+
+const mouse = {
+    x: 0, y: 0, tx: 0, ty: 0,
+    active: false, initialized: false, influence: 0,
+    lingerX: 0, lingerY: 0, lingerStart: 0
+};
+
+function resize() {
+    const oldWidth = width, oldHeight = height;
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    width = innerWidth;
+    height = innerHeight;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    gridDirty = true;
+
+    if (oldWidth && oldHeight) {
+        for (const node of nodes) {
+            node.x *= width / oldWidth;
+            node.y *= height / oldHeight;
+        }
+    }
+}
+
+function rebuildGrid() {
+    dots = [];
+    const spacing = Math.max(12, config.grid.spacing);
+    const angle = config.grid.rotation * Math.PI / 180;
+    const tilt = config.grid.tiltX * Math.PI / 180;
+    const c = Math.cos(angle), s = Math.sin(angle);
+    const focal = Math.max(1400, Math.hypot(width, height) * 1.5);
+    const extent = Math.hypot(width, height);
+    const steps = Math.ceil(extent / spacing);
+
+    for (let row = -steps; row <= steps; row++) {
+        for (let col = -steps; col <= steps; col++) {
+            const x = col * spacing, y = row * spacing;
+            const u = x * c - y * s;
+            const v = x * s + y * c;
+            const depth = focal + v * Math.sin(tilt);
+            if (depth <= 10) continue;
+            const scale = focal / depth;
+            const px = width / 2 + u * scale;
+            const py = height / 2 + v * Math.cos(tilt) * scale;
+
+            if (px >= -10 && px <= width + 10 &&
+                py >= -10 && py <= height + 10) {
+                dots.push({ x: px, y: py, scale });
+            }
+        }
+    }
+}
+
+function syncNodes() {
+    const count = Math.max(0, Math.floor(config.network.count));
+    while (nodes.length < count) {
+        nodes.push({
+            x: Math.random() * width,
+            y: Math.random() * height,
+            phase: Math.random() * TAU
+        });
+    }
+    nodes.length = count;
+}
+
+// --------------------------------------------------
+// Shared field: terrain + mouse hill + ripples
+// --------------------------------------------------
+
+function mouseAmount(x, y) {
+    if (!config.mouse.enabled) return 0;
+    const r = Math.max(1, config.mouse.radius);
+    return mouse.influence * Math.exp(
+        -((x - mouse.x) ** 2 + (y - mouse.y) ** 2) / (2 * r * r)
+    );
+}
+
+function field(x, y) {
+    const scale = Math.max(60, config.terrain.scale);
+    const u = x / scale, v = y / scale;
+    const warpedX = u + 0.3 * Math.sin(v + terrainTime * 0.6);
+    const warpedY = v + 0.3 * Math.cos(u - terrainTime * 0.5);
+
+    let value = config.terrain.amplitude * (
+        0.55 * Math.sin(warpedX + terrainTime) +
+        0.4 * Math.cos(warpedY * 1.2 - terrainTime * 0.7) +
+        0.2 * Math.sin(warpedX * 1.6 + warpedY * 0.8)
+    );
+
+    value += mouseAmount(x, y) * config.terrain.mouseHeight;
+
+    if (config.ripples.enabled) {
+        const ringWidth = Math.max(5, config.ripples.width);
+        for (const ripple of ripples) {
+            const age = time - ripple.born;
+            const distance = Math.hypot(x - ripple.x, y - ripple.y);
+            const ring = distance - ripple.radius;
+            value += config.ripples.strength *
+                Math.exp(-ring * ring / (2 * ringWidth * ringWidth)) *
+                Math.exp(-age * config.ripples.decay);
+        }
+    }
+    return value;
+}
+
+function scanAmount(x, y) {
+    if (!config.aurora.enabled) return 0;
+    const center = width * (0.5 + 0.65 * Math.sin(scanTime));
+    const curve = Math.sin(y / 240 + scanTime * 0.7) * 80;
+    const distance = x - center - curve;
+    const spread = Math.max(20, config.aurora.width);
+    return Math.exp(-distance * distance / (2 * spread * spread));
+}
+
+function lightAmount(x, y, elevation) {
+    const interval = Math.max(0.06, config.contours.interval);
+    const band = Math.abs(Math.sin(elevation / interval * Math.PI));
+    const ridge = Math.exp(-band * band * 12);
+    return clamp(
+        0.1 + ridge * 0.45 +
+        mouseAmount(x, y) * 0.6 +
+        scanAmount(x, y) * 0.45,
+        0, 1
+    );
+}
+
+// --------------------------------------------------
+// Background and aurora
+// --------------------------------------------------
+
+function drawBackground() {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    if (config.mouse.enabled && mouse.influence > 0.001) {
+        const r = Math.max(1, config.mouse.radius);
+        const light = ctx.createRadialGradient(
+            mouse.x, mouse.y, 0, mouse.x, mouse.y, r * 2
+        );
+        light.addColorStop(0, rgba(
+            config.colors.mouse,
+            config.mouse.spotlight * mouse.influence
+        ));
+        light.addColorStop(1, rgba(config.colors.mouse, 0));
+        ctx.fillStyle = light;
+        ctx.fillRect(0, 0, width, height);
+    }
+
+    if (config.aurora.enabled) {
+        const center = width * (0.5 + 0.65 * Math.sin(scanTime));
+        const spread = Math.max(20, config.aurora.width);
+
+        ctx.save();
+        ctx.globalCompositeOperation = "screen";
+        for (let y = 0; y < height; y += 8) {
+            const x = center + Math.sin(y / 240 + scanTime * 0.7) * 80;
+            const gradient = ctx.createLinearGradient(
+                x - spread * 2, 0, x + spread * 2, 0
+            );
+            gradient.addColorStop(0, rgba(config.colors.aurora, 0));
+            gradient.addColorStop(0.5, rgba(
+                config.colors.aurora, config.aurora.opacity
+            ));
+            gradient.addColorStop(1, rgba(config.colors.aurora, 0));
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x - spread * 2, y, spread * 4, 8);
+        }
+        ctx.restore();
+    }
+}
+
+// --------------------------------------------------
+// Contours: marching triangles over the shared field
+// --------------------------------------------------
+
+function drawContours() {
+    if (!config.contours.enabled) return;
+    const cell = Math.max(12, config.contours.sampling);
+    const cols = Math.ceil(width / cell) + 1;
+    const rows = Math.ceil(height / cell) + 1;
+    const values = new Float32Array(cols * rows);
+    let min = Infinity, max = -Infinity;
+
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            const value = field(x * cell, y * cell);
+            values[y * cols + x] = value;
+            min = Math.min(min, value);
+            max = Math.max(max, value);
+        }
+    }
+
+    const interval = Math.max(0.06, config.contours.interval);
+    const path = new Path2D();
+
+    function triangle(a, b, c, level) {
+        const points = [a, b, c];
+        const hits = [];
+        for (let i = 0; i < 3; i++) {
+            const p = points[i], q = points[(i + 1) % 3];
+            if ((p.v > level) === (q.v > level)) continue;
+            const t = (level - p.v) / (q.v - p.v);
+            hits.push({
+                x: p.x + (q.x - p.x) * t,
+                y: p.y + (q.y - p.y) * t
+            });
+        }
+        if (hits.length === 2) {
+            path.moveTo(hits[0].x, hits[0].y);
+            path.lineTo(hits[1].x, hits[1].y);
+        }
+    }
+
+    for (let k = Math.ceil(min / interval);
+         k <= Math.floor(max / interval); k++) {
+        const level = k * interval;
+        for (let y = 0; y < rows - 1; y++) {
+            for (let x = 0; x < cols - 1; x++) {
+                const i = y * cols + x;
+                const a = { x: x * cell, y: y * cell, v: values[i] };
+                const b = { x: (x + 1) * cell, y: y * cell, v: values[i + 1] };
+                const c = {
+                    x: (x + 1) * cell, y: (y + 1) * cell,
+                    v: values[i + cols + 1]
+                };
+                const d = {
+                    x: x * cell, y: (y + 1) * cell,
+                    v: values[i + cols]
+                };
+                triangle(a, b, c, level);
+                triangle(a, c, d, level);
+            }
+        }
+    }
+
+    ctx.save();
+    ctx.strokeStyle = rgb(config.colors.terrain);
+    ctx.lineWidth = Math.max(0.1, config.contours.lineWidth);
+    ctx.globalAlpha = config.contours.opacity;
+    ctx.stroke(path);
+    ctx.restore();
+}
+
+function drawGrid() {
+    if (!config.grid.enabled) return;
+
+    const minimum = Math.max(0, config.grid.minRadius);
+    const maximum = Math.max(minimum, config.grid.maxRadius);
+
+    for (const dot of dots) {
+        const elevation = field(dot.x, dot.y);
+        const light = lightAmount(dot.x, dot.y, elevation);
+        const warm = mouseAmount(dot.x, dot.y);
+        const radius = (minimum + (maximum - minimum) * light) * dot.scale;
+        if (radius <= 0) continue;
+
+        // Small displacement makes the hill stretch the grid.
+        const dx = dot.x - mouse.x, dy = dot.y - mouse.y;
+        const bend = warm * config.terrain.mouseHeight * 0.06;
+        const x = dot.x + dx * bend, y = dot.y + dy * bend;
+
+        ctx.fillStyle = rgb(mix(config.colors.terrain, config.colors.mouse, warm));
+        ctx.globalAlpha = config.grid.opacity * (0.3 + light * 0.7);
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, TAU);
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+}
+
+// --------------------------------------------------
+// Nodes follow currents tangent to the terrain gradient.
+// --------------------------------------------------
+
+function updateNodes(delta) {
+    if (!config.network.enabled) return;
+
+    for (const node of nodes) {
+        const gx = (field(node.x + 8, node.y) - field(node.x - 8, node.y)) / 16;
+        const gy = (field(node.x, node.y + 8) - field(node.x, node.y - 8)) / 16;
+        const length = Math.hypot(gx, gy);
+        const vx = length > 0.00001 ? -gy / length : Math.cos(node.phase);
+        const vy = length > 0.00001 ? gx / length : Math.sin(node.phase);
+
+        node.x += vx * config.network.speed * delta;
+        node.y += vy * config.network.speed * delta;
+
+        if (node.x < -20) node.x = width + 20;
+        if (node.x > width + 20) node.x = -20;
+        if (node.y < -20) node.y = height + 20;
+        if (node.y > height + 20) node.y = -20;
+    }
+}
+
+function drawNetwork() {
+    if (!config.network.enabled) return;
+
+    ctx.save();
+    const distance = Math.max(10, config.network.connectionDistance);
+    ctx.lineWidth = 0.6;
+    ctx.strokeStyle = rgb(config.colors.network);
+
+    for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        for (let j = i + 1; j < nodes.length; j++) {
+            const other = nodes[j];
+            const d = Math.hypot(node.x - other.x, node.y - other.y);
+            if (d >= distance) continue;
+
+            ctx.globalAlpha = config.network.opacity * (1 - d / distance);
+            ctx.beginPath();
+            ctx.moveTo(node.x, node.y);
+            ctx.lineTo(other.x, other.y);
+            ctx.stroke();
+        }
+
+        const warm = mouseAmount(node.x, node.y);
+        const scan = scanAmount(node.x, node.y);
+        ctx.fillStyle = rgb(mix(config.colors.network, config.colors.mouse, warm));
+        ctx.strokeStyle = rgb(config.colors.aurora);
+        ctx.globalAlpha = config.network.opacity + warm * 0.35;
+
+        if (config.glow.enabled) {
+            ctx.shadowColor = ctx.fillStyle;
+            ctx.shadowBlur = config.glow.blur * config.glow.intensity;
+        }
+
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, Math.max(0.1, config.network.pointRadius), 0, TAU);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // The scanning ribbon unfolds nodes into small prism fragments.
+        if (scan > 0.15) {
+            const radius = config.aurora.fragmentSize * scan;
+            const offset = radius * 0.5;
+            const angle = time * 0.4 + node.phase;
+            const front = [], back = [];
+
+            for (let k = 0; k < 3; k++) {
+                const a = angle + k / 3 * TAU;
+                front.push({
+                    x: node.x + Math.cos(a) * radius,
+                    y: node.y + Math.sin(a) * radius
+                });
+                back.push({
+                    x: front[k].x + offset,
+                    y: front[k].y - offset
+                });
+            }
+
+            ctx.globalAlpha = scan * config.network.opacity;
+            ctx.beginPath();
+            for (const points of [front, back]) {
+                ctx.moveTo(points[0].x, points[0].y);
+                for (let k = 1; k < 3; k++) ctx.lineTo(points[k].x, points[k].y);
+                ctx.closePath();
+            }
+            for (let k = 0; k < 3; k++) {
+                ctx.moveTo(front[k].x, front[k].y);
+                ctx.lineTo(back[k].x, back[k].y);
+            }
+            ctx.stroke();
+        }
+        ctx.strokeStyle = rgb(config.colors.network);
+    }
+    ctx.restore();
+}
+
+// --------------------------------------------------
+// Crystal memories
+// --------------------------------------------------
+
+function plantMemory(x, y) {
+    if (!config.memories.enabled ||
+        memories.length >= config.memories.maxCount) return;
+
+    const segments = [];
+
+    function branch(px, py, angle, depth, born) {
+        const length = config.memories.branchLength * (0.7 + Math.random() * 0.5);
+        const ex = px + Math.cos(angle) * length;
+        const ey = py + Math.sin(angle) * length;
+        const duration = length / Math.max(1, config.memories.growthSpeed);
+
+        segments.push({ x: px, y: py, ex, ey, born, duration, released: false });
+
+        if (depth < Math.min(5, config.memories.maxDepth)) {
+            branch(ex, ey, angle - 0.5, depth + 1, born + duration);
+            if (Math.random() < 0.65) {
+                branch(ex, ey, angle + 0.5, depth + 1, born + duration);
+            }
+        }
+    }
+
+    for (let k = 0; k < 3; k++) branch(x, y, k / 3 * TAU, 0, 0);
+    memories.push({ born: time, segments });
+    lastMemory = time;
+}
+
+function drawMemories(delta) {
+    if (!config.memories.enabled) return;
+
+    const lifetime = Math.max(3, config.memories.lifetime);
+    memories = memories.filter(m => time - m.born < lifetime);
+
+    ctx.save();
+    ctx.lineWidth = 0.9;
+
+    for (const memory of memories) {
+        const age = time - memory.born;
+        const fade = 1 - clamp((age / lifetime - 0.65) / 0.35, 0, 1);
+        const color = mix(config.colors.mouse, config.colors.fossil, age / 6);
+        ctx.strokeStyle = rgb(color);
+        ctx.globalAlpha = fade * 0.75;
+
+        if (config.glow.enabled) {
+            ctx.shadowColor = rgb(color);
+            ctx.shadowBlur = config.glow.blur * config.glow.intensity;
+        }
+
+        ctx.beginPath();
+        for (const segment of memory.segments) {
+            const growth = clamp((age - segment.born) / segment.duration, 0, 1);
+            if (growth <= 0) continue;
+
+            ctx.moveTo(segment.x, segment.y);
+            ctx.lineTo(
+                segment.x + (segment.ex - segment.x) * growth,
+                segment.y + (segment.ey - segment.y) * growth
+            );
+
+            if (age > lifetime * 0.7 && !segment.released) {
+                segment.released = true;
+                dust.push({
+                    x: segment.ex, y: segment.ey, born: time,
+                    vx: (Math.random() - 0.5) * 15,
+                    vy: -5 - Math.random() * 10
+                });
+            }
+        }
+        ctx.stroke();
+    }
+    ctx.restore();
+
+    dust = dust.filter(p => time - p.born < 4).slice(-500);
+    ctx.fillStyle = rgb(config.colors.fossil);
+
+    for (const particle of dust) {
+        particle.x += particle.vx * delta;
+        particle.y += particle.vy * delta;
+        ctx.globalAlpha = (1 - (time - particle.born) / 4) * 0.5;
+        ctx.fillRect(particle.x, particle.y, 1, 1);
+    }
+    ctx.globalAlpha = 1;
+}
+
+// --------------------------------------------------
+// Interaction
+// --------------------------------------------------
+
+function editorTarget(target) {
+    return target instanceof Element &&
+        target.closest("[data-background-editor]");
+}
+
+function pointer(event) {
+    if (editorTarget(event.target) || !config.mouse.enabled) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.tx = event.clientX;
+    mouse.ty = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.tx;
+        mouse.y = mouse.ty;
+        mouse.initialized = true;
+    }
+
+    if (Math.hypot(mouse.tx - mouse.lingerX, mouse.ty - mouse.lingerY) > 25) {
+        mouse.lingerX = mouse.tx;
+        mouse.lingerY = mouse.ty;
+        mouse.lingerStart = time;
+    }
+
+    if (config.ripples.enabled && time - lastRipple >= config.ripples.interval) {
+        ripples.push({ x: mouse.tx, y: mouse.ty, born: time, radius: 0 });
+        ripples = ripples.slice(-12);
+        lastRipple = time;
+    }
+}
+
+function deactivate() {
+    mouse.active = false;
+    mouse.lingerStart = time;
+}
+
+window.addEventListener("pointermove", pointer);
+window.addEventListener("pointerdown", event => {
+    if (editorTarget(event.target) || !config.mouse.enabled) return;
+    pointer(event);
+    if (time - lastMemory > 0.25) plantMemory(event.clientX, event.clientY);
+});
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivate();
+});
+window.addEventListener("pointercancel", deactivate);
+window.addEventListener("blur", deactivate);
+document.documentElement.addEventListener("pointerleave", deactivate);
+
+document.addEventListener("visibilitychange", () => {
+    previous = null;
+    deactivate();
+});
+
+function animate(timestamp) {
+    const delta = previous === null ? 0 : Math.min((timestamp - previous) / 1000, 0.05);
+    previous = timestamp;
+    time += delta;
+    terrainTime += delta * config.terrain.speed;
+    scanTime += delta * config.aurora.speed;
+
+    const smoothing = 1 - Math.exp(-Math.max(0.1, config.mouse.smoothing) * delta);
+    mouse.x += (mouse.tx - mouse.x) * smoothing;
+    mouse.y += (mouse.ty - mouse.y) * smoothing;
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) - mouse.influence
+    ) * smoothing;
+
+    if (mouse.active && config.mouse.enabled &&
+        time - mouse.lingerStart > config.memories.lingerTime &&
+        time - lastMemory > config.memories.lingerTime) {
+        plantMemory(mouse.x, mouse.y);
+        mouse.lingerStart = time;
+    }
+
+    for (const ripple of ripples) ripple.radius += config.ripples.speed * delta;
+    ripples = ripples.filter(r => time - r.born < 7);
+
+    if (gridDirty) {
+        gridDirty = false;
+        rebuildGrid();
+    }
+
+    updateNodes(delta);
+    drawBackground();
+    drawContours();
+    drawGrid();
+    drawNetwork();
+    drawMemories(delta);
+
+    requestAnimationFrame(animate);
+}
+
+window.addEventListener("resize", resize);
+resize();
+syncNodes();
+requestAnimationFrame(animate);
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+                onChange(path) {
+                    if (path.startsWith("grid.")) gridDirty = true;
+                    if (path === "network.count") syncNodes();
+                    deactivate();
+                },
+                onClear() {
+                    memories = [];
+                    dust = [];
+                    ripples = [];
+                    deactivate();
+                }
+            });
+        })
+        .catch(error => console.error("Could not load editor:", error));
+}
+</script>
+</body>
+</html>

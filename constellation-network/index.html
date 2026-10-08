@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Constellation Network</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+// Replace with configuration copied from the editor.
+const config = {
+    points: {
+        count: 1120,
+        radius: 1.8,
+        speed: 20,
+        opacity: 0.9,
+        color: [160, 210, 255]
+    },
+
+    connections: {
+        distance: 150,
+        lineWidth: 0.8,
+        opacity: 0.35,
+        color: [80, 160, 255]
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 230,
+        lineWidth: 1,
+        opacity: 0.7,
+        showPoint: true,
+        pointRadius: 3,
+        smoothing: 12,
+        color: [255, 100, 180]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.6,
+        blur: 10
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+function rgb(color) {
+    return `rgb(${color.map(value =>
+        Math.round(clamp(value, 0, 255))
+    ).join(",")})`;
+}
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+
+    return a.map((value, index) =>
+        value + (b[index] - value) * t
+    );
+}
+
+let width = 0;
+let height = 0;
+let points = [];
+let previousTime = null;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+// --------------------------------------------------
+// Point creation and resizing
+// --------------------------------------------------
+
+function createPoint() {
+    const angle = Math.random() * TAU;
+
+    return {
+        x: Math.random() * width,
+        y: Math.random() * height,
+        dx: Math.cos(angle),
+        dy: Math.sin(angle),
+        speedFactor: 0.5 + Math.random()
+    };
+}
+
+function syncPoints() {
+    const count = Math.max(0, Math.floor(config.points.count));
+
+    while (points.length < count) {
+        points.push(createPoint());
+    }
+
+    points.length = count;
+}
+
+function resetPoints() {
+    points = [];
+    syncPoints();
+}
+
+function resize() {
+    const oldWidth = width;
+    const oldHeight = height;
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (oldWidth > 0 && oldHeight > 0) {
+        for (const point of points) {
+            point.x *= width / oldWidth;
+            point.y *= height / oldHeight;
+        }
+    }
+}
+
+function updatePoints(delta) {
+    const speed = Math.max(0, config.points.speed);
+
+    for (const point of points) {
+        point.x += point.dx * speed * point.speedFactor * delta;
+        point.y += point.dy * speed * point.speedFactor * delta;
+
+        // Bounce at the edges.
+        if (point.x < 0) {
+            point.x = 0;
+            point.dx = Math.abs(point.dx);
+        } else if (point.x > width) {
+            point.x = width;
+            point.dx = -Math.abs(point.dx);
+        }
+
+        if (point.y < 0) {
+            point.y = 0;
+            point.dy = Math.abs(point.dy);
+        } else if (point.y > height) {
+            point.y = height;
+            point.dy = -Math.abs(point.dy);
+        }
+    }
+}
+
+// --------------------------------------------------
+// Drawing helpers
+// --------------------------------------------------
+
+function strokePath(path, color, lineWidth, opacity) {
+    if (lineWidth <= 0 || opacity <= 0) return;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+
+    if (config.glow.enabled && config.glow.intensity > 0) {
+        ctx.save();
+
+        ctx.globalAlpha =
+            clamp(opacity, 0, 1) *
+            clamp(config.glow.intensity, 0, 1);
+
+        ctx.shadowColor = color;
+        ctx.shadowBlur = Math.max(0, config.glow.blur);
+        ctx.stroke(path);
+
+        ctx.restore();
+    }
+
+    ctx.globalAlpha = clamp(opacity, 0, 1);
+    ctx.stroke(path);
+    ctx.globalAlpha = 1;
+}
+
+function drawPoint(x, y, radius, color, opacity) {
+    if (radius <= 0 || opacity <= 0) return;
+
+    const path = new Path2D();
+    path.arc(x, y, radius, 0, TAU);
+
+    ctx.fillStyle = color;
+
+    if (config.glow.enabled && config.glow.intensity > 0) {
+        ctx.save();
+
+        ctx.globalAlpha =
+            clamp(opacity, 0, 1) *
+            clamp(config.glow.intensity, 0, 1);
+
+        ctx.shadowColor = color;
+        ctx.shadowBlur = Math.max(0, config.glow.blur);
+        ctx.fill(path);
+
+        ctx.restore();
+    }
+
+    ctx.globalAlpha = clamp(opacity, 0, 1);
+    ctx.fill(path);
+    ctx.globalAlpha = 1;
+}
+
+// --------------------------------------------------
+// Spatial grid for nearby connection searches
+// --------------------------------------------------
+
+function drawConnections() {
+    const distance = Math.max(1, config.connections.distance);
+    const distanceSquared = distance * distance;
+
+    const buckets = new Map();
+
+    function key(x, y) {
+        return `${x},${y}`;
+    }
+
+    for (let index = 0; index < points.length; index++) {
+        const point = points[index];
+        const cellX = Math.floor(point.x / distance);
+        const cellY = Math.floor(point.y / distance);
+        const bucketKey = key(cellX, cellY);
+
+        if (!buckets.has(bucketKey)) {
+            buckets.set(bucketKey, []);
+        }
+
+        buckets.get(bucketKey).push(index);
+    }
+
+    // Batch connections into opacity bands.
+    const bandCount = 12;
+    const paths = Array.from(
+        { length: bandCount }, () => new Path2D()
+    );
+
+    for (let index = 0; index < points.length; index++) {
+        const point = points[index];
+        const cellX = Math.floor(point.x / distance);
+        const cellY = Math.floor(point.y / distance);
+
+        for (let oy = -1; oy <= 1; oy++) {
+            for (let ox = -1; ox <= 1; ox++) {
+                const bucket = buckets.get(
+                    key(cellX + ox, cellY + oy)
+                );
+
+                if (!bucket) continue;
+
+                for (const otherIndex of bucket) {
+                    // Draw each pair only once.
+                    if (otherIndex <= index) continue;
+
+                    const other = points[otherIndex];
+                    const dx = point.x - other.x;
+                    const dy = point.y - other.y;
+                    const squared = dx * dx + dy * dy;
+
+                    if (squared >= distanceSquared) continue;
+
+                    const strength =
+                        1 - Math.sqrt(squared) / distance;
+
+                    const band = Math.min(
+                        bandCount - 1,
+                        Math.floor(strength * bandCount)
+                    );
+
+                    paths[band].moveTo(point.x, point.y);
+                    paths[band].lineTo(other.x, other.y);
+                }
+            }
+        }
+    }
+
+    const color = rgb(config.connections.color);
+
+    for (let band = 0; band < bandCount; band++) {
+        strokePath(
+            paths[band],
+            color,
+            config.connections.lineWidth,
+            config.connections.opacity *
+                (band + 0.5) / bandCount
+        );
+    }
+}
+
+// --------------------------------------------------
+// Mouse node and points
+// --------------------------------------------------
+
+function mouseAmount(point) {
+    if (!config.mouse.enabled || mouse.influence < 0.001) {
+        return 0;
+    }
+
+    const radius = Math.max(1, config.mouse.radius);
+    const distance = Math.hypot(
+        point.x - mouse.x,
+        point.y - mouse.y
+    );
+
+    return mouse.influence * Math.max(0, 1 - distance / radius);
+}
+
+function drawMouseConnections() {
+    if (!config.mouse.enabled || mouse.influence < 0.001) {
+        return;
+    }
+
+    const bands = 12;
+    const paths = Array.from(
+        { length: bands }, () => new Path2D()
+    );
+
+    for (const point of points) {
+        const amount = mouseAmount(point);
+        if (amount <= 0) continue;
+
+        const band = Math.min(
+            bands - 1,
+            Math.floor(amount * bands)
+        );
+
+        paths[band].moveTo(mouse.x, mouse.y);
+        paths[band].lineTo(point.x, point.y);
+    }
+
+    const color = rgb(config.mouse.color);
+
+    for (let band = 0; band < bands; band++) {
+        strokePath(
+            paths[band],
+            color,
+            config.mouse.lineWidth,
+            config.mouse.opacity * (band + 0.5) / bands
+        );
+    }
+
+    if (config.mouse.showPoint) {
+        drawPoint(
+            mouse.x,
+            mouse.y,
+            config.mouse.pointRadius,
+            color,
+            config.mouse.opacity * mouse.influence
+        );
+    }
+}
+
+function drawPoints() {
+    for (const point of points) {
+        const amount = mouseAmount(point);
+
+        const color = rgb(mixColor(
+            config.points.color,
+            config.mouse.color,
+            amount
+        ));
+
+        drawPoint(
+            point.x,
+            point.y,
+            config.points.radius,
+            color,
+            config.points.opacity
+        );
+    }
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+
+    const smoothing =
+        1 - Math.exp(-Math.max(0.1, config.mouse.smoothing) * delta);
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence +=
+        ((mouse.active && config.mouse.enabled ? 1 : 0) -
+            mouse.influence) * smoothing;
+
+    updatePoints(delta);
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    drawConnections();
+    drawMouseConnections();
+    drawPoints();
+
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+syncPoints();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if (path === "points.count") syncPoints();
+                    deactivateMouse();
+                },
+
+                onReset: resetPoints
+            });
+        })
+        .catch(error => {
+            console.error("Could not load settings editor:", error);
+        });
+}
+</script>
+</body>
+</html>

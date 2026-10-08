@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Borrowed Dimensions</title>
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    fragments: {
+        count: 65,
+        size: 24,
+        sides: 5,
+        depth: 35,
+        driftSpeed: 12,
+        rotationSpeed: 0.4,
+        colorA: [65, 215, 240],
+        colorB: [185, 100, 255]
+    },
+
+    transformation: {
+        speed: 0.65,
+        wavelength: 450,
+        variation: 0.5
+    },
+
+    appearance: {
+        lineWidth: 1,
+        opacity: 0.75,
+        faceOpacity: 0.06,
+        pointRadius: 2
+    },
+
+    perspective: {
+        distance: 600,
+        tiltX: 25,
+        tiltY: -15
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 220,
+        state: 2,          // 0 = point, 1 = polygon, 2 = solid
+        holdStrength: 1,
+        smoothing: 10,
+        color: [255, 170, 95]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.55,
+        blur: 10
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const radians = degrees => degrees * Math.PI / 180;
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+
+    return a.map((value, index) =>
+        value + (b[index] - value) * t
+    );
+}
+
+function rgb(color) {
+    return `rgb(${color.map(value =>
+        Math.round(clamp(value, 0, 255))
+    ).join(",")})`;
+}
+
+function smoothstep(value) {
+    const t = clamp(value, 0, 1);
+    return t * t * (3 - 2 * t);
+}
+
+let width = 0;
+let height = 0;
+let fragments = [];
+let previousTime = null;
+let transformationTime = 0;
+let rotationTime = 0;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+// --------------------------------------------------
+// Fragments
+// --------------------------------------------------
+
+function newFragment() {
+    const direction = Math.random() * TAU;
+
+    return {
+        x: Math.random() * width,
+        y: Math.random() * height,
+        dx: Math.cos(direction),
+        dy: Math.sin(direction),
+        phase: Math.random() * TAU,
+        sizeFactor: 0.65 + Math.random() * 0.7,
+        speedFactor: 0.6 + Math.random() * 0.8,
+        colorAmount: Math.random(),
+        rotationX: Math.random() * TAU,
+        rotationY: Math.random() * TAU,
+        rotationZ: Math.random() * TAU
+    };
+}
+
+function syncFragments() {
+    const count = Math.max(0, Math.floor(config.fragments.count));
+
+    while (fragments.length < count) {
+        fragments.push(newFragment());
+    }
+
+    fragments.length = count;
+}
+
+function resetFragments() {
+    fragments = [];
+    syncFragments();
+}
+
+function resize() {
+    const oldWidth = width;
+    const oldHeight = height;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (oldWidth > 0 && oldHeight > 0) {
+        for (const fragment of fragments) {
+            fragment.x *= width / oldWidth;
+            fragment.y *= height / oldHeight;
+        }
+    }
+}
+
+function updateFragments(delta) {
+    for (const fragment of fragments) {
+        const speed =
+            Math.max(0, config.fragments.driftSpeed) *
+            fragment.speedFactor;
+
+        fragment.x += fragment.dx * speed * delta;
+        fragment.y += fragment.dy * speed * delta;
+
+        if (fragment.x < 0) {
+            fragment.x = 0;
+            fragment.dx = Math.abs(fragment.dx);
+        } else if (fragment.x > width) {
+            fragment.x = width;
+            fragment.dx = -Math.abs(fragment.dx);
+        }
+
+        if (fragment.y < 0) {
+            fragment.y = 0;
+            fragment.dy = Math.abs(fragment.dy);
+        } else if (fragment.y > height) {
+            fragment.y = height;
+            fragment.dy = -Math.abs(fragment.dy);
+        }
+    }
+}
+
+// --------------------------------------------------
+// Dimensional transformation
+// --------------------------------------------------
+
+function getState(fragment) {
+    const wavelength = Math.max(50, config.transformation.wavelength);
+
+    const spatialPhase =
+        (fragment.x * 0.8 + fragment.y * 0.6) /
+        wavelength * TAU;
+
+    const phase =
+        transformationTime +
+        spatialPhase +
+        fragment.phase * config.transformation.variation;
+
+    // 0 → 1 → 2 → 1 → 0, with smooth transitions.
+    let state = 1 - Math.cos(phase);
+    let influence = 0;
+
+    if (config.mouse.enabled && mouse.influence > 0.001) {
+        const dx = fragment.x - mouse.x;
+        const dy = fragment.y - mouse.y;
+        const distance = Math.hypot(dx, dy);
+        const radius = Math.max(1, config.mouse.radius);
+
+        // Full hold in the inner region, fading at the edge.
+        influence =
+            mouse.influence *
+            clamp(config.mouse.holdStrength, 0, 1) *
+            (1 - smoothstep(
+                (distance - radius * 0.35) / (radius * 0.65)
+            ));
+
+        state += (
+            clamp(config.mouse.state, 0, 2) - state
+        ) * influence;
+    }
+
+    return {
+        state: clamp(state, 0, 2),
+        influence
+    };
+}
+
+// --------------------------------------------------
+// Projection
+// --------------------------------------------------
+
+function project(x, y, z, fragment, dimensionalDepth) {
+    // Out-of-plane rotation grows only as the solid emerges.
+    const rx = (
+        fragment.rotationX +
+        rotationTime * 0.7 +
+        radians(config.perspective.tiltX)
+    ) * dimensionalDepth;
+
+    const ry = (
+        fragment.rotationY +
+        rotationTime * 0.5 +
+        radians(config.perspective.tiltY)
+    ) * dimensionalDepth;
+
+    const rz = fragment.rotationZ + rotationTime * 0.35;
+
+    const y1 = y * Math.cos(rx) - z * Math.sin(rx);
+    const z1 = y * Math.sin(rx) + z * Math.cos(rx);
+
+    const x2 = x * Math.cos(ry) + z1 * Math.sin(ry);
+    const z2 = -x * Math.sin(ry) + z1 * Math.cos(ry);
+
+    const x3 = x2 * Math.cos(rz) - y1 * Math.sin(rz);
+    const y3 = x2 * Math.sin(rz) + y1 * Math.cos(rz);
+
+    const camera = Math.max(
+        150,
+        config.perspective.distance,
+        config.fragments.size * 3 + config.fragments.depth * 2
+    );
+
+    const scale = camera / (camera + z2);
+
+    return {
+        x: fragment.x + x3 * scale,
+        y: fragment.y + y3 * scale
+    };
+}
+
+function polygonPath(points) {
+    const path = new Path2D();
+
+    points.forEach((point, index) => {
+        if (index === 0) path.moveTo(point.x, point.y);
+        else path.lineTo(point.x, point.y);
+    });
+
+    path.closePath();
+    return path;
+}
+
+// --------------------------------------------------
+// Render point → polygon → prism
+// --------------------------------------------------
+
+function drawFragment(fragment) {
+    const { state, influence } = getState(fragment);
+
+    const expansion = smoothstep(state);
+    const dimensionalDepth = smoothstep(state - 1);
+
+    const radius =
+        Math.max(1, config.fragments.size) *
+        fragment.sizeFactor *
+        expansion;
+
+    const depth =
+        Math.max(0, config.fragments.depth) *
+        fragment.sizeFactor *
+        dimensionalDepth;
+
+    const sides = clamp(Math.floor(config.fragments.sides), 3, 10);
+
+    const front = [];
+    const back = [];
+
+    for (let index = 0; index < sides; index++) {
+        const angle = index / sides * TAU;
+
+        const x = Math.cos(angle) * radius;
+        const y = Math.sin(angle) * radius;
+
+        front.push(project(
+            x, y, -depth / 2, fragment, dimensionalDepth
+        ));
+
+        back.push(project(
+            x, y, depth / 2, fragment, dimensionalDepth
+        ));
+    }
+
+    const color = rgb(mixColor(
+        mixColor(
+            config.fragments.colorA,
+            config.fragments.colorB,
+            fragment.colorAmount
+        ),
+        config.mouse.color,
+        influence
+    ));
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = Math.max(0.1, config.appearance.lineWidth);
+    ctx.lineJoin = "round";
+
+    const frontPath = polygonPath(front);
+    const backPath = polygonPath(back);
+
+    if (expansion > 0.01) {
+        ctx.globalAlpha = clamp(
+            config.appearance.faceOpacity * expansion,
+            0, 1
+        );
+
+        ctx.fill(frontPath);
+
+        if (dimensionalDepth > 0.01) {
+            ctx.fill(backPath);
+
+            for (let index = 0; index < sides; index++) {
+                const next = (index + 1) % sides;
+
+                ctx.fill(polygonPath([
+                    front[index],
+                    front[next],
+                    back[next],
+                    back[index]
+                ]));
+            }
+        }
+    }
+
+    const edges = new Path2D();
+    edges.addPath(frontPath);
+
+    if (dimensionalDepth > 0.01) {
+        edges.addPath(backPath);
+
+        for (let index = 0; index < sides; index++) {
+            edges.moveTo(front[index].x, front[index].y);
+            edges.lineTo(back[index].x, back[index].y);
+        }
+    }
+
+    if (config.appearance.lineWidth > 0 && expansion > 0.01) {
+        if (config.glow.enabled && config.glow.intensity > 0) {
+            ctx.globalAlpha = clamp(
+                config.appearance.opacity *
+                expansion *
+                config.glow.intensity,
+                0, 1
+            );
+
+            ctx.shadowColor = color;
+            ctx.shadowBlur = Math.max(0, config.glow.blur);
+            ctx.stroke(edges);
+            ctx.shadowBlur = 0;
+        }
+
+        ctx.globalAlpha = clamp(
+            config.appearance.opacity * expansion, 0, 1
+        );
+
+        ctx.stroke(edges);
+    }
+
+    // The central point fades as the polygon expands.
+    const pointOpacity =
+        config.appearance.opacity * (1 - expansion);
+
+    if (pointOpacity > 0.01 && config.appearance.pointRadius > 0) {
+        ctx.globalAlpha = clamp(pointOpacity, 0, 1);
+
+        if (config.glow.enabled) {
+            ctx.shadowColor = color;
+            ctx.shadowBlur =
+                Math.max(0, config.glow.blur) *
+                clamp(config.glow.intensity, 0, 1);
+        }
+
+        ctx.beginPath();
+        ctx.arc(
+            fragment.x,
+            fragment.y,
+            config.appearance.pointRadius,
+            0,
+            TAU
+        );
+        ctx.fill();
+    }
+
+    ctx.restore();
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+
+    transformationTime += delta * config.transformation.speed;
+    rotationTime += delta * config.fragments.rotationSpeed;
+
+    const smoothing = 1 - Math.exp(
+        -Math.max(0.1, config.mouse.smoothing) * delta
+    );
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) -
+        mouse.influence
+    ) * smoothing;
+
+    updateFragments(delta);
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    for (const fragment of fragments) {
+        drawFragment(fragment);
+    }
+
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+syncFragments();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if (path === "fragments.count") {
+                        syncFragments();
+                    }
+
+                    deactivateMouse();
+                },
+
+                onReset: resetFragments
+            });
+        })
+        .catch(error => {
+            console.error("Could not load editor:", error);
+        });
+}
+</script>
+</body>
+</html>

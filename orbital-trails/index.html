@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbital Trails</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    orbits: {
+        count: 10,
+        particlesPerOrbit: 30,
+        radius: 500,
+        eccentricity: 0.65,
+        rotation: -20,
+        angleSpread: 150,
+        speed: 0.5,
+        alternateDirection: true
+    },
+
+    particles: {
+        radius: 2,
+        opacity: 0.95,
+        colorA: [70, 220, 255],
+        colorB: [200, 80, 255]
+    },
+
+    trails: {
+        duration: 1,       // Seconds until trails fade to 1%
+        lineWidth: 1.2,
+        opacity: 0.65
+    },
+
+    perspective: {
+        tiltX: 35,
+        tiltY: -15,
+        distance: 1100
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 250,
+        strength: 0.65,
+        smoothing: 8,
+        color: [255, 130, 100]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.7,
+        blur: 12
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+// Trails have their own canvas so particle heads stay sharp.
+const trailCanvas = document.createElement("canvas");
+const trailCtx = trailCanvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+const radians = degrees => degrees * Math.PI / 180;
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+
+    return a.map((value, index) =>
+        value + (b[index] - value) * t
+    );
+}
+
+function rgb(color) {
+    return `rgb(${color.map(value =>
+        Math.round(clamp(value, 0, 255))
+    ).join(",")})`;
+}
+
+let width = 0;
+let height = 0;
+let particles = [];
+let previousTime = null;
+let orbitTime = 0;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+// --------------------------------------------------
+// Initialization and trail reset
+// --------------------------------------------------
+
+function clearTrails() {
+    trailCtx.clearRect(0, 0, width, height);
+
+    for (const particle of particles) {
+        particle.previous = null;
+    }
+}
+
+function createParticles() {
+    particles = [];
+
+    const count = Math.max(0, Math.floor(config.orbits.count));
+    const perOrbit = Math.max(
+        0, Math.floor(config.orbits.particlesPerOrbit)
+    );
+
+    for (let orbit = 0; orbit < count; orbit++) {
+        for (let index = 0; index < perOrbit; index++) {
+            particles.push({
+                orbit,
+                phase: index / Math.max(1, perOrbit) * TAU +
+                    orbit * 0.7,
+                previous: null
+            });
+        }
+    }
+
+    clearTrails();
+}
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    for (const surface of [canvas, trailCanvas]) {
+        surface.width = Math.round(width * dpr);
+        surface.height = Math.round(height * dpr);
+    }
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    trailCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    clearTrails();
+}
+
+// --------------------------------------------------
+// Elliptical orbits and perspective
+// --------------------------------------------------
+
+function getPosition(particle) {
+    const count = Math.max(1, config.orbits.count);
+    const fraction = count <= 1
+        ? 0.5
+        : particle.orbit / (count - 1);
+
+    const radius = Math.max(1, config.orbits.radius) *
+        (0.45 + fraction * 0.55);
+
+    const eccentricity = clamp(
+        config.orbits.eccentricity, 0, 0.98
+    );
+
+    const minorRadius =
+        radius * Math.sqrt(1 - eccentricity * eccentricity);
+
+    const direction =
+        config.orbits.alternateDirection &&
+        particle.orbit % 2 !== 0
+            ? -1
+            : 1;
+
+    const speedFactor = 0.7 + particle.orbit % 4 * 0.15;
+
+    const phase =
+        orbitTime * speedFactor * direction + particle.phase;
+
+    const x = Math.cos(phase) * radius;
+    const y = Math.sin(phase) * minorRadius;
+
+    const rotation = radians(
+        config.orbits.rotation +
+        (fraction - 0.5) * config.orbits.angleSpread
+    );
+
+    const x1 = x * Math.cos(rotation) - y * Math.sin(rotation);
+    const y1 = x * Math.sin(rotation) + y * Math.cos(rotation);
+
+    const rx = radians(config.perspective.tiltX);
+    const ry = radians(config.perspective.tiltY);
+
+    const y2 = y1 * Math.cos(rx);
+    const z2 = y1 * Math.sin(rx);
+
+    const x3 = x1 * Math.cos(ry) + z2 * Math.sin(ry);
+    const z3 = -x1 * Math.sin(ry) + z2 * Math.cos(ry);
+
+    // Keep the camera beyond every orbit to avoid singularities.
+    const camera = Math.max(
+        config.perspective.distance,
+        config.orbits.radius + 50,
+        1
+    );
+
+    const scale = camera / (camera + z3);
+
+    let screenX = width / 2 + x3 * scale;
+    let screenY = height / 2 + y2 * scale;
+    let mouseAmount = 0;
+
+    if (config.mouse.enabled && mouse.influence > 0.001) {
+        const dx = mouse.x - screenX;
+        const dy = mouse.y - screenY;
+        const influenceRadius = Math.max(1, config.mouse.radius);
+
+        mouseAmount = mouse.influence * Math.exp(
+            -(dx * dx + dy * dy) /
+            (2 * influenceRadius * influenceRadius)
+        );
+
+        const attraction = clamp(
+            mouseAmount * config.mouse.strength, 0, 0.9
+        );
+
+        screenX += dx * attraction;
+        screenY += dy * attraction;
+    }
+
+    const color = mixColor(
+        mixColor(
+            config.particles.colorA,
+            config.particles.colorB,
+            fraction
+        ),
+        config.mouse.color,
+        mouseAmount
+    );
+
+    return {
+        x: screenX,
+        y: screenY,
+        scale: clamp(scale, 0.2, 3),
+        color: rgb(color)
+    };
+}
+
+// --------------------------------------------------
+// Trails
+// --------------------------------------------------
+
+function fadeTrails(delta) {
+    const duration = Math.max(0, config.trails.duration);
+
+    if (duration === 0) {
+        clearTrails();
+        return;
+    }
+
+    const fade = 1 - Math.exp(
+        -Math.log(100) * delta / duration
+    );
+
+    trailCtx.save();
+    trailCtx.globalCompositeOperation = "destination-out";
+    trailCtx.fillStyle = `rgba(0,0,0,${fade})`;
+    trailCtx.fillRect(0, 0, width, height);
+    trailCtx.restore();
+}
+
+function drawTrail(particle, position, delta) {
+    const previous = particle.previous;
+
+    if (
+        !previous ||
+        delta <= 0 ||
+        config.trails.duration <= 0 ||
+        config.trails.lineWidth <= 0
+    ) return;
+
+    trailCtx.save();
+
+    trailCtx.strokeStyle = position.color;
+    trailCtx.lineWidth = Math.max(
+        0.1, config.trails.lineWidth * position.scale
+    );
+
+    trailCtx.lineCap = "round";
+    trailCtx.globalAlpha = clamp(config.trails.opacity, 0, 1);
+
+    if (config.glow.enabled) {
+        trailCtx.shadowColor = position.color;
+        trailCtx.shadowBlur =
+            Math.max(0, config.glow.blur) *
+            clamp(config.glow.intensity, 0, 1);
+    }
+
+    trailCtx.beginPath();
+    trailCtx.moveTo(previous.x, previous.y);
+    trailCtx.lineTo(position.x, position.y);
+    trailCtx.stroke();
+
+    trailCtx.restore();
+}
+
+function drawHead(position) {
+    const radius = Math.max(
+        0, config.particles.radius * position.scale
+    );
+
+    if (radius <= 0) return;
+
+    ctx.save();
+    ctx.fillStyle = position.color;
+
+    if (config.glow.enabled && config.glow.intensity > 0) {
+        ctx.globalAlpha = clamp(
+            config.particles.opacity * config.glow.intensity,
+            0, 1
+        );
+
+        ctx.shadowColor = position.color;
+        ctx.shadowBlur = Math.max(0, config.glow.blur);
+
+        ctx.beginPath();
+        ctx.arc(position.x, position.y, radius, 0, TAU);
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+    }
+
+    ctx.globalAlpha = clamp(config.particles.opacity, 0, 1);
+    ctx.beginPath();
+    ctx.arc(position.x, position.y, radius, 0, TAU);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    orbitTime += delta * config.orbits.speed;
+
+    const smoothing =
+        1 - Math.exp(-Math.max(0.1, config.mouse.smoothing) * delta);
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence +=
+        ((mouse.active && config.mouse.enabled ? 1 : 0) -
+            mouse.influence) * smoothing;
+
+    fadeTrails(delta);
+
+    const positions = particles.map(particle => {
+        const position = getPosition(particle);
+
+        drawTrail(particle, position, delta);
+        particle.previous = position;
+
+        return position;
+    });
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.drawImage(trailCanvas, 0, 0, width, height);
+
+    for (const position of positions) {
+        drawHead(position);
+    }
+
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+
+    for (const particle of particles) {
+        particle.previous = null;
+    }
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+createParticles();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if ([
+                        "orbits.count",
+                        "orbits.particlesPerOrbit"
+                    ].includes(path)) {
+                        createParticles();
+                    } else {
+                        // Avoid connecting old geometry to new geometry.
+                        clearTrails();
+                    }
+
+                    deactivateMouse();
+                },
+
+                onClear: clearTrails
+            });
+        })
+        .catch(error => {
+            console.error("Could not load settings editor:", error);
+        });
+}
+</script>
+</body>
+</html>

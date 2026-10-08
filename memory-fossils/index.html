@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Fossils</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    growth: {
+        speed: 35,
+        branchLength: 30,
+        branchChance: 0.6,
+        branchAngle: 38,
+        maxDepth: 5,
+        avoidanceRadius: 12
+    },
+
+    memory: {
+        lifetime: 22,
+        mineralizeTime: 5,
+        erosionDuration: 8,
+        maxCrystals: 45,
+        maxSegments: 1800
+    },
+
+    appearance: {
+        lineWidth: 1,
+        opacity: 0.85,
+        tipRadius: 1.8,
+        freshColor: [70, 225, 190],
+        fossilColor: [180, 145, 255],
+        dustColor: [220, 195, 255]
+    },
+
+    dust: {
+        enabled: true,
+        countPerSegment: 2,
+        speed: 15,
+        lifetime: 4,
+        radius: 1,
+        maxParticles: 1000
+    },
+
+    mouse: {
+        enabled: true,
+        seedSpacing: 45
+    },
+
+    ambient: {
+        enabled: true,
+        seedInterval: 4
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.55,
+        blur: 10
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+function mixColor(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+    return a.map((value, index) =>
+        value + (b[index] - value) * t
+    );
+}
+
+function rgb(color) {
+    return `rgb(${color.map(v =>
+        Math.round(clamp(v, 0, 255))
+    ).join(",")})`;
+}
+
+let width = 0;
+let height = 0;
+let time = 0;
+let previousTime = null;
+let lastAmbientTime = 0;
+let lastSeed = null;
+
+let crystals = [];
+let dust = [];
+
+// --------------------------------------------------
+// Seeds and branches
+// --------------------------------------------------
+
+function segmentCount() {
+    return crystals.reduce(
+        (sum, crystal) => sum + crystal.segments.length,
+        0
+    );
+}
+
+function newSegment(x, y, angle, depth) {
+    return {
+        x,
+        y,
+        angle,
+        depth,
+        length: 0,
+        targetLength: Math.max(4, config.growth.branchLength) *
+            (0.7 + Math.random() * 0.6),
+        finished: false,
+        dustReleased: false
+    };
+}
+
+function seedCrystal(x, y, heading = Math.random() * TAU) {
+    const limit = Math.max(0, Math.floor(config.memory.maxCrystals));
+    const segmentLimit = Math.max(
+        0, Math.floor(config.memory.maxSegments)
+    );
+
+    if (
+        limit === 0 ||
+        crystals.length >= limit ||
+        segmentCount() + 3 > segmentLimit
+    ) return;
+
+    crystals.push({
+        born: time,
+        segments: Array.from({ length: 3 }, (_, index) =>
+            newSegment(x, y, heading + index * TAU / 3, 0)
+        )
+    });
+}
+
+function endpoint(segment) {
+    return {
+        x: segment.x + Math.cos(segment.angle) * segment.length,
+        y: segment.y + Math.sin(segment.angle) * segment.length
+    };
+}
+
+// --------------------------------------------------
+// Spatial index: older crystals influence new growth
+// --------------------------------------------------
+
+function buildObstacles() {
+    const radius = Math.max(1, config.growth.avoidanceRadius);
+    const buckets = new Map();
+
+    function key(x, y) {
+        return `${x},${y}`;
+    }
+
+    for (const crystal of crystals) {
+        for (const segment of crystal.segments) {
+            const steps = Math.max(
+                1, Math.ceil(segment.length / radius)
+            );
+
+            for (let i = 0; i <= steps; i++) {
+                const fraction = i / steps;
+                const point = {
+                    x: segment.x +
+                        Math.cos(segment.angle) *
+                        segment.length * fraction,
+                    y: segment.y +
+                        Math.sin(segment.angle) *
+                        segment.length * fraction,
+                    crystal
+                };
+
+                const bucketKey = key(
+                    Math.floor(point.x / radius),
+                    Math.floor(point.y / radius)
+                );
+
+                if (!buckets.has(bucketKey)) {
+                    buckets.set(bucketKey, []);
+                }
+
+                buckets.get(bucketKey).push(point);
+            }
+        }
+    }
+
+    return {
+        blocked(x, y, crystal) {
+            if (config.growth.avoidanceRadius <= 0) return false;
+
+            const cx = Math.floor(x / radius);
+            const cy = Math.floor(y / radius);
+
+            for (let oy = -1; oy <= 1; oy++) {
+                for (let ox = -1; ox <= 1; ox++) {
+                    const bucket = buckets.get(key(cx + ox, cy + oy));
+                    if (!bucket) continue;
+
+                    for (const point of bucket) {
+                        // Only older crystals act as obstacles.
+                        if (point.crystal.born >= crystal.born) continue;
+
+                        const dx = point.x - x;
+                        const dy = point.y - y;
+
+                        if (dx * dx + dy * dy < radius * radius) {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+    };
+}
+
+// --------------------------------------------------
+// Dust
+// --------------------------------------------------
+
+function releaseDust(segment) {
+    if (!config.dust.enabled) return;
+
+    const count = Math.max(
+        0, Math.floor(config.dust.countPerSegment)
+    );
+
+    for (let i = 0; i < count; i++) {
+        const fraction = Math.random();
+        const angle = Math.random() * TAU;
+        const speed = config.dust.speed * (0.5 + Math.random());
+
+        dust.push({
+            x: segment.x +
+                Math.cos(segment.angle) * segment.length * fraction,
+            y: segment.y +
+                Math.sin(segment.angle) * segment.length * fraction,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - speed * 0.3,
+            born: time,
+            size: 0.5 + Math.random()
+        });
+    }
+
+    const limit = Math.max(0, Math.floor(config.dust.maxParticles));
+
+    if (dust.length > limit) {
+        dust.splice(0, dust.length - limit);
+    }
+}
+
+function updateDust(delta) {
+    const lifetime = Math.max(0.1, config.dust.lifetime);
+
+    dust = dust.filter(particle => time - particle.born < lifetime);
+
+    for (const particle of dust) {
+        particle.x += particle.vx * delta;
+        particle.y += particle.vy * delta;
+    }
+}
+
+// --------------------------------------------------
+// Growth, mineralization, and erosion
+// --------------------------------------------------
+
+function updateCrystals(delta) {
+    const obstacles = buildObstacles();
+    const speed = Math.max(0, config.growth.speed);
+    const lifetime = Math.max(1, config.memory.lifetime);
+    const erosion = Math.max(0.1, config.memory.erosionDuration);
+
+    let total = segmentCount();
+
+    for (const crystal of crystals) {
+        const age = time - crystal.born;
+        const additions = [];
+
+        for (const segment of crystal.segments) {
+            if (!segment.finished && age < lifetime) {
+                segment.length = Math.min(
+                    segment.targetLength,
+                    segment.length + speed * delta
+                );
+
+                const end = endpoint(segment);
+
+                const blocked =
+                    end.x < 0 || end.x > width ||
+                    end.y < 0 || end.y > height ||
+                    obstacles.blocked(end.x, end.y, crystal);
+
+                if (blocked || segment.length >= segment.targetLength) {
+                    segment.finished = true;
+
+                    if (
+                        !blocked &&
+                        segment.depth < config.growth.maxDepth
+                    ) {
+                        const angle =
+                            config.growth.branchAngle * Math.PI / 180;
+
+                        const directions = [
+                            segment.angle +
+                                (Math.random() - 0.5) * angle * 0.35
+                        ];
+
+                        if (Math.random() < config.growth.branchChance) {
+                            directions.push(
+                                segment.angle +
+                                (Math.random() < 0.5 ? -angle : angle)
+                            );
+                        }
+
+                        for (const direction of directions) {
+                            if (total >= config.memory.maxSegments) break;
+
+                            additions.push(newSegment(
+                                end.x,
+                                end.y,
+                                direction,
+                                segment.depth + 1
+                            ));
+
+                            total++;
+                        }
+                    }
+                }
+            }
+
+            // Outer branches erode first.
+            const depthFraction =
+                segment.depth / Math.max(1, config.growth.maxDepth);
+
+            const erosionStart =
+                lifetime + (1 - depthFraction) * erosion * 0.5;
+
+            if (age >= erosionStart && !segment.dustReleased) {
+                segment.dustReleased = true;
+                releaseDust(segment);
+            }
+        }
+
+        crystal.segments.push(...additions);
+    }
+
+    crystals = crystals.filter(
+        crystal => time - crystal.born < lifetime + erosion
+    );
+}
+
+// --------------------------------------------------
+// Rendering
+// --------------------------------------------------
+
+function drawCrystals() {
+    const mineralizeTime = Math.max(
+        0.1, config.memory.mineralizeTime
+    );
+
+    const lifetime = Math.max(1, config.memory.lifetime);
+    const erosion = Math.max(0.1, config.memory.erosionDuration);
+
+    for (const crystal of crystals) {
+        const age = time - crystal.born;
+
+        const color = rgb(mixColor(
+            config.appearance.freshColor,
+            config.appearance.fossilColor,
+            age / mineralizeTime
+        ));
+
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineCap = "round";
+
+        for (const segment of crystal.segments) {
+            if (segment.length <= 0) continue;
+
+            const depthFraction =
+                segment.depth / Math.max(1, config.growth.maxDepth);
+
+            const erosionStart =
+                lifetime + (1 - depthFraction) * erosion * 0.5;
+
+            const remaining = 1 - clamp(
+                (age - erosionStart) /
+                (lifetime + erosion - erosionStart),
+                0,
+                1
+            );
+
+            if (remaining <= 0) continue;
+
+            const end = {
+                x: segment.x +
+                    Math.cos(segment.angle) * segment.length * remaining,
+                y: segment.y +
+                    Math.sin(segment.angle) * segment.length * remaining
+            };
+
+            ctx.globalAlpha = clamp(
+                config.appearance.opacity * remaining, 0, 1
+            );
+
+            ctx.lineWidth = Math.max(
+                0.1,
+                config.appearance.lineWidth *
+                    (1 - depthFraction * 0.55)
+            );
+
+            if (config.glow.enabled) {
+                ctx.shadowColor = color;
+                ctx.shadowBlur =
+                    Math.max(0, config.glow.blur) *
+                    clamp(config.glow.intensity, 0, 1);
+            }
+
+            if (config.appearance.lineWidth > 0) {
+                ctx.beginPath();
+                ctx.moveTo(segment.x, segment.y);
+                ctx.lineTo(end.x, end.y);
+                ctx.stroke();
+            }
+
+            if (
+                !segment.finished &&
+                age < lifetime &&
+                config.appearance.tipRadius > 0
+            ) {
+                ctx.beginPath();
+                ctx.arc(
+                    end.x, end.y,
+                    config.appearance.tipRadius,
+                    0, TAU
+                );
+                ctx.fill();
+            }
+        }
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+}
+
+function drawDust() {
+    if (!config.dust.enabled) return;
+
+    const lifetime = Math.max(0.1, config.dust.lifetime);
+    ctx.fillStyle = rgb(config.appearance.dustColor);
+
+    for (const particle of dust) {
+        const remaining = 1 - (time - particle.born) / lifetime;
+        const radius = Math.max(0, config.dust.radius * particle.size);
+
+        if (radius <= 0) continue;
+
+        ctx.globalAlpha = remaining * 0.6;
+        ctx.beginPath();
+        ctx.arc(particle.x, particle.y, radius, 0, TAU);
+        ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    time += delta;
+
+    if (
+        config.ambient.enabled &&
+        time - lastAmbientTime >= config.ambient.seedInterval
+    ) {
+        lastAmbientTime = time;
+
+        seedCrystal(
+            width * (0.1 + Math.random() * 0.8),
+            height * (0.1 + Math.random() * 0.8)
+        );
+    }
+
+    updateCrystals(delta);
+    updateDust(delta);
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    drawCrystals();
+    drawDust();
+
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Mouse plants crystals along its path
+// --------------------------------------------------
+
+function isEditorTarget(target) {
+    return target instanceof Element &&
+        target.closest("[data-background-editor]");
+}
+
+function plantFromPointer(event, force = false) {
+    if (isEditorTarget(event.target) || !config.mouse.enabled) {
+        lastSeed = null;
+        return;
+    }
+
+    const x = event.clientX;
+    const y = event.clientY;
+
+    if (!lastSeed || force) {
+        seedCrystal(x, y);
+        lastSeed = { x, y };
+        return;
+    }
+
+    const dx = x - lastSeed.x;
+    const dy = y - lastSeed.y;
+    const distance = Math.hypot(dx, dy);
+    const spacing = Math.max(10, config.mouse.seedSpacing);
+
+    if (distance < spacing) return;
+
+    const heading = Math.atan2(dy, dx);
+    const steps = Math.floor(distance / spacing);
+
+    for (let i = 1; i <= steps; i++) {
+        seedCrystal(
+            lastSeed.x + dx / distance * spacing * i,
+            lastSeed.y + dy / distance * spacing * i,
+            heading
+        );
+    }
+
+    lastSeed = {
+        x: lastSeed.x + dx / distance * spacing * steps,
+        y: lastSeed.y + dy / distance * spacing * steps
+    };
+}
+
+window.addEventListener("pointermove", event => plantFromPointer(event));
+window.addEventListener("pointerdown", event => plantFromPointer(event, true));
+
+function resetPointer() {
+    lastSeed = null;
+}
+
+window.addEventListener("blur", resetPointer);
+window.addEventListener("pointercancel", resetPointer);
+
+document.documentElement.addEventListener(
+    "pointerleave", resetPointer
+);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") resetPointer();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    resetPointer();
+});
+
+function clearMemory() {
+    crystals = [];
+    dust = [];
+    lastSeed = null;
+    lastAmbientTime = time;
+}
+
+function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    width = window.innerWidth;
+    height = window.innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+window.addEventListener("resize", resize);
+
+resize();
+seedCrystal(width / 2, height / 2);
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+                onChange() {
+                    resetPointer();
+                },
+                onClear: clearMemory
+            });
+        })
+        .catch(error => {
+            console.error("Could not load editor:", error);
+        });
+}
+</script>
+</body>
+</html>
