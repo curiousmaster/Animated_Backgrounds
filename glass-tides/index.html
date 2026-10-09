@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glass Tides</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+// Replace with configuration copied from the editor.
+const config = {
+    plates: {
+        count: 8,
+        size: 220,
+        aspect: 0.7,
+        speed: 12,
+        rotationSpeed: 0.035,
+        refraction: 24,
+        magnification: 1.08,
+        tintOpacity: 0.035,
+        color: [110, 180, 220]
+    },
+
+    pattern: {
+        spacing: 45,
+        dotRadius: 1.3,
+        lineWidth: 0.6,
+        opacity: 0.45,
+        waveAmplitude: 32,
+        speed: 0.25,
+        color: [65, 170, 185]
+    },
+
+    reflections: {
+        intensity: 0.18,
+        edgeBrightness: 0.65,
+        edgeWidth: 1,
+        color: [180, 215, 255]
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 300,
+        tilt: 35,
+        smoothing: 8
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.45,
+        blur: 12
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+// A shared pattern is drawn once, then sampled through each plate.
+const patternCanvas = document.createElement("canvas");
+const patternCtx = patternCanvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const radians = degrees => degrees * Math.PI / 180;
+
+function rgb(color) {
+    return `rgb(${color.map(v =>
+        Math.round(clamp(v, 0, 255))
+    ).join(",")})`;
+}
+
+function rgba(color, alpha) {
+    return `rgba(${color.map(v =>
+        Math.round(clamp(v, 0, 255))
+    ).join(",")},${clamp(alpha, 0, 1)})`;
+}
+
+let width = 0;
+let height = 0;
+let patternMargin = 200;
+let plates = [];
+let previousTime = null;
+let patternTime = 0;
+let rotationTime = 0;
+
+const mouse = {
+    x: 0,
+    y: 0,
+    targetX: 0,
+    targetY: 0,
+    influence: 0,
+    active: false,
+    initialized: false
+};
+
+// --------------------------------------------------
+// Plates
+// --------------------------------------------------
+
+function newPlate() {
+    const angle = Math.random() * TAU;
+
+    return {
+        x: Math.random() * width,
+        y: Math.random() * height,
+        dx: Math.cos(angle),
+        dy: Math.sin(angle),
+        rotation: Math.random() * TAU,
+        phase: Math.random() * TAU,
+        sizeFactor: 0.65 + Math.random() * 0.65,
+        speedFactor: 0.6 + Math.random() * 0.8
+    };
+}
+
+function syncPlates() {
+    const count = Math.max(0, Math.floor(config.plates.count));
+
+    while (plates.length < count) {
+        plates.push(newPlate());
+    }
+
+    plates.length = count;
+}
+
+function resetPlates() {
+    plates = [];
+    syncPlates();
+}
+
+function resizePattern() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+
+    // Extra pattern coverage for refraction near screen edges.
+    patternMargin = Math.ceil(
+        Math.max(width, height) * 0.3 +
+        config.plates.size +
+        config.plates.refraction * 3 +
+        50
+    );
+
+    patternCanvas.width = Math.round(
+        (width + patternMargin * 2) * dpr
+    );
+
+    patternCanvas.height = Math.round(
+        (height + patternMargin * 2) * dpr
+    );
+
+    patternCtx.setTransform(
+        dpr, 0, 0, dpr,
+        patternMargin * dpr,
+        patternMargin * dpr
+    );
+}
+
+function resize() {
+    const oldWidth = width;
+    const oldHeight = height;
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+
+    width = innerWidth;
+    height = innerHeight;
+
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    resizePattern();
+
+    if (oldWidth && oldHeight) {
+        for (const plate of plates) {
+            plate.x *= width / oldWidth;
+            plate.y *= height / oldHeight;
+        }
+    }
+}
+
+function updatePlates(delta) {
+    const margin = config.plates.size;
+
+    for (const plate of plates) {
+        const speed = config.plates.speed * plate.speedFactor;
+
+        plate.x += plate.dx * speed * delta;
+        plate.y += plate.dy * speed * delta;
+
+        // Plates turn around beyond the visible edges.
+        if (plate.x < -margin) {
+            plate.x = -margin;
+            plate.dx = Math.abs(plate.dx);
+        } else if (plate.x > width + margin) {
+            plate.x = width + margin;
+            plate.dx = -Math.abs(plate.dx);
+        }
+
+        if (plate.y < -margin) {
+            plate.y = -margin;
+            plate.dy = Math.abs(plate.dy);
+        } else if (plate.y > height + margin) {
+            plate.y = height + margin;
+            plate.dy = -Math.abs(plate.dy);
+        }
+    }
+}
+
+// --------------------------------------------------
+// Luminous pattern beneath the glass
+// --------------------------------------------------
+
+function drawPattern() {
+    const left = -patternMargin;
+    const top = -patternMargin;
+    const right = width + patternMargin;
+    const bottom = height + patternMargin;
+
+    const spacing = Math.max(20, config.pattern.spacing);
+    const amplitude = Math.max(0, config.pattern.waveAmplitude);
+
+    patternCtx.fillStyle = "#020508";
+    patternCtx.fillRect(
+        left, top,
+        right - left, bottom - top
+    );
+
+    patternCtx.save();
+    patternCtx.strokeStyle = rgb(config.pattern.color);
+    patternCtx.lineWidth = Math.max(0.1, config.pattern.lineWidth);
+    patternCtx.globalAlpha = clamp(config.pattern.opacity * 0.5, 0, 1);
+
+    patternCtx.beginPath();
+
+    for (let baseY = Math.floor(top / spacing) * spacing;
+         baseY < bottom;
+         baseY += spacing) {
+        for (let x = left; x <= right; x += 16) {
+            const y = baseY +
+                Math.sin(x / 180 + patternTime + baseY / 260) *
+                amplitude;
+
+            if (x === left) patternCtx.moveTo(x, y);
+            else patternCtx.lineTo(x, y);
+        }
+    }
+
+    if (config.pattern.lineWidth > 0) {
+        patternCtx.stroke();
+    }
+
+    patternCtx.fillStyle = rgb(config.pattern.color);
+    patternCtx.globalAlpha = clamp(config.pattern.opacity, 0, 1);
+
+    const radius = Math.max(0, config.pattern.dotRadius);
+
+    if (radius > 0) {
+        patternCtx.beginPath();
+
+        for (let y = Math.floor(top / spacing) * spacing;
+             y < bottom;
+             y += spacing) {
+            for (let x = Math.floor(left / spacing) * spacing;
+                 x < right;
+                 x += spacing) {
+                const py = y +
+                    Math.sin(x / 180 + patternTime + y / 260) *
+                    amplitude;
+
+                patternCtx.moveTo(x + radius, py);
+                patternCtx.arc(x, py, radius, 0, TAU);
+            }
+        }
+
+        patternCtx.fill();
+    }
+
+    patternCtx.restore();
+}
+
+function paintPattern() {
+    ctx.drawImage(
+        patternCanvas,
+        -patternMargin,
+        -patternMargin,
+        width + patternMargin * 2,
+        height + patternMargin * 2
+    );
+}
+
+// --------------------------------------------------
+// Tilted glass geometry
+// --------------------------------------------------
+
+function plateGeometry(plate) {
+    const size = Math.max(20, config.plates.size) * plate.sizeFactor;
+    const halfWidth = size / 2;
+    const halfHeight = size * config.plates.aspect / 2;
+
+    let tiltX = Math.sin(patternTime * 0.5 + plate.phase) * 0.12;
+    let tiltY = Math.cos(patternTime * 0.4 + plate.phase) * 0.12;
+
+    if (config.mouse.enabled) {
+        const dx = mouse.x - plate.x;
+        const dy = mouse.y - plate.y;
+        const radius = Math.max(1, config.mouse.radius);
+
+        const amount = mouse.influence * Math.exp(
+            -(dx * dx + dy * dy) / (2 * radius * radius)
+        );
+
+        const tilt = radians(config.mouse.tilt);
+
+        tiltX += clamp(dy / radius, -1, 1) * tilt * amount;
+        tiltY -= clamp(dx / radius, -1, 1) * tilt * amount;
+    }
+
+    const rotation = plate.rotation +
+        rotationTime * (0.7 + plate.speedFactor * 0.3);
+
+    const camera = size * 3 + 300;
+
+    const points = [
+        [-halfWidth, -halfHeight],
+        [ halfWidth, -halfHeight],
+        [ halfWidth,  halfHeight],
+        [-halfWidth,  halfHeight]
+    ].map(([x, y]) => {
+        const y1 = y * Math.cos(tiltX);
+        const z1 = y * Math.sin(tiltX);
+
+        const x2 = x * Math.cos(tiltY) + z1 * Math.sin(tiltY);
+        const z2 = -x * Math.sin(tiltY) + z1 * Math.cos(tiltY);
+
+        const scale = camera / (camera + z2);
+
+        return {
+            x: plate.x +
+                (x2 * Math.cos(rotation) - y1 * Math.sin(rotation)) *
+                scale,
+            y: plate.y +
+                (x2 * Math.sin(rotation) + y1 * Math.cos(rotation)) *
+                scale
+        };
+    });
+
+    const path = new Path2D();
+    path.moveTo(points[0].x, points[0].y);
+
+    for (let i = 1; i < points.length; i++) {
+        path.lineTo(points[i].x, points[i].y);
+    }
+
+    path.closePath();
+
+    return { path, points, tiltX, tiltY, size };
+}
+
+// --------------------------------------------------
+// Refraction, tint, and reflections
+// --------------------------------------------------
+
+function drawPlate(plate) {
+    const geometry = plateGeometry(plate);
+    const { path, points, tiltX, tiltY, size } = geometry;
+
+    ctx.save();
+    ctx.clip(path);
+
+    const magnification = clamp(config.plates.magnification, 0.85, 1.3);
+    const offsetX = Math.sin(tiltY) * config.plates.refraction * 2;
+    const offsetY = -Math.sin(tiltX) * config.plates.refraction * 2;
+
+    // Optical approximation: resample the world through the plate.
+    ctx.save();
+    ctx.translate(plate.x + offsetX, plate.y + offsetY);
+    ctx.scale(magnification, magnification);
+    ctx.translate(-plate.x, -plate.y);
+    paintPattern();
+    ctx.restore();
+
+    ctx.fillStyle = rgba(config.plates.color, config.plates.tintOpacity);
+    ctx.fill(path);
+
+    const reflection = ctx.createLinearGradient(
+        plate.x - size / 2,
+        plate.y - size / 2,
+        plate.x + size / 2,
+        plate.y + size / 2
+    );
+
+    const intensity = clamp(
+        config.reflections.intensity *
+        (0.7 + Math.abs(tiltX) + Math.abs(tiltY)),
+        0, 1
+    );
+
+    const highlight = clamp(
+        0.45 + Math.sin(tiltX + tiltY + plate.phase) * 0.25,
+        0.2, 0.8
+    );
+
+    reflection.addColorStop(0, rgba(config.reflections.color, 0));
+    reflection.addColorStop(
+        Math.max(0, highlight - 0.15),
+        rgba(config.reflections.color, 0)
+    );
+    reflection.addColorStop(
+        highlight,
+        rgba(config.reflections.color, intensity)
+    );
+    reflection.addColorStop(
+        Math.min(1, highlight + 0.12),
+        rgba(config.reflections.color, 0)
+    );
+    reflection.addColorStop(1, rgba(config.reflections.color, 0));
+
+    ctx.fillStyle = reflection;
+    ctx.fill(path);
+    ctx.restore();
+
+    if (config.reflections.edgeWidth <= 0) return;
+
+    ctx.save();
+    ctx.lineWidth = config.reflections.edgeWidth;
+    ctx.strokeStyle = rgb(config.reflections.color);
+
+    if (config.glow.enabled && config.glow.intensity > 0) {
+        ctx.globalAlpha =
+            config.reflections.edgeBrightness * config.glow.intensity;
+
+        ctx.shadowColor = rgb(config.reflections.color);
+        ctx.shadowBlur = Math.max(0, config.glow.blur);
+        ctx.stroke(path);
+        ctx.shadowBlur = 0;
+    }
+
+    // Alternating edge brightness suggests a polished bevel.
+    for (let i = 0; i < 4; i++) {
+        const a = points[i];
+        const b = points[(i + 1) % 4];
+
+        ctx.globalAlpha = clamp(
+            config.reflections.edgeBrightness *
+            (i % 2 === 0 ? 0.8 : 0.3),
+            0, 1
+        );
+
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    patternTime += delta * config.pattern.speed;
+    rotationTime += delta * config.plates.rotationSpeed;
+
+    const smoothing = 1 - Math.exp(
+        -Math.max(0.1, config.mouse.smoothing) * delta
+    );
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) -
+        mouse.influence
+    ) * smoothing;
+
+    updatePlates(delta);
+    drawPattern();
+    paintPattern();
+
+    for (const plate of plates) {
+        drawPlate(plate);
+    }
+
+    requestAnimationFrame(animate);
+}
+
+// --------------------------------------------------
+// Pointer interaction
+// --------------------------------------------------
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+syncPlates();
+requestAnimationFrame(animate);
+
+// --------------------------------------------------
+// Optional editor
+// --------------------------------------------------
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+
+                onChange(path) {
+                    if (path === "plates.count") syncPlates();
+
+                    if ([
+                        "plates.size",
+                        "plates.refraction"
+                    ].includes(path)) {
+                        resizePattern();
+                    }
+
+                    deactivateMouse();
+                },
+
+                onReset: resetPlates
+            });
+        })
+        .catch(error => {
+            console.error("Could not load editor:", error);
+        });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbiting Silence</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #080c18;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      arcs: {
+        count: 100,
+        centers: 6,
+        orbitRadius: 110,
+        radiusVariation: 0.7,
+        length: 65,
+        speed: 0.25,
+        width: 0.8,
+        opacity: 0.5,
+        fading: 0.5
+      },
+
+      alignment: {
+        enabled: true,
+        frequency: 0.07,
+        strength: 0.85,
+        duration: 0.25,
+        response: 2
+      },
+
+      drift: {
+        distance: 65,
+        speed: 0.15,
+        ellipticity: 0.8
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 240,
+        captureStrength: 0.9,
+        orbitRadius: 85,
+        smoothing: 5,
+        release: 1.5,
+        showHalo: true
+      },
+
+      appearance: {
+        backgroundColor: [8, 12, 24],
+        colorA: [116, 169, 200],
+        colorB: [177, 133, 197],
+        highlightColor: [226, 219, 202],
+        glow: 5
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let centers = [];
+    let arcs = [];
+    let time = 0;
+    let previous = null;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      active: false,
+      influence: 0
+    };
+
+    const random = (min, max) => min + Math.random() * (max - min);
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const radians = degrees => degrees * Math.PI / 180;
+
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    function mix(a, b, amount) {
+      return a.map((value, index) =>
+        Math.round(value + (b[index] - value) * amount)
+      );
+    }
+
+    function angleDifference(target, current) {
+      return Math.atan2(
+        Math.sin(target - current),
+        Math.cos(target - current)
+      );
+    }
+
+    function makeCenter() {
+      return {
+        x: random(0.12, 0.88),
+        y: random(0.12, 0.88),
+        phase: random(0, Math.PI * 2),
+        angle: random(0, Math.PI * 2)
+      };
+    }
+
+    function makeArc() {
+      return {
+        center: Math.floor(Math.random() * centers.length),
+        size: Math.random(),
+        tint: Math.random(),
+        phase: random(0, Math.PI * 2),
+        angle: random(0, Math.PI * 2),
+        speedFactor: random(0.5, 1.5),
+        direction: Math.random() < 0.5 ? -1 : 1,
+        capture: 0
+      };
+    }
+
+    function syncScene() {
+      const centerCount = Math.round(config.arcs.centers);
+      const arcCount = Math.round(config.arcs.count);
+
+      while (centers.length < centerCount) centers.push(makeCenter());
+      centers.length = centerCount;
+
+      while (arcs.length < arcCount) arcs.push(makeArc());
+      arcs.length = arcCount;
+
+      for (const arc of arcs) {
+        arc.center %= centerCount;
+      }
+    }
+
+    function reset() {
+      centers = [];
+      arcs = [];
+      syncScene();
+    }
+
+    function resize() {
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function centerPositions() {
+      const clock = time * config.drift.speed;
+
+      return centers.map(center => ({
+        x:
+          center.x * width +
+          Math.sin(clock + center.phase) * config.drift.distance,
+
+        y:
+          center.y * height +
+          Math.cos(clock * 0.73 + center.phase) *
+          config.drift.distance * 0.7,
+
+        angle: center.angle + time * config.arcs.speed * 0.3,
+        phase: center.phase
+      }));
+    }
+
+    function alignmentAmount(center) {
+      if (!config.alignment.enabled) return 0;
+
+      const phase =
+        time * config.alignment.frequency * Math.PI * 2 +
+        center.phase;
+
+      const pulse = (Math.cos(phase) + 1) / 2;
+
+      // Duration controls how broadly each alignment pulse spreads.
+      const exponent = 1 / config.alignment.duration;
+
+      return Math.pow(pulse, exponent) * config.alignment.strength;
+    }
+
+    function drawArc(arc, positions, dt, interactionDt) {
+      const center = positions[arc.center];
+
+      const radius = config.arcs.orbitRadius * (
+        1 - config.arcs.radiusVariation * (1 - arc.size)
+      );
+
+      arc.angle +=
+        config.arcs.speed *
+        arc.speedFactor *
+        arc.direction * dt;
+
+      const alignment = alignmentAmount(center);
+
+      arc.angle +=
+        angleDifference(center.angle, arc.angle) *
+        (
+          1 -
+          Math.exp(
+            -config.alignment.response * alignment * dt
+          )
+        );
+
+      // Capture is measured against the natural orbit, so moving the
+      // pointer away releases arcs instead of trapping them indefinitely.
+      const naturalMidX =
+        center.x + Math.cos(arc.angle) * radius;
+
+      const naturalMidY =
+        center.y +
+        Math.sin(arc.angle) * radius * config.drift.ellipticity;
+
+      const distance = Math.hypot(
+        naturalMidX - mouse.x,
+        naturalMidY - mouse.y
+      );
+
+      const proximity = clamp(
+        1 - distance / config.mouse.radius,
+        0,
+        1
+      );
+
+      const targetCapture = config.mouse.enabled
+        ? proximity * proximity *
+          mouse.influence * config.mouse.captureStrength
+        : 0;
+
+      const response = targetCapture > arc.capture
+        ? config.mouse.smoothing
+        : config.mouse.release;
+
+      arc.capture +=
+        (targetCapture - arc.capture) *
+        (1 - Math.exp(-response * interactionDt));
+
+      const orbitX =
+        center.x + (mouse.x - center.x) * arc.capture;
+
+      const orbitY =
+        center.y + (mouse.y - center.y) * arc.capture;
+
+      const capturedRadius =
+        config.mouse.orbitRadius * (0.35 + arc.size * 0.9);
+
+      const drawRadius =
+        radius + (capturedRadius - radius) * arc.capture;
+
+      const ellipticity =
+        config.drift.ellipticity +
+        (1 - config.drift.ellipticity) * arc.capture;
+
+      const color = mix(
+        mix(
+          config.appearance.colorA,
+          config.appearance.colorB,
+          arc.tint
+        ),
+        config.appearance.highlightColor,
+        Math.max(alignment * 0.45, arc.capture * 0.6)
+      );
+
+      const fade =
+        1 -
+        config.arcs.fading *
+        (0.5 + Math.sin(time * 0.45 + arc.phase) * 0.5);
+
+      const opacity = clamp(
+        config.arcs.opacity * fade +
+        arc.capture * 0.15,
+        0,
+        1
+      );
+
+      const arcLength = radians(config.arcs.length);
+      const segments = 32;
+
+      ctx.lineWidth = config.arcs.width;
+      ctx.lineCap = "round";
+      ctx.shadowColor = rgba(color);
+      ctx.shadowBlur = config.appearance.glow;
+
+      // Draw sections with a tapered opacity instead of hard endpoints.
+      for (let i = 0; i < segments; i++) {
+        const u0 = i / segments;
+        const u1 = (i + 1) / segments;
+
+        const angle0 = arc.angle + (u0 - 0.5) * arcLength;
+        const angle1 = arc.angle + (u1 - 0.5) * arcLength;
+
+        const taper = Math.pow(
+          Math.sin((u0 + u1) * 0.5 * Math.PI),
+          0.7
+        );
+
+        ctx.strokeStyle = rgba(color, opacity * taper);
+        ctx.beginPath();
+
+        ctx.moveTo(
+          orbitX + Math.cos(angle0) * drawRadius,
+          orbitY + Math.sin(angle0) * drawRadius * ellipticity
+        );
+
+        ctx.lineTo(
+          orbitX + Math.cos(angle1) * drawRadius,
+          orbitY + Math.sin(angle1) * drawRadius * ellipticity
+        );
+
+        ctx.stroke();
+      }
+
+      ctx.shadowBlur = 0;
+    }
+
+    function drawHalo() {
+      if (
+        !config.mouse.enabled ||
+        !config.mouse.showHalo ||
+        mouse.influence < 0.001
+      ) return;
+
+      const gradient = ctx.createRadialGradient(
+        mouse.x, mouse.y, 0,
+        mouse.x, mouse.y, config.mouse.radius
+      );
+
+      gradient.addColorStop(
+        0,
+        rgba(
+          config.appearance.highlightColor,
+          mouse.influence * 0.025
+        )
+      );
+
+      gradient.addColorStop(
+        1,
+        rgba(config.appearance.highlightColor, 0)
+      );
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      const dt = still ? 0 : realDt * config.animation.speed;
+      time += dt;
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      drawHalo();
+
+      const positions = centerPositions();
+
+      for (const arc of arcs) {
+        drawArc(arc, positions, dt, realDt);
+      }
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave",
+      () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    reset();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: syncScene,
+            onReset: reset
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mirage Loom</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #090e1a;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      stripes: {
+        spacing: 50,
+        layers: 5,
+        width: 2.1,
+        angle: -20,
+        relativeAngle: 5,
+        spacingVariation: 0.025,
+        contrast: 0.5
+      },
+
+      motion: {
+        driftSpeed: 7,
+        rotation: 1.8,
+        rotationSpeed: 0.12,
+        waveAmplitude: 9,
+        wavelength: 550,
+        waveSpeed: 0.25
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 210,
+        distortion: 65,
+        twist: 0.35,
+        smoothing: 6
+      },
+
+      appearance: {
+        backgroundColor: [9, 14, 26],
+        colorA: [89, 168, 185],
+        colorB: [169, 117, 193],
+        colorC: [208, 173, 125],
+        additive: false
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let time = 0;
+    let previous = null;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      active: false,
+      influence: 0
+    };
+
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const radians = degrees => degrees * Math.PI / 180;
+
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    function mix(a, b, amount) {
+      return a.map((value, index) =>
+        Math.round(value + (b[index] - value) * amount)
+      );
+    }
+
+    function layerColor(layer, count) {
+      const palette = [
+        config.appearance.colorA,
+        config.appearance.colorB,
+        config.appearance.colorC
+      ];
+
+      const position = count <= 1 ? 0 : layer / (count - 1) * 2;
+      const index = Math.min(1, Math.floor(position));
+
+      return mix(
+        palette[index],
+        palette[index + 1],
+        position - index
+      );
+    }
+
+    function distort(x, y, layer) {
+      if (!config.mouse.enabled || mouse.influence < 0.001) {
+        return { x, y };
+      }
+
+      const dx = x - mouse.x;
+      const dy = y - mouse.y;
+      const distance = Math.hypot(dx, dy);
+      const radius = config.mouse.radius;
+
+      if (distance >= radius) return { x, y };
+
+      const u = distance / radius;
+
+      // This envelope and its slope vanish at the lens boundary.
+      const envelope = Math.pow(1 - u * u, 2);
+      const influence = envelope * mouse.influence;
+
+      const radialScale =
+        1 +
+        config.mouse.distortion / radius *
+        influence * (0.75 + layer * 0.12);
+
+      const angle =
+        config.mouse.twist *
+        influence *
+        (layer % 2 ? -1 : 1);
+
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+
+      return {
+        x: mouse.x + (dx * cos - dy * sin) * radialScale,
+        y: mouse.y + (dx * sin + dy * cos) * radialScale
+      };
+    }
+
+    function drawLayer(layer, count) {
+      const separation =
+        (layer - (count - 1) / 2) * config.stripes.relativeAngle;
+
+      const oscillation =
+        Math.sin(
+          time * config.motion.rotationSpeed +
+          layer * 1.7
+        ) * config.motion.rotation;
+
+      const angle = radians(
+        config.stripes.angle + separation + oscillation
+      );
+
+      // Normal and tangent vectors for this layer's stripes.
+      const nx = Math.cos(angle);
+      const ny = Math.sin(angle);
+      const tx = -ny;
+      const ty = nx;
+
+      const spacing =
+        config.stripes.spacing *
+        (
+          1 +
+          (layer - (count - 1) / 2) *
+          config.stripes.spacingVariation
+        );
+
+      const drift =
+        time * config.motion.driftSpeed *
+        (layer % 2 ? -1 : 1) *
+        (1 + layer * 0.17);
+
+      const offset = ((drift % spacing) + spacing) % spacing;
+      const waveAmplitude = config.motion.waveAmplitude;
+
+      const extent =
+        Math.hypot(width, height) / 2 +
+        Math.abs(config.mouse.distortion) +
+        waveAmplitude + 40;
+
+      const stripeCount = Math.ceil(extent / spacing);
+      const step = 14;
+
+      const color = layerColor(layer, count);
+
+      ctx.strokeStyle = rgba(color, config.stripes.contrast);
+      ctx.lineWidth = config.stripes.width;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+
+      for (let stripe = -stripeCount; stripe <= stripeCount; stripe++) {
+        const normalPosition = stripe * spacing + offset;
+
+        let first = true;
+
+        for (let along = -extent; along <= extent + step; along += step) {
+          const wave =
+            Math.sin(
+              along / config.motion.wavelength * Math.PI * 2 +
+              normalPosition / config.motion.wavelength * 0.8 +
+              time * config.motion.waveSpeed +
+              layer * 1.3
+            ) * waveAmplitude;
+
+          const x =
+            width / 2 +
+            nx * (normalPosition + wave) +
+            tx * along;
+
+          const y =
+            height / 2 +
+            ny * (normalPosition + wave) +
+            ty * along;
+
+          const point = distort(x, y, layer);
+
+          if (first) {
+            ctx.moveTo(point.x, point.y);
+            first = false;
+          } else {
+            ctx.lineTo(point.x, point.y);
+          }
+        }
+      }
+
+      ctx.stroke();
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      if (!still) {
+        time += realDt * config.animation.speed;
+      }
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.save();
+
+      ctx.globalCompositeOperation =
+        config.appearance.additive ? "lighter" : "source-over";
+
+      const layers = Math.round(config.stripes.layers);
+
+      for (let layer = 0; layer < layers; layer++) {
+        drawLayer(layer, layers);
+      }
+
+      ctx.restore();
+
+      requestAnimationFrame(frame);
+    }
+
+    function resize() {
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    function reset() {
+      time = 0;
+      mouse.active = false;
+      mouse.influence = 0;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave",
+      () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onReset: reset
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>

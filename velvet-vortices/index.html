@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Velvet Vortices</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #090b16;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      strokes: {
+        count: 1500,
+        length: 12,
+        width: 3.2,
+        opacity: 0.45,
+        softness: 2,
+        lengthVariation: 0.55
+      },
+
+      flow: {
+        vortexCount: 5,
+        vortexRadius: 300,
+        vortexStrength: 2.5,
+        speed: 0.35,
+        wandering: 0.22,
+        baseDirection: -20,
+        rippleStrength: 0.45,
+        response: 3
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 150,
+        strength: 0.9,
+        persistence: 3,
+        smoothing: 10
+      },
+
+      appearance: {
+        backgroundColor: [9, 11, 22],
+        colorA: [73, 111, 153],
+        colorB: [161, 99, 165],
+        highlightColor: [187, 205, 226],
+        sheen: 0.65,
+        lightDirection: -45
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let strokes = [];
+    let vortices = [];
+    let previous = null;
+    let time = 0;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      previousX: 0,
+      previousY: 0,
+      directionX: 1,
+      directionY: 0,
+      motion: 0,
+      active: false,
+      influence: 0
+    };
+
+    const random = (min, max) => min + Math.random() * (max - min);
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const radians = degrees => degrees * Math.PI / 180;
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    function mix(a, b, amount) {
+      return a.map((value, i) =>
+        Math.round(value + (b[i] - value) * amount)
+      );
+    }
+
+    function angleDifference(target, current) {
+      return Math.atan2(
+        Math.sin(target - current),
+        Math.cos(target - current)
+      );
+    }
+
+    function makeStroke() {
+      return {
+        x: Math.random(),
+        y: Math.random(),
+        size: Math.random(),
+        tint: Math.random(),
+        angle: radians(config.flow.baseDirection),
+        combAngle: 0,
+        memory: 0
+      };
+    }
+
+    function makeVortex() {
+      return {
+        x: random(0.1, 0.9),
+        y: random(0.1, 0.9),
+        phase: random(0, Math.PI * 2),
+        rate: random(0.6, 1.3),
+        direction: Math.random() < 0.5 ? -1 : 1
+      };
+    }
+
+    function syncScene() {
+      const strokeCount = Math.round(config.strokes.count);
+      const vortexCount = Math.round(config.flow.vortexCount);
+
+      while (strokes.length < strokeCount) strokes.push(makeStroke());
+      strokes.length = strokeCount;
+
+      while (vortices.length < vortexCount) vortices.push(makeVortex());
+      vortices.length = vortexCount;
+    }
+
+    function reset() {
+      strokes = [];
+      vortices = [];
+      syncScene();
+    }
+
+    function resize() {
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function vortexPositions() {
+      const clock = time * config.flow.speed;
+      const wander = config.flow.wandering;
+
+      return vortices.map(vortex => ({
+        x: (
+          vortex.x +
+          Math.sin(clock * vortex.rate * 0.43 + vortex.phase) *
+          wander
+        ) * width,
+
+        y: (
+          vortex.y +
+          Math.cos(clock * vortex.rate * 0.37 + vortex.phase) *
+          wander
+        ) * height,
+
+        direction: vortex.direction
+      }));
+    }
+
+    function flowAngle(x, y, centers) {
+      const baseAngle = radians(config.flow.baseDirection);
+      const radius = config.flow.vortexRadius;
+
+      let vx = Math.cos(baseAngle);
+      let vy = Math.sin(baseAngle);
+
+      for (const center of centers) {
+        const dx = x - center.x;
+        const dy = y - center.y;
+        const distance = Math.hypot(dx, dy);
+        const normalized = distance / radius;
+
+        const influence =
+          Math.exp(-normalized * normalized) *
+          config.flow.vortexStrength;
+
+        // The softened denominator keeps vortex centers stable.
+        const denominator = Math.max(distance, 30);
+
+        vx += -dy / denominator * influence * center.direction;
+        vy += dx / denominator * influence * center.direction;
+      }
+
+      const ripple =
+        Math.sin(
+          x / radius * 2.4 +
+          Math.cos(y / radius * 1.7) +
+          time * config.flow.speed
+        ) * config.flow.rippleStrength;
+
+      return Math.atan2(vy, vx) + ripple;
+    }
+
+    function updateMouse(dt) {
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * dt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        (
+          (mouse.active && config.mouse.enabled ? 1 : 0) -
+          mouse.influence
+        ) * smoothing;
+
+      const dx = mouse.x - mouse.previousX;
+      const dy = mouse.y - mouse.previousY;
+      const distance = Math.hypot(dx, dy);
+      const speed = dt > 0 ? distance / dt : 0;
+
+      if (distance > 0.01) {
+        mouse.directionX = dx / distance;
+        mouse.directionY = dy / distance;
+      }
+
+      const targetMotion = clamp(speed / 250, 0, 1);
+      mouse.motion +=
+        (targetMotion - mouse.motion) *
+        (1 - Math.exp(-12 * dt));
+
+      mouse.previousX = mouse.x;
+      mouse.previousY = mouse.y;
+    }
+
+    function drawStroke(stroke, centers, dt, interactionDt) {
+      const x = stroke.x * width;
+      const y = stroke.y * height;
+      const targetFlow = flowAngle(x, y, centers);
+
+      const distance = Math.hypot(x - mouse.x, y - mouse.y);
+      const proximity = clamp(
+        1 - distance / config.mouse.radius,
+        0,
+        1
+      );
+
+      const contact =
+        proximity * proximity *
+        mouse.influence *
+        mouse.motion *
+        config.mouse.strength;
+
+      // Half-life gives "persistence" a direct, predictable meaning.
+      stroke.memory *= Math.exp(
+        -Math.LN2 * interactionDt / config.mouse.persistence
+      );
+
+      if (contact > 0.001) {
+        const brushAngle = Math.atan2(
+          mouse.directionY,
+          mouse.directionX
+        );
+
+        if (stroke.memory < 0.005) {
+          stroke.combAngle = brushAngle;
+        } else {
+          stroke.combAngle +=
+            angleDifference(brushAngle, stroke.combAngle) *
+            (1 - Math.exp(-contact * 20 * interactionDt));
+        }
+
+        stroke.memory +=
+          (1 - stroke.memory) *
+          (1 - Math.exp(-contact * 14 * interactionDt));
+      }
+
+      const targetAngle =
+        targetFlow +
+        angleDifference(stroke.combAngle, targetFlow) *
+        stroke.memory;
+
+      // Ambient orientation freezes when paused, but brushing still works.
+      const responseDt = stroke.memory > 0.005 ? interactionDt : dt;
+
+      stroke.angle +=
+        angleDifference(targetAngle, stroke.angle) *
+        (1 - Math.exp(-config.flow.response * responseDt));
+
+      const sizeFactor =
+        1 - config.strokes.lengthVariation * (1 - stroke.size);
+
+      const length = config.strokes.length * sizeFactor;
+      const directionX = Math.cos(stroke.angle);
+      const directionY = Math.sin(stroke.angle);
+
+      const lightAngle = radians(config.appearance.lightDirection);
+
+      // Squared alignment gives fibers a directional sheen.
+      const alignment = Math.pow(
+        Math.cos(stroke.angle - lightAngle),
+        2
+      );
+
+      const sheen = alignment * config.appearance.sheen;
+
+      const tint = clamp(
+        stroke.y * 0.65 +
+        stroke.tint * 0.2 +
+        Math.sin(stroke.x * Math.PI * 2) * 0.15,
+        0,
+        1
+      );
+
+      const baseColor = mix(
+        config.appearance.colorA,
+        config.appearance.colorB,
+        tint
+      );
+
+      const color = mix(
+        baseColor,
+        config.appearance.highlightColor,
+        sheen * 0.7
+      );
+
+      const alpha =
+        config.strokes.opacity *
+        (0.35 + alignment * 0.65) *
+        (0.65 + stroke.size * 0.35);
+
+      ctx.strokeStyle = rgba(color, alpha);
+      ctx.lineWidth =
+        config.strokes.width * (0.65 + stroke.size * 0.35);
+
+      ctx.shadowColor = rgba(color, alpha * 0.5);
+      ctx.shadowBlur = config.strokes.softness;
+
+      ctx.beginPath();
+      ctx.moveTo(
+        x - directionX * length / 2,
+        y - directionY * length / 2
+      );
+
+      ctx.lineTo(
+        x + directionX * length / 2,
+        y + directionY * length / 2
+      );
+
+      ctx.stroke();
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      const dt = still ? 0 : realDt * config.animation.speed;
+      time += dt;
+
+      updateMouse(realDt);
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      const centers = vortexPositions();
+
+      ctx.lineCap = "round";
+
+      for (const stroke of strokes) {
+        drawStroke(stroke, centers, dt, realDt);
+      }
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+        mouse.previousX = event.clientX;
+        mouse.previousY = event.clientY;
+        mouse.motion = 0;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave",
+      () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+      mouse.motion = 0;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    reset();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: syncScene,
+            onReset: reset
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>

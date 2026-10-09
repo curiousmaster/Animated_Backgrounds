@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Capillary Light</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #080d17;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      channels: {
+        spacing: 45,
+        branching: 0.4,
+        irregularity: 0.65,
+        width: 1.1,
+        opacity: 0.08
+      },
+
+      ink: {
+        propagationSpeed: 2,
+        diffusion: 0.7,
+        sourceLifetime: 5,
+        sourceInterval: 4,
+        decay: 0.22,
+        intensity: 0.85,
+        glow: 9
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 110,
+        strength: 1.4,
+        smoothing: 8,
+        colorCycleSpeed: 0.3,
+        showHalo: true
+      },
+
+      appearance: {
+        backgroundColor: [8, 13, 23],
+        channelColor: [91, 119, 138],
+        colorA: [81, 193, 196],
+        colorB: [185, 111, 211],
+        colorC: [236, 164, 102]
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let nodes = [];
+    let edges = [];
+    let sources = [];
+    let graphKey = "";
+    let time = 0;
+    let sourceClock = 0;
+    let previous = null;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      active: false,
+      influence: 0
+    };
+
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    function buildGraph() {
+      nodes = [];
+      edges = [];
+      sources = [];
+      sourceClock = 0;
+
+      const spacing = config.channels.spacing;
+      const columns = Math.max(2, Math.ceil(width / spacing) + 1);
+      const rows = Math.max(2, Math.ceil(height / spacing) + 1);
+
+      for (let row = 0; row < rows; row++) {
+        for (let column = 0; column < columns; column++) {
+          const jitter = spacing * config.channels.irregularity * 0.65;
+
+          nodes.push({
+            x: column * spacing + (Math.random() - 0.5) * jitter,
+            y: row * spacing + (Math.random() - 0.5) * jitter,
+            neighbors: [],
+            ink: [0, 0, 0],
+            next: [0, 0, 0]
+          });
+        }
+      }
+
+      function connect(a, b) {
+        nodes[a].neighbors.push(b);
+        nodes[b].neighbors.push(a);
+        edges.push([a, b]);
+      }
+
+      // Every row joins the one above, keeping the network connected.
+      // Additional horizontal links create branching and alternate paths.
+      for (let row = 0; row < rows; row++) {
+        for (let column = 0; column < columns; column++) {
+          const index = row * columns + column;
+
+          if (row > 0) {
+            const shift = Math.random() < 0.3
+              ? (Math.random() < 0.5 ? -1 : 1)
+              : 0;
+
+            const parentColumn = clamp(column + shift, 0, columns - 1);
+            connect(index, (row - 1) * columns + parentColumn);
+          }
+
+          if (
+            column > 0 &&
+            (row === 0 || Math.random() < config.channels.branching)
+          ) {
+            connect(index, index - 1);
+          }
+        }
+      }
+
+      graphKey = JSON.stringify([
+        width,
+        height,
+        config.channels.spacing,
+        config.channels.branching,
+        config.channels.irregularity
+      ]);
+
+      for (let i = 0; i < 3; i++) addSource(i);
+    }
+
+    function addSource(channel = Math.floor(Math.random() * 3)) {
+      if (!nodes.length) return;
+
+      // Bound the number of active sources even with a short interval.
+      if (sources.length >= 40) sources.shift();
+
+      sources.push({
+        node: Math.floor(Math.random() * nodes.length),
+        channel,
+        age: 0
+      });
+    }
+
+    function refresh() {
+      const key = JSON.stringify([
+        width,
+        height,
+        config.channels.spacing,
+        config.channels.branching,
+        config.channels.irregularity
+      ]);
+
+      if (key !== graphKey) buildGraph();
+    }
+
+    function resize() {
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      buildGraph();
+    }
+
+    function mouseColorWeights() {
+      const phase = time * config.mouse.colorCycleSpeed;
+
+      const weights = [0, 1, 2].map(index =>
+        Math.pow(
+          0.5 + 0.5 * Math.cos(phase - index * Math.PI * 2 / 3),
+          3
+        )
+      );
+
+      const total = weights.reduce((sum, value) => sum + value, 0);
+
+      return weights.map(value => value / total);
+    }
+
+    function simulateStep(dt) {
+      const propagation = config.ink.propagationSpeed;
+      const decayFactor = Math.exp(-config.ink.decay * dt);
+
+      for (const node of nodes) {
+        for (let channel = 0; channel < 3; channel++) {
+          node.next[channel] = node.ink[channel] * decayFactor;
+        }
+      }
+
+      // Symmetric exchange preserves color mass before fading and sources.
+      // Degree normalization keeps highly connected nodes stable.
+      for (const [aIndex, bIndex] of edges) {
+        const a = nodes[aIndex];
+        const b = nodes[bIndex];
+
+        const degree = Math.max(
+          a.neighbors.length,
+          b.neighbors.length,
+          1
+        );
+
+        const exchange =
+          propagation * config.ink.diffusion * dt / degree;
+
+        for (let channel = 0; channel < 3; channel++) {
+          const transfer =
+            (a.ink[channel] - b.ink[channel]) * exchange;
+
+          a.next[channel] -= transfer;
+          b.next[channel] += transfer;
+        }
+      }
+
+      for (const source of sources) {
+        source.age += dt;
+
+        const remaining = clamp(
+          1 - source.age / config.ink.sourceLifetime,
+          0,
+          1
+        );
+
+        const node = nodes[source.node];
+        const strength = remaining * config.ink.intensity * 2;
+
+        node.next[source.channel] +=
+          (1 - node.next[source.channel]) *
+          (1 - Math.exp(-strength * dt));
+      }
+
+      sources = sources.filter(
+        source => source.age < config.ink.sourceLifetime
+      );
+
+      if (config.mouse.enabled && mouse.influence > 0.001) {
+        const weights = mouseColorWeights();
+
+        for (const node of nodes) {
+          const distance = Math.hypot(
+            node.x - mouse.x,
+            node.y - mouse.y
+          );
+
+          const proximity = clamp(
+            1 - distance / config.mouse.radius,
+            0,
+            1
+          );
+
+          const strength =
+            proximity * proximity *
+            mouse.influence *
+            config.mouse.strength;
+
+          if (strength <= 0) continue;
+
+          for (let channel = 0; channel < 3; channel++) {
+            node.next[channel] +=
+              (weights[channel] - node.next[channel]) *
+              (1 - Math.exp(-strength * dt));
+          }
+        }
+      }
+
+      for (const node of nodes) {
+        for (let channel = 0; channel < 3; channel++) {
+          node.ink[channel] = clamp(node.next[channel], 0, 1);
+        }
+      }
+    }
+
+    function simulate(dt) {
+      if (dt <= 0) return;
+
+      sourceClock += dt;
+
+      if (config.ink.sourceInterval > 0) {
+        while (sourceClock >= config.ink.sourceInterval) {
+          sourceClock -= config.ink.sourceInterval;
+          addSource();
+        }
+      } else {
+        sourceClock = 0;
+      }
+
+      // Short substeps keep diffusion stable at high animation speeds.
+      const steps = Math.max(1, Math.ceil(dt / 0.025));
+      const stepDt = dt / steps;
+
+      for (let i = 0; i < steps; i++) simulateStep(stepDt);
+    }
+
+    function colorAt(node) {
+      const palette = [
+        config.appearance.colorA,
+        config.appearance.colorB,
+        config.appearance.colorC
+      ];
+
+      const total = node.ink.reduce((sum, value) => sum + value, 0);
+
+      if (total < 0.0001) {
+        return {
+          color: config.appearance.channelColor,
+          alpha: 0
+        };
+      }
+
+      const color = [0, 1, 2].map(component =>
+        Math.round(
+          palette.reduce(
+            (sum, entry, index) =>
+              sum + entry[component] * node.ink[index],
+            0
+          ) / total
+        )
+      );
+
+      return {
+        color,
+        alpha: clamp(total * config.ink.intensity, 0, 1)
+      };
+    }
+
+    function drawNetwork() {
+      ctx.lineCap = "round";
+      ctx.lineWidth = config.channels.width;
+      ctx.shadowBlur = 0;
+
+      ctx.strokeStyle = rgba(
+        config.appearance.channelColor,
+        config.channels.opacity
+      );
+
+      ctx.beginPath();
+
+      for (const [aIndex, bIndex] of edges) {
+        const a = nodes[aIndex];
+        const b = nodes[bIndex];
+
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+      }
+
+      ctx.stroke();
+
+      const colors = nodes.map(colorAt);
+
+      for (const [aIndex, bIndex] of edges) {
+        const a = nodes[aIndex];
+        const b = nodes[bIndex];
+        const ca = colors[aIndex];
+        const cb = colors[bIndex];
+
+        if (Math.max(ca.alpha, cb.alpha) < 0.01) continue;
+
+        const gradient = ctx.createLinearGradient(
+          a.x, a.y, b.x, b.y
+        );
+
+        gradient.addColorStop(0, rgba(ca.color, ca.alpha));
+        gradient.addColorStop(1, rgba(cb.color, cb.alpha));
+
+        ctx.strokeStyle = gradient;
+        ctx.shadowColor = rgba(
+          ca.alpha > cb.alpha ? ca.color : cb.color,
+          Math.max(ca.alpha, cb.alpha) * 0.7
+        );
+
+        ctx.shadowBlur = config.ink.glow;
+
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+
+      ctx.shadowBlur = 0;
+
+      for (let index = 0; index < nodes.length; index++) {
+        const node = nodes[index];
+        const { color, alpha } = colors[index];
+
+        if (alpha < 0.04) continue;
+
+        ctx.fillStyle = rgba(color, alpha * 0.7);
+        ctx.beginPath();
+        ctx.arc(
+          node.x,
+          node.y,
+          config.channels.width * 0.8 + alpha,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+      }
+    }
+
+    function drawHalo() {
+      if (
+        !config.mouse.enabled ||
+        !config.mouse.showHalo ||
+        mouse.influence < 0.001
+      ) return;
+
+      const weights = mouseColorWeights();
+      const palette = [
+        config.appearance.colorA,
+        config.appearance.colorB,
+        config.appearance.colorC
+      ];
+
+      const color = [0, 1, 2].map(component =>
+        Math.round(
+          palette.reduce(
+            (sum, entry, index) =>
+              sum + entry[component] * weights[index],
+            0
+          )
+        )
+      );
+
+      const gradient = ctx.createRadialGradient(
+        mouse.x, mouse.y, 0,
+        mouse.x, mouse.y, config.mouse.radius
+      );
+
+      gradient.addColorStop(
+        0,
+        rgba(color, mouse.influence * 0.05)
+      );
+      gradient.addColorStop(1, rgba(color, 0));
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      const dt = still ? 0 : realDt * config.animation.speed;
+      time += dt;
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      simulate(dt);
+
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      drawHalo();
+      drawNetwork();
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave",
+      () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: refresh,
+            onReset: buildGraph
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>

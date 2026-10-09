@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Resonant Pools</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #060d19;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      pools: {
+        count: 5,
+        strength: 1,
+        drift: 35,
+        driftSpeed: 0.12
+      },
+
+      waves: {
+        wavelength: 85,
+        speed: 45,
+        damping: 0.8,
+        contrast: 1.8,
+        brightness: 0.8,
+        resolution: 4
+      },
+
+      mouse: {
+        enabled: true,
+        strength: 1.5,
+        smoothing: 7
+      },
+
+      appearance: {
+        backgroundColor: [6, 13, 25],
+        colorA: [54, 137, 167],
+        colorB: [143, 101, 189],
+        highlightColor: [186, 235, 223],
+        showSources: true,
+        sourceSize: 2.5
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+
+    const fieldCanvas = document.createElement("canvas");
+    const fieldCtx = fieldCanvas.getContext("2d");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let pools = [];
+    let pixels;
+    let time = 0;
+    let previous = null;
+    let fieldKey = "";
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      influence: 0,
+      active: false
+    };
+
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    function makePool() {
+      return {
+        x: 0.1 + Math.random() * 0.8,
+        y: 0.1 + Math.random() * 0.8,
+        phase: Math.random() * Math.PI * 2,
+        rate: 0.6 + Math.random() * 0.8
+      };
+    }
+
+    function syncPools() {
+      const count = Math.round(config.pools.count);
+      while (pools.length < count) pools.push(makePool());
+      pools.length = count;
+    }
+
+    function reset() {
+      pools = [];
+      syncPools();
+      time = 0;
+    }
+
+    function resizeField() {
+      const resolution = Math.round(config.waves.resolution);
+      const fieldWidth = Math.max(1, Math.ceil(width / resolution));
+      const fieldHeight = Math.max(1, Math.ceil(height / resolution));
+      const key = `${fieldWidth}:${fieldHeight}`;
+
+      if (key === fieldKey) return;
+
+      fieldCanvas.width = fieldWidth;
+      fieldCanvas.height = fieldHeight;
+      pixels = fieldCtx.createImageData(fieldWidth, fieldHeight);
+      fieldKey = key;
+    }
+
+    function refresh() {
+      syncPools();
+      resizeField();
+    }
+
+    function resize() {
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      resizeField();
+    }
+
+    function sourcePositions() {
+      const clock = time * config.pools.driftSpeed;
+
+      const sources = pools.map(pool => ({
+        x: pool.x * width +
+          Math.sin(clock * pool.rate + pool.phase) * config.pools.drift,
+
+        y: pool.y * height +
+          Math.cos(clock * pool.rate * 0.73 + pool.phase) *
+          config.pools.drift,
+
+        phase: pool.phase,
+        strength: config.pools.strength
+      }));
+
+      if (config.mouse.enabled && mouse.influence > 0.001) {
+        sources.push({
+          x: mouse.x,
+          y: mouse.y,
+          phase: 0,
+          strength: config.mouse.strength * mouse.influence
+        });
+      }
+
+      return sources;
+    }
+
+    function drawField(sources) {
+      const fw = fieldCanvas.width;
+      const fh = fieldCanvas.height;
+      const data = pixels.data;
+
+      const wavelength = config.waves.wavelength;
+      const waveNumber = Math.PI * 2 / wavelength;
+      const clock = time * config.waves.speed * waveNumber;
+      const attenuationDistance = Math.max(width, height) * 0.65;
+
+      const normalization = Math.sqrt(
+        Math.max(
+          1,
+          sources.reduce(
+            (sum, source) => sum + source.strength * source.strength,
+            0
+          )
+        )
+      );
+
+      const background = config.appearance.backgroundColor;
+      const colorA = config.appearance.colorA;
+      const colorB = config.appearance.colorB;
+      const highlight = config.appearance.highlightColor;
+
+      for (let y = 0; y < fh; y++) {
+        const screenY = (y + 0.5) / fh * height;
+
+        for (let x = 0; x < fw; x++) {
+          const screenX = (x + 0.5) / fw * width;
+          let amplitude = 0;
+
+          for (const source of sources) {
+            const dx = screenX - source.x;
+            const dy = screenY - source.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            const attenuation = Math.exp(
+              -distance / attenuationDistance * config.waves.damping
+            );
+
+            amplitude +=
+              Math.cos(distance * waveNumber - clock + source.phase) *
+              attenuation * source.strength;
+          }
+
+          amplitude /= normalization;
+
+          // Squared amplitude exposes constructive and destructive
+          // interference instead of simply drawing overlapping rings.
+          const energy = amplitude * amplitude;
+          const light = Math.pow(
+            clamp(energy / 2, 0, 1),
+            config.waves.contrast
+          ) * config.waves.brightness;
+
+          const tint = clamp(0.5 + amplitude * 0.35, 0, 1);
+          const highlightAmount = clamp(light * light, 0, 1);
+          const index = (y * fw + x) * 4;
+
+          for (let component = 0; component < 3; component++) {
+            const base =
+              colorA[component] +
+              (colorB[component] - colorA[component]) * tint;
+
+            const luminous =
+              base +
+              (highlight[component] - base) * highlightAmount;
+
+            data[index + component] =
+              background[component] +
+              (luminous - background[component]) * light;
+          }
+
+          data[index + 3] = 255;
+        }
+      }
+
+      fieldCtx.putImageData(pixels, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(fieldCanvas, 0, 0, width, height);
+    }
+
+    function drawSources(sources) {
+      if (!config.appearance.showSources) return;
+
+      for (const source of sources) {
+        const opacity = clamp(source.strength * 0.25, 0, 0.6);
+        const radius = config.appearance.sourceSize;
+
+        ctx.fillStyle = rgba(config.appearance.highlightColor, opacity);
+        ctx.beginPath();
+        ctx.arc(source.x, source.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = rgba(
+          config.appearance.highlightColor,
+          opacity * 0.35
+        );
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.arc(source.x, source.y, radius + 5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      if (!still) time += realDt * config.animation.speed;
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      const sources = sourcePositions();
+      drawField(sources);
+      drawSources(sources);
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave",
+      () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    syncPools();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: refresh,
+            onReset: reset
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>

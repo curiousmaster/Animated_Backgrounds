@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chromatic Faults</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #030507;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    fractures: {
+        count: 7,
+        branching: 0.45,
+        maxDepth: 3,
+        segmentLength: 65,
+        roughness: 0.35,
+        openingWidth: 1.2,
+        bendStrength: 35
+    },
+
+    pulses: {
+        speed: 100,
+        length: 85,
+        interval: 1.8,
+        intensity: 0.9,
+        colorA: [40, 210, 220],
+        colorB: [180, 80, 255]
+    },
+
+    appearance: {
+        backgroundColor: [3, 5, 7],
+        fractureColor: [40, 55, 65],
+        baseOpacity: 0.4
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 180,
+        pulseInterval: 0.35,
+        smoothing: 10,
+        color: [255, 160, 90]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.6,
+        blur: 12
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+function rgb(color) {
+    return `rgb(${color.map(v =>
+        Math.round(clamp(v, 0, 255))
+    ).join(",")})`;
+}
+
+function mix(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+    return a.map((v, i) => v + (b[i] - v) * t);
+}
+
+let width = 0;
+let height = 0;
+let segments = [];
+let networks = [];
+let pulses = [];
+let previousTime = null;
+let time = 0;
+let nextAmbientPulse = 0;
+let lastMousePulse = -Infinity;
+
+const mouse = {
+    x: 0, y: 0,
+    tx: 0, ty: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+// --------------------------------------------------
+// Fracture trees: every segment records its distance
+// from its root so pulses travel continuously into branches.
+// --------------------------------------------------
+
+function generateFractures() {
+    segments = [];
+    networks = [];
+    pulses = [];
+
+    const count = Math.max(0, Math.floor(config.fractures.count));
+    const baseLength = Math.max(15, config.fractures.segmentLength);
+    const diagonal = Math.hypot(width, height);
+
+    for (let network = 0; network < count; network++) {
+        const rootX = Math.random() * width;
+        const rootY = Math.random() * height;
+        const angle = Math.random() * Math.PI * 2;
+        const info = { maxDistance: 0 };
+
+        networks.push(info);
+
+        function grow(x, y, direction, depth, distance, remaining) {
+            if (segments.length >= 2500 || remaining <= 0) return;
+
+            const length = baseLength * (0.7 + Math.random() * 0.6);
+            const turn = (Math.random() - 0.5) *
+                config.fractures.roughness;
+
+            const nextAngle = direction + turn;
+            const ex = x + Math.cos(nextAngle) * length;
+            const ey = y + Math.sin(nextAngle) * length;
+
+            if (ex < -50 || ex > width + 50 ||
+                ey < -50 || ey > height + 50) return;
+
+            segments.push({
+                x, y, ex, ey,
+                network,
+                startDistance: distance,
+                length
+            });
+
+            const nextDistance = distance + length;
+            info.maxDistance = Math.max(info.maxDistance, nextDistance);
+
+            if (
+                depth < config.fractures.maxDepth &&
+                Math.random() < config.fractures.branching
+            ) {
+                grow(
+                    ex, ey,
+                    nextAngle + (Math.random() < 0.5 ? -1 : 1) *
+                        (0.45 + Math.random() * 0.6),
+                    depth + 1,
+                    nextDistance,
+                    Math.floor(remaining * 0.55)
+                );
+            }
+
+            grow(
+                ex, ey,
+                nextAngle,
+                depth,
+                nextDistance,
+                remaining - 1
+            );
+        }
+
+        const steps = Math.ceil(diagonal / baseLength);
+
+        grow(rootX, rootY, angle, 0, 0, steps);
+        grow(rootX, rootY, angle + Math.PI, 0, 0, steps);
+    }
+
+    nextAmbientPulse = time;
+}
+
+function resize() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+
+    width = innerWidth;
+    height = innerHeight;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    generateFractures();
+}
+
+// --------------------------------------------------
+// Pulse sources
+// --------------------------------------------------
+
+function emitPulse(network, origin, color) {
+    if (!networks[network]) return;
+
+    pulses.push({
+        network,
+        origin,
+        travel: 0,
+        color
+    });
+
+    pulses = pulses.slice(-60);
+}
+
+function nearestSegment(x, y) {
+    let nearest = null;
+    let best = Infinity;
+
+    for (const segment of segments) {
+        const dx = segment.ex - segment.x;
+        const dy = segment.ey - segment.y;
+
+        const t = clamp(
+            ((x - segment.x) * dx + (y - segment.y) * dy) /
+            (dx * dx + dy * dy),
+            0, 1
+        );
+
+        const px = segment.x + dx * t;
+        const py = segment.y + dy * t;
+        const distance = Math.hypot(x - px, y - py);
+
+        if (distance < best) {
+            best = distance;
+            nearest = {
+                segment,
+                distance,
+                origin: segment.startDistance + segment.length * t
+            };
+        }
+    }
+
+    return nearest;
+}
+
+function updatePulses(delta) {
+    if (networks.length &&
+        time >= nextAmbientPulse &&
+        config.pulses.interval > 0) {
+        const network = Math.floor(Math.random() * networks.length);
+
+        emitPulse(
+            network,
+            0,
+            mix(config.pulses.colorA, config.pulses.colorB, Math.random())
+        );
+
+        nextAmbientPulse = time + config.pulses.interval;
+    }
+
+    if (
+        config.mouse.enabled &&
+        mouse.active &&
+        time - lastMousePulse >= config.mouse.pulseInterval
+    ) {
+        const nearest = nearestSegment(mouse.x, mouse.y);
+
+        if (nearest && nearest.distance < config.mouse.radius) {
+            emitPulse(
+                nearest.segment.network,
+                nearest.origin,
+                config.mouse.color
+            );
+
+            lastMousePulse = time;
+        }
+    }
+
+    for (const pulse of pulses) {
+        pulse.travel += Math.max(0, config.pulses.speed) * delta;
+    }
+
+    pulses = pulses.filter(pulse => {
+        const maxDistance = networks[pulse.network]?.maxDistance || 0;
+        return pulse.travel < maxDistance + config.pulses.length * 3;
+    });
+}
+
+// --------------------------------------------------
+// Mouse deformation
+// --------------------------------------------------
+
+function bendPoint(x, y) {
+    if (!config.mouse.enabled || mouse.influence < 0.001) {
+        return { x, y };
+    }
+
+    const dx = x - mouse.x;
+    const dy = y - mouse.y;
+    const distance = Math.hypot(dx, dy);
+    const radius = Math.max(1, config.mouse.radius);
+
+    const influence = mouse.influence *
+        Math.exp(-distance * distance / (2 * radius * radius));
+
+    const displacement =
+        influence * config.fractures.bendStrength *
+        Math.sin(time * 1.2 + distance / 70);
+
+    const divisor = Math.max(20, distance);
+
+    return {
+        x: x + dx / divisor * displacement,
+        y: y + dy / divisor * displacement
+    };
+}
+
+function drawLine(a, b, color, opacity, lineWidth, glow = false) {
+    if (opacity <= 0.005 || lineWidth <= 0) return;
+
+    ctx.save();
+    ctx.strokeStyle = rgb(color);
+    ctx.lineWidth = lineWidth;
+    ctx.lineCap = "round";
+
+    if (glow && config.glow.enabled && config.glow.intensity > 0) {
+        ctx.globalAlpha = clamp(opacity * config.glow.intensity, 0, 1);
+        ctx.shadowColor = rgb(color);
+        ctx.shadowBlur = Math.max(0, config.glow.blur);
+
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+    }
+
+    ctx.globalAlpha = clamp(opacity, 0, 1);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawFractures() {
+    const lineWidth = Math.max(0, config.fractures.openingWidth);
+    const pulseLength = Math.max(5, config.pulses.length);
+
+    for (const segment of segments) {
+        // Subdivide so pulses have smooth spatial falloff.
+        const steps = Math.max(1, Math.ceil(segment.length / 10));
+
+        for (let step = 0; step < steps; step++) {
+            const t1 = step / steps;
+            const t2 = (step + 1) / steps;
+
+            const a = bendPoint(
+                segment.x + (segment.ex - segment.x) * t1,
+                segment.y + (segment.ey - segment.y) * t1
+            );
+
+            const b = bendPoint(
+                segment.x + (segment.ex - segment.x) * t2,
+                segment.y + (segment.ey - segment.y) * t2
+            );
+
+            drawLine(
+                a, b,
+                config.appearance.fractureColor,
+                config.appearance.baseOpacity,
+                lineWidth
+            );
+
+            const distance = segment.startDistance +
+                segment.length * (t1 + t2) / 2;
+
+            let total = 0;
+            let r = 0, g = 0, blue = 0;
+
+            for (const pulse of pulses) {
+                if (pulse.network !== segment.network) continue;
+
+                const difference =
+                    Math.abs(distance - pulse.origin) - pulse.travel;
+
+                const amount = Math.exp(
+                    -difference * difference /
+                    (2 * pulseLength * pulseLength)
+                );
+
+                total += amount;
+                r += pulse.color[0] * amount;
+                g += pulse.color[1] * amount;
+                blue += pulse.color[2] * amount;
+            }
+
+            if (total > 0.005) {
+                drawLine(
+                    a, b,
+                    [r / total, g / total, blue / total],
+                    (1 - Math.exp(-total)) * config.pulses.intensity,
+                    lineWidth,
+                    true
+                );
+            }
+        }
+    }
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    time += delta;
+
+    const smoothing = 1 - Math.exp(
+        -Math.max(0.1, config.mouse.smoothing) * delta
+    );
+
+    mouse.x += (mouse.tx - mouse.x) * smoothing;
+    mouse.y += (mouse.ty - mouse.y) * smoothing;
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) -
+        mouse.influence
+    ) * smoothing;
+
+    updatePulses(delta);
+
+    ctx.fillStyle = rgb(config.appearance.backgroundColor);
+    ctx.fillRect(0, 0, width, height);
+
+    drawFractures();
+    requestAnimationFrame(animate);
+}
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.tx = event.clientX;
+    mouse.ty = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.tx;
+        mouse.y = mouse.ty;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+requestAnimationFrame(animate);
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+                onChange(path) {
+                    if ([
+                        "fractures.count",
+                        "fractures.branching",
+                        "fractures.maxDepth",
+                        "fractures.segmentLength",
+                        "fractures.roughness"
+                    ].includes(path)) {
+                        generateFractures();
+                    }
+
+                    deactivateMouse();
+                },
+                onReset: generateFractures
+            });
+        })
+        .catch(error => {
+            console.error("Could not load editor:", error);
+        });
+}
+</script>
+</body>
+</html>

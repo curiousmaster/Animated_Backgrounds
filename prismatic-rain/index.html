@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prismatic Rain</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #050711;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      rain: {
+        count: 150,
+        speed: 150,
+        direction: 12,
+        length: 100,
+        width: 0.8,
+        opacity: 0.55,
+        depthVariation: 0.65
+      },
+
+      prisms: {
+        bands: 3,
+        angle: -25,
+        spacing: 220,
+        thickness: 85,
+        strength: 30,
+        separation: 18,
+        drift: 12,
+        showBands: true,
+        bandOpacity: 0.025
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 200,
+        strength: 65,
+        separation: 35,
+        smoothing: 8,
+        showHalo: true
+      },
+
+      appearance: {
+        backgroundColor: [5, 7, 17],
+        coreColor: [220, 235, 255],
+        colorA: [102, 205, 255],
+        colorB: [186, 122, 255],
+        colorC: [255, 145, 181],
+        glow: 8
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let drops = [];
+    let time = 0;
+    let previous = null;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      influence: 0,
+      active: false
+    };
+
+    const random = (min, max) => min + Math.random() * (max - min);
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const radians = degrees => degrees * Math.PI / 180;
+
+    function rgba(color, opacity = 1) {
+      return `rgba(${color.join(",")},${clamp(opacity, 0, 1)})`;
+    }
+
+    function makeDrop() {
+      return {
+        x: Math.random() * width,
+        y: Math.random() * height,
+        depth: Math.random(),
+        phase: random(0, Math.PI * 2),
+        lengthFactor: random(0.65, 1.35)
+      };
+    }
+
+    function syncDrops() {
+      const count = Math.round(config.rain.count);
+
+      while (drops.length < count) {
+        drops.push(makeDrop());
+      }
+
+      drops.length = count;
+    }
+
+    function reset() {
+      drops = [];
+      syncDrops();
+    }
+
+    function resize() {
+      const oldWidth = width;
+      const oldHeight = height;
+
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      for (const drop of drops) {
+        drop.x *= width / oldWidth;
+        drop.y *= height / oldHeight;
+      }
+
+      if (!drops.length) reset();
+    }
+
+    function getBands() {
+      const angle = radians(config.prisms.angle);
+
+      return {
+        nx: Math.cos(angle),
+        ny: Math.sin(angle),
+        tx: -Math.sin(angle),
+        ty: Math.cos(angle)
+      };
+    }
+
+    function bandOffset(index) {
+      return (
+        (index - (config.prisms.bands - 1) / 2) *
+        config.prisms.spacing +
+        Math.sin(time * 0.15 + index * 1.7) *
+        config.prisms.drift
+      );
+    }
+
+    function fieldAt(x, y, basis) {
+      let bendX = 0;
+      let bendY = 0;
+      let splitX = 0;
+      let splitY = 0;
+
+      const coordinate =
+        (x - width / 2) * basis.nx +
+        (y - height / 2) * basis.ny;
+
+      for (let i = 0; i < config.prisms.bands; i++) {
+        const distance = coordinate - bandOffset(i);
+        const normalized = distance / config.prisms.thickness;
+        const influence = Math.exp(-normalized * normalized * 2);
+        const polarity = i % 2 ? -1 : 1;
+
+        bendX += basis.tx * influence *
+          config.prisms.strength * polarity;
+
+        bendY += basis.ty * influence *
+          config.prisms.strength * polarity;
+
+        splitX += basis.nx * influence * config.prisms.separation;
+        splitY += basis.ny * influence * config.prisms.separation;
+      }
+
+      if (config.mouse.enabled && mouse.influence > 0.001) {
+        const dx = x - mouse.x;
+        const dy = y - mouse.y;
+        const distance = Math.hypot(dx, dy);
+        const normalized = distance / config.mouse.radius;
+
+        const influence =
+          Math.exp(-normalized * normalized * 2.5) *
+          mouse.influence;
+
+        // A small denominator prevents a singularity at the pointer.
+        const denominator = Math.max(distance, 18);
+        const nx = dx / denominator;
+        const ny = dy / denominator;
+
+        bendX += nx * config.mouse.strength * influence;
+        bendY += ny * config.mouse.strength * influence;
+
+        splitX += -ny * config.mouse.separation * influence;
+        splitY += nx * config.mouse.separation * influence;
+      }
+
+      return { bendX, bendY, splitX, splitY };
+    }
+
+    function drawBands(basis) {
+      if (!config.prisms.showBands) return;
+
+      const extent = Math.hypot(width, height) + 200;
+
+      ctx.save();
+      ctx.translate(width / 2, height / 2);
+      ctx.rotate(radians(config.prisms.angle));
+
+      for (let i = 0; i < config.prisms.bands; i++) {
+        const offset = bandOffset(i);
+        const thickness = config.prisms.thickness;
+
+        const gradient = ctx.createLinearGradient(
+          offset - thickness,
+          0,
+          offset + thickness,
+          0
+        );
+
+        gradient.addColorStop(
+          0,
+          rgba(config.appearance.colorA, 0)
+        );
+        gradient.addColorStop(
+          0.5,
+          rgba(
+            config.appearance.colorB,
+            config.prisms.bandOpacity
+          )
+        );
+        gradient.addColorStop(
+          1,
+          rgba(config.appearance.colorC, 0)
+        );
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(
+          offset - thickness,
+          -extent / 2,
+          thickness * 2,
+          extent
+        );
+
+        ctx.strokeStyle = rgba(
+          config.appearance.coreColor,
+          config.prisms.bandOpacity
+        );
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(offset, -extent / 2);
+        ctx.lineTo(offset, extent / 2);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function drawHalo() {
+      if (
+        !config.mouse.enabled ||
+        !config.mouse.showHalo ||
+        mouse.influence < 0.001
+      ) return;
+
+      const radius = config.mouse.radius;
+
+      const gradient = ctx.createRadialGradient(
+        mouse.x, mouse.y, 0,
+        mouse.x, mouse.y, radius
+      );
+
+      gradient.addColorStop(
+        0,
+        rgba(
+          config.appearance.colorB,
+          0.035 * mouse.influence
+        )
+      );
+      gradient.addColorStop(
+        0.65,
+        rgba(
+          config.appearance.colorA,
+          0.015 * mouse.influence
+        )
+      );
+      gradient.addColorStop(1, rgba(config.appearance.colorA, 0));
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    function drawDrop(drop, dt, direction, basis) {
+      const depth =
+        1 - config.rain.depthVariation * (1 - drop.depth);
+
+      const speed = config.rain.speed * depth;
+
+      drop.x += direction.x * speed * dt;
+      drop.y += direction.y * speed * dt;
+
+      const length =
+        config.rain.length * drop.lengthFactor * depth;
+
+      const margin = config.rain.length * 1.5 +
+        config.prisms.strength +
+        config.prisms.separation +
+        config.mouse.strength +
+        config.mouse.separation + 40;
+
+      const spanX = width + margin * 2;
+      const spanY = height + margin * 2;
+
+      if (drop.x < -margin) drop.x += spanX;
+      if (drop.x > width + margin) drop.x -= spanX;
+      if (drop.y < -margin) drop.y += spanY;
+      if (drop.y > height + margin) drop.y -= spanY;
+
+      const points = [];
+      const samples = 22;
+
+      for (let i = 0; i <= samples; i++) {
+        const u = i / samples;
+
+        const x = drop.x - direction.x * length * (1 - u);
+        const y = drop.y - direction.y * length * (1 - u);
+
+        const field = fieldAt(x, y, basis);
+
+        points.push({
+          x: x + field.bendX * depth,
+          y: y + field.bendY * depth,
+          splitX: field.splitX * depth,
+          splitY: field.splitY * depth
+        });
+      }
+
+      const shimmer =
+        0.85 + Math.sin(time * 0.7 + drop.phase) * 0.15;
+
+      const opacity =
+        config.rain.opacity * depth * shimmer;
+
+      function strokeTrail(color, channel, alpha, lineWidth) {
+        const first = points[0];
+        const last = points[points.length - 1];
+
+        const startX = first.x + first.splitX * channel;
+        const startY = first.y + first.splitY * channel;
+        const endX = last.x + last.splitX * channel;
+        const endY = last.y + last.splitY * channel;
+
+        const gradient = ctx.createLinearGradient(
+          startX, startY, endX, endY
+        );
+
+        gradient.addColorStop(0, rgba(color, 0));
+        gradient.addColorStop(0.45, rgba(color, alpha * 0.3));
+        gradient.addColorStop(1, rgba(color, alpha));
+
+        ctx.strokeStyle = gradient;
+        ctx.lineWidth = lineWidth;
+        ctx.shadowColor = rgba(color);
+        ctx.shadowBlur = config.appearance.glow * depth;
+
+        ctx.beginPath();
+
+        points.forEach((point, i) => {
+          const x = point.x + point.splitX * channel;
+          const y = point.y + point.splitY * channel;
+
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+
+        ctx.stroke();
+      }
+
+      strokeTrail(
+        config.appearance.colorA,
+        -1,
+        opacity * 0.65,
+        config.rain.width * depth
+      );
+
+      strokeTrail(
+        config.appearance.colorB,
+        0,
+        opacity * 0.5,
+        config.rain.width * depth
+      );
+
+      strokeTrail(
+        config.appearance.colorC,
+        1,
+        opacity * 0.65,
+        config.rain.width * depth
+      );
+
+      strokeTrail(
+        config.appearance.coreColor,
+        0,
+        opacity * 0.6,
+        config.rain.width * depth * 0.45
+      );
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      const dt = still ? 0 : realDt * config.animation.speed;
+      time += dt;
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      ctx.globalCompositeOperation = "source-over";
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      const basis = getBands();
+      const angle = radians(config.rain.direction);
+
+      const direction = {
+        x: Math.sin(angle),
+        y: Math.cos(angle)
+      };
+
+      drawBands(basis);
+      drawHalo();
+
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+
+      for (const drop of drops) {
+        drawDrop(drop, dt, direction, basis);
+      }
+
+      ctx.restore();
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") {
+        mouse.active = false;
+      }
+    });
+
+    addEventListener("pointercancel", () => {
+      mouse.active = false;
+    });
+
+    document.documentElement.addEventListener("pointerleave", () => {
+      mouse.active = false;
+    });
+
+    addEventListener("blur", () => {
+      mouse.active = false;
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: syncDrops,
+            onReset: reset
+          });
+        })
+        .catch(error => {
+          console.error("Editor could not load:", error);
+        });
+    }
+  </script>
+</body>
+</html>

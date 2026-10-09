@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paper Weather</title>
+
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #050810;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    paper: {
+        count: 45,
+        size: 35,
+        panels: 4,
+        foldAngle: 65,
+        foldSpeed: 0.7,
+        tumbleSpeed: 0.5,
+        opacity: 0.3,
+        edgeOpacity: 0.6,
+        colorA: [100, 180, 220],
+        colorB: [195, 145, 225]
+    },
+
+    wind: {
+        direction: -25,
+        strength: 25,
+        gustStrength: 20,
+        gustSpeed: 0.4,
+        friction: 1.5
+    },
+
+    perspective: {
+        distance: 650
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 220,
+        breezeStrength: 100,
+        unfoldStrength: 1,
+        smoothing: 8,
+        color: [255, 190, 130]
+    },
+
+    appearance: {
+        backgroundColor: [5, 8, 16],
+        lineWidth: 0.7
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const radians = degrees => degrees * Math.PI / 180;
+
+function mix(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+    return a.map((v, i) => v + (b[i] - v) * t);
+}
+
+function rgb(color) {
+    return `rgb(${color.map(v =>
+        Math.round(clamp(v, 0, 255))
+    ).join(",")})`;
+}
+
+let width = 0;
+let height = 0;
+let papers = [];
+let previousTime = null;
+let foldTime = 0;
+let tumbleTime = 0;
+let gustTime = 0;
+
+const mouse = {
+    x: 0, y: 0,
+    tx: 0, ty: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+function newPaper() {
+    return {
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: 0,
+        vy: 0,
+        phase: Math.random() * TAU,
+        sizeFactor: 0.6 + Math.random() * 0.8,
+        colorAmount: Math.random(),
+        rotationX: Math.random() * TAU,
+        rotationY: Math.random() * TAU,
+        rotationZ: Math.random() * TAU,
+        response: 0.65 + Math.random() * 0.7,
+        mouseAmount: 0
+    };
+}
+
+function syncPapers() {
+    const count = Math.max(0, Math.floor(config.paper.count));
+    while (papers.length < count) papers.push(newPaper());
+    papers.length = count;
+}
+
+function resetPapers() {
+    papers = [];
+    syncPapers();
+}
+
+function resize() {
+    const oldWidth = width;
+    const oldHeight = height;
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+
+    width = innerWidth;
+    height = innerHeight;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (oldWidth && oldHeight) {
+        for (const paper of papers) {
+            paper.x *= width / oldWidth;
+            paper.y *= height / oldHeight;
+        }
+    }
+}
+
+// --------------------------------------------------
+// Wind and cursor breeze
+// --------------------------------------------------
+
+function updatePapers(delta) {
+    const angle = radians(config.wind.direction);
+    const radius = Math.max(1, config.mouse.radius);
+    const drag = Math.exp(-Math.max(0.1, config.wind.friction) * delta);
+
+    for (const paper of papers) {
+        const gust = Math.sin(
+            paper.y / 230 + gustTime + paper.phase
+        ) * config.wind.gustStrength;
+
+        let ax = Math.cos(angle) * config.wind.strength +
+            Math.cos(angle + Math.PI / 2) * gust;
+
+        let ay = Math.sin(angle) * config.wind.strength +
+            Math.sin(angle + Math.PI / 2) * gust;
+
+        paper.mouseAmount = 0;
+
+        if (config.mouse.enabled) {
+            const dx = paper.x - mouse.x;
+            const dy = paper.y - mouse.y;
+            const distance = Math.hypot(dx, dy);
+
+            paper.mouseAmount = mouse.influence * Math.exp(
+                -distance * distance / (2 * radius * radius)
+            );
+
+            const force =
+                paper.mouseAmount * config.mouse.breezeStrength;
+
+            // The breeze pushes outward and lifts the paper.
+            const divisor = Math.max(30, distance);
+            ax += dx / divisor * force;
+            ay += dy / divisor * force * 0.4 - force * 0.7;
+        }
+
+        paper.vx = (paper.vx + ax * paper.response * delta) * drag;
+        paper.vy = (paper.vy + ay * paper.response * delta) * drag;
+
+        paper.x += paper.vx * delta;
+        paper.y += paper.vy * delta;
+
+        const margin = config.paper.size * paper.sizeFactor * 2;
+
+        if (paper.x < -margin) paper.x = width + margin;
+        if (paper.x > width + margin) paper.x = -margin;
+        if (paper.y < -margin) paper.y = height + margin;
+        if (paper.y > height + margin) paper.y = -margin;
+    }
+}
+
+// --------------------------------------------------
+// Accordion geometry and 3D rotation
+// --------------------------------------------------
+
+function rotatePoint(x, y, z, rx, ry, rz) {
+    const y1 = y * Math.cos(rx) - z * Math.sin(rx);
+    const z1 = y * Math.sin(rx) + z * Math.cos(rx);
+
+    const x2 = x * Math.cos(ry) + z1 * Math.sin(ry);
+    const z2 = -x * Math.sin(ry) + z1 * Math.cos(ry);
+
+    return {
+        x: x2 * Math.cos(rz) - y1 * Math.sin(rz),
+        y: x2 * Math.sin(rz) + y1 * Math.cos(rz),
+        z: z2
+    };
+}
+
+function geometry(paper) {
+    const panels = clamp(Math.floor(config.paper.panels), 2, 8);
+    const size = Math.max(5, config.paper.size) * paper.sizeFactor;
+    const panelWidth = size * 2 / panels;
+    const halfHeight = size * 0.65;
+
+    const unfolding = clamp(
+        paper.mouseAmount * config.mouse.unfoldStrength,
+        0, 1
+    );
+
+    const fold = radians(config.paper.foldAngle) *
+        (0.65 + 0.35 * Math.sin(foldTime + paper.phase)) *
+        (1 - unfolding);
+
+    const rx = paper.rotationX + tumbleTime * paper.response;
+    const ry = paper.rotationY + tumbleTime * 0.7;
+    const rz = paper.rotationZ + tumbleTime * 0.35;
+
+    // Build connected panel boundaries so every fold shares a hinge.
+    const boundaries = [{ x: 0, z: 0 }];
+
+    for (let i = 0; i < panels; i++) {
+        const sign = i % 2 === 0 ? 1 : -1;
+        const previous = boundaries[boundaries.length - 1];
+
+        boundaries.push({
+            x: previous.x + Math.cos(fold) * panelWidth,
+            z: previous.z + Math.sin(fold) * panelWidth * sign
+        });
+    }
+
+    const centerX = boundaries[panels].x / 2;
+    const minZ = Math.min(...boundaries.map(p => p.z));
+    const maxZ = Math.max(...boundaries.map(p => p.z));
+    const centerZ = (minZ + maxZ) / 2;
+
+    const camera = Math.max(
+        config.perspective.distance,
+        size * 4 + 100
+    );
+
+    function vertex(boundary, y) {
+        const rotated = rotatePoint(
+            boundary.x - centerX,
+            y,
+            boundary.z - centerZ,
+            rx, ry, rz
+        );
+
+        const scale = camera / (camera + rotated.z);
+
+        return {
+            x: paper.x + rotated.x * scale,
+            y: paper.y + rotated.y * scale,
+            z: rotated.z
+        };
+    }
+
+    const faces = [];
+
+    for (let i = 0; i < panels; i++) {
+        const points = [
+            vertex(boundaries[i], -halfHeight),
+            vertex(boundaries[i + 1], -halfHeight),
+            vertex(boundaries[i + 1], halfHeight),
+            vertex(boundaries[i], halfHeight)
+        ];
+
+        faces.push({
+            points,
+            depth: points.reduce((sum, p) => sum + p.z, 0) / 4,
+            index: i,
+            unfolding
+        });
+    }
+
+    return faces.sort((a, b) => b.depth - a.depth);
+}
+
+// --------------------------------------------------
+// Drawing
+// --------------------------------------------------
+
+function drawPaper(paper) {
+    const baseColor = mix(
+        config.paper.colorA,
+        config.paper.colorB,
+        paper.colorAmount
+    );
+
+    const color = mix(
+        baseColor,
+        config.mouse.color,
+        paper.mouseAmount
+    );
+
+    const faces = geometry(paper);
+
+    for (const face of faces) {
+        const path = new Path2D();
+        path.moveTo(face.points[0].x, face.points[0].y);
+
+        for (let i = 1; i < face.points.length; i++) {
+            path.lineTo(face.points[i].x, face.points[i].y);
+        }
+
+        path.closePath();
+
+        // Alternating illumination makes the folds legible.
+        const shade = face.index % 2 === 0
+            ? 0.9
+            : 0.55 + face.unfolding * 0.3;
+
+        ctx.fillStyle = rgb(color.map(v => v * shade));
+        ctx.globalAlpha = clamp(config.paper.opacity, 0, 1);
+        ctx.fill(path);
+
+        if (config.appearance.lineWidth > 0) {
+            ctx.strokeStyle = rgb(color);
+            ctx.lineWidth = config.appearance.lineWidth;
+            ctx.globalAlpha = clamp(config.paper.edgeOpacity, 0, 1);
+            ctx.stroke(path);
+        }
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    foldTime += delta * config.paper.foldSpeed;
+    tumbleTime += delta * config.paper.tumbleSpeed;
+    gustTime += delta * config.wind.gustSpeed;
+
+    const smoothing = 1 - Math.exp(
+        -Math.max(0.1, config.mouse.smoothing) * delta
+    );
+
+    mouse.x += (mouse.tx - mouse.x) * smoothing;
+    mouse.y += (mouse.ty - mouse.y) * smoothing;
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) -
+        mouse.influence
+    ) * smoothing;
+
+    updatePapers(delta);
+
+    ctx.fillStyle = rgb(config.appearance.backgroundColor);
+    ctx.fillRect(0, 0, width, height);
+
+    // Smaller sheets first, giving a gentle sense of depth.
+    const sorted = [...papers].sort(
+        (a, b) => a.sizeFactor - b.sizeFactor
+    );
+
+    for (const paper of sorted) drawPaper(paper);
+
+    requestAnimationFrame(animate);
+}
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.tx = event.clientX;
+    mouse.ty = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.tx;
+        mouse.y = mouse.ty;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+syncPapers();
+requestAnimationFrame(animate);
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+                onChange(path) {
+                    if (path === "paper.count") syncPapers();
+                    deactivateMouse();
+                },
+                onReset: resetPapers
+            });
+        })
+        .catch(error => {
+            console.error("Could not load editor:", error);
+        });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Luminous Sediment</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #070d18;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      grains: {
+        count: 2400,
+        size: 1.3,
+        sizeVariation: 0.65,
+        opacity: 0.65,
+        glow: 5
+      },
+
+      dunes: {
+        layers: 5,
+        height: 65,
+        wavelength: 450,
+        thickness: 25,
+        movement: 0.12,
+        showContours: true,
+        contourOpacity: 0.1
+      },
+
+      physics: {
+        settlingSpeed: 45,
+        gravity: 35,
+        drag: 1.8,
+        erosion: 0.045,
+        erosionLift: 65,
+        current: 14
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 150,
+        liftStrength: 180,
+        scatterStrength: 80,
+        smoothing: 8,
+        showHalo: true
+      },
+
+      appearance: {
+        backgroundColor: [7, 13, 24],
+        colorA: [88, 180, 196],
+        colorB: [207, 153, 115],
+        highlightColor: [215, 235, 223]
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    const sprites = [];
+
+    let width = 1;
+    let height = 1;
+    let grains = [];
+    let time = 0;
+    let previous = null;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      active: false,
+      influence: 0
+    };
+
+    const random = (min, max) => min + Math.random() * (max - min);
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    function mix(a, b, amount) {
+      return a.map((value, index) =>
+        Math.round(value + (b[index] - value) * amount)
+      );
+    }
+
+    function duneY(x, layer) {
+      const layers = Math.round(config.dunes.layers);
+      const baseY = height * (0.3 + (layer + 0.5) / layers * 0.6);
+      const wave = x / config.dunes.wavelength * Math.PI * 2;
+      const clock = time * config.dunes.movement;
+
+      return baseY +
+        Math.sin(wave + layer * 1.6 + clock) * config.dunes.height +
+        Math.sin(wave * 0.47 - layer * 0.9 - clock * 0.6) *
+        config.dunes.height * 0.45;
+    }
+
+    function makeGrain() {
+      const layer = Math.floor(Math.random() * config.dunes.layers);
+      const x = Math.random() * width;
+      const bedOffset = random(-0.5, 0.5);
+
+      return {
+        x,
+        y: duneY(x, layer) + bedOffset * config.dunes.thickness,
+        vx: 0,
+        vy: 0,
+        layer,
+        bedOffset,
+        size: Math.random(),
+        tint: Math.random(),
+        phase: random(0, Math.PI * 2),
+        airborne: false
+      };
+    }
+
+    function syncGrains() {
+      const count = Math.round(config.grains.count);
+      const layers = Math.round(config.dunes.layers);
+
+      while (grains.length < count) grains.push(makeGrain());
+      grains.length = count;
+
+      for (const grain of grains) {
+        grain.layer %= layers;
+      }
+    }
+
+    function reset() {
+      grains = [];
+      syncGrains();
+    }
+
+    // Cached glow sprites avoid thousands of shadow-blur operations.
+    function buildSprites() {
+      sprites.length = 0;
+
+      for (let index = 0; index < 16; index++) {
+        const tint = index / 15;
+
+        const base = mix(
+          config.appearance.colorA,
+          config.appearance.colorB,
+          tint
+        );
+
+        const color = mix(
+          base,
+          config.appearance.highlightColor,
+          0.18
+        );
+
+        const sprite = document.createElement("canvas");
+        sprite.width = 64;
+        sprite.height = 64;
+
+        const spriteCtx = sprite.getContext("2d");
+        const gradient = spriteCtx.createRadialGradient(
+          32, 32, 0,
+          32, 32, 32
+        );
+
+        gradient.addColorStop(0, rgba(color, 0.75));
+        gradient.addColorStop(0.2, rgba(color, 0.3));
+        gradient.addColorStop(1, rgba(color, 0));
+
+        spriteCtx.fillStyle = gradient;
+        spriteCtx.fillRect(0, 0, 64, 64);
+
+        sprites.push({ image: sprite, color });
+      }
+    }
+
+    let paletteKey = "";
+
+    function refresh() {
+      syncGrains();
+
+      const key = JSON.stringify([
+        config.appearance.colorA,
+        config.appearance.colorB,
+        config.appearance.highlightColor
+      ]);
+
+      if (key !== paletteKey) {
+        paletteKey = key;
+        buildSprites();
+      }
+    }
+
+    function resize() {
+      const oldWidth = width;
+      const oldHeight = height;
+
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      for (const grain of grains) {
+        grain.x *= width / oldWidth;
+        grain.y *= height / oldHeight;
+      }
+    }
+
+    function updateGrain(grain, dt) {
+      if (dt <= 0) return;
+
+      const targetY =
+        duneY(grain.x, grain.layer) +
+        grain.bedOffset * config.dunes.thickness;
+
+      const dx = grain.x - mouse.x;
+      const dy = grain.y - mouse.y;
+      const distance = Math.hypot(dx, dy);
+
+      const proximity = clamp(
+        1 - distance / config.mouse.radius,
+        0,
+        1
+      );
+
+      const influence = config.mouse.enabled
+        ? proximity * proximity * mouse.influence
+        : 0;
+
+      if (!grain.airborne) {
+        grain.y +=
+          (targetY - grain.y) *
+          (1 - Math.exp(-4 * dt));
+
+        const erodes =
+          Math.random() <
+          1 - Math.exp(-config.physics.erosion * dt);
+
+        if (influence > 0.03 || erodes) {
+          grain.airborne = true;
+          grain.vy = -config.physics.erosionLift * random(0.5, 1.2);
+          grain.vx = random(-1, 1) * config.physics.current;
+        }
+      }
+
+      if (grain.airborne) {
+        const horizontalDirection = distance > 0.001
+          ? dx / distance
+          : Math.cos(grain.phase);
+
+        grain.vx +=
+          horizontalDirection *
+          config.mouse.scatterStrength *
+          influence * dt;
+
+        grain.vy -=
+          config.mouse.liftStrength * influence * dt;
+
+        grain.vy += config.physics.gravity * dt;
+
+        const current =
+          Math.sin(time * 0.35 + grain.phase) *
+          config.physics.current;
+
+        grain.vx +=
+          (current - grain.vx) *
+          (1 - Math.exp(-config.physics.drag * dt));
+
+        grain.vy = clamp(
+          grain.vy,
+          -300,
+          config.physics.settlingSpeed
+        );
+
+        grain.x += grain.vx * dt;
+        grain.y += grain.vy * dt;
+
+        if (grain.x < 0) grain.x += width;
+        if (grain.x > width) grain.x -= width;
+
+        const bedY =
+          duneY(grain.x, grain.layer) +
+          grain.bedOffset * config.dunes.thickness;
+
+        if (
+          grain.y >= bedY &&
+          grain.vy >= 0 &&
+          influence < 0.03
+        ) {
+          grain.y = bedY;
+          grain.vx = 0;
+          grain.vy = 0;
+          grain.airborne = false;
+        }
+
+        // Keep lifted grains within a generous offscreen margin.
+        if (grain.y < -100) {
+          grain.y = -100;
+          grain.vy = Math.max(0, grain.vy);
+        }
+      }
+    }
+
+    function drawContours() {
+      if (!config.dunes.showContours) return;
+
+      ctx.lineWidth = 0.7;
+
+      const layers = Math.round(config.dunes.layers);
+
+      for (let layer = 0; layer < layers; layer++) {
+        const color = mix(
+          config.appearance.colorA,
+          config.appearance.colorB,
+          layers <= 1 ? 0.5 : layer / (layers - 1)
+        );
+
+        ctx.strokeStyle = rgba(
+          color,
+          config.dunes.contourOpacity
+        );
+
+        ctx.beginPath();
+
+        for (let x = 0; x <= width + 8; x += 8) {
+          const y = duneY(x, layer);
+
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+
+        ctx.stroke();
+      }
+    }
+
+    function drawGrain(grain) {
+      const size =
+        config.grains.size *
+        (1 - config.grains.sizeVariation * (1 - grain.size));
+
+      const layers = Math.round(config.dunes.layers);
+
+      const tint = clamp(
+        (grain.layer / Math.max(1, layers - 1)) * 0.7 +
+        grain.tint * 0.3,
+        0,
+        1
+      );
+
+      const sprite = sprites[Math.round(tint * 15)];
+
+      const shimmer =
+        0.85 + Math.sin(time * 0.7 + grain.phase) * 0.15;
+
+      const opacity =
+        config.grains.opacity *
+        shimmer *
+        (grain.airborne ? 0.8 : 1);
+
+      if (config.grains.glow > 0) {
+        const glowRadius = size + config.grains.glow;
+
+        ctx.globalAlpha = opacity * 0.45;
+
+        ctx.drawImage(
+          sprite.image,
+          grain.x - glowRadius,
+          grain.y - glowRadius,
+          glowRadius * 2,
+          glowRadius * 2
+        );
+      }
+
+      ctx.globalAlpha = opacity;
+      ctx.fillStyle = rgba(sprite.color);
+      ctx.beginPath();
+      ctx.arc(grain.x, grain.y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawHalo() {
+      if (
+        !config.mouse.enabled ||
+        !config.mouse.showHalo ||
+        mouse.influence < 0.001
+      ) return;
+
+      const gradient = ctx.createRadialGradient(
+        mouse.x, mouse.y, 0,
+        mouse.x, mouse.y, config.mouse.radius
+      );
+
+      gradient.addColorStop(
+        0,
+        rgba(
+          config.appearance.highlightColor,
+          mouse.influence * 0.035
+        )
+      );
+
+      gradient.addColorStop(
+        1,
+        rgba(config.appearance.highlightColor, 0)
+      );
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      const dt = still ? 0 : realDt * config.animation.speed;
+      time += dt;
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      drawHalo();
+      drawContours();
+
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+
+      for (const grain of grains) {
+        updateGrain(grain, dt);
+        drawGrain(grain);
+      }
+
+      ctx.restore();
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave",
+      () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    refresh();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: refresh,
+            onReset: reset
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>

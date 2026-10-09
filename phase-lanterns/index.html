@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase Lanterns</title>
+
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #090c19;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      lanterns: {
+        count: 136,
+        size: 138,
+        sizeVariation: 0.6,
+        driftSpeed: 80,
+        morphSpeed: 1.65,
+        sides: 5,
+        polygonStrength: 0.8,
+        interruption: 0.35
+      },
+
+      synchronization: {
+        enabled: true,
+        radius: 190,
+        strength: 0.7,
+        phaseDrift: 0.35
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 530,
+        strength: 2.5,
+        smoothing: 7,
+        showHalo: true
+      },
+
+      appearance: {
+        backgroundColor: [9, 12, 25],
+        colorA: [106, 175, 205],
+        colorB: [183, 121, 204],
+        highlightColor: [233, 212, 164],
+        opacity: 0.5,
+        lineWidth: 1,
+        glow: 9,
+        innerRing: true
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let lanterns = [];
+    let time = 0;
+    let previous = null;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      active: false,
+      influence: 0
+    };
+
+    const random = (min, max) => min + Math.random() * (max - min);
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    function mix(a, b, amount) {
+      return a.map((value, index) =>
+        Math.round(value + (b[index] - value) * amount)
+      );
+    }
+
+    function makeLantern() {
+      const direction = random(0, Math.PI * 2);
+
+      return {
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: Math.cos(direction) * random(0.4, 1),
+        vy: Math.sin(direction) * random(0.4, 1),
+        size: Math.random(),
+        tint: Math.random(),
+        phase: random(0, Math.PI * 2),
+        frequencyOffset: random(-1, 1),
+        rotation: random(0, Math.PI * 2),
+        rotationDirection: Math.random() < 0.5 ? -1 : 1,
+        pointerInfluence: 0
+      };
+    }
+
+    function syncLanterns() {
+      const count = Math.round(config.lanterns.count);
+
+      while (lanterns.length < count) {
+        lanterns.push(makeLantern());
+      }
+
+      lanterns.length = count;
+    }
+
+    function reset() {
+      lanterns = [];
+      syncLanterns();
+    }
+
+    function resize() {
+      const oldWidth = width;
+      const oldHeight = height;
+
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      for (const lantern of lanterns) {
+        lantern.x *= width / oldWidth;
+        lantern.y *= height / oldHeight;
+      }
+    }
+
+    function updateLanterns(dt, interactionDt) {
+      const count = lanterns.length;
+      const coupling = new Float64Array(count);
+      const weights = new Float64Array(count);
+
+      if (config.synchronization.enabled) {
+        const radius = config.synchronization.radius;
+
+        // Compute interactions from the same phase snapshot.
+        for (let i = 0; i < count; i++) {
+          for (let j = i + 1; j < count; j++) {
+            const a = lanterns[i];
+            const b = lanterns[j];
+
+            const distance = Math.hypot(a.x - b.x, a.y - b.y);
+            if (distance >= radius) continue;
+
+            const weight = Math.pow(1 - distance / radius, 2);
+            const exchange = Math.sin(b.phase - a.phase) * weight;
+
+            coupling[i] += exchange;
+            coupling[j] -= exchange;
+            weights[i] += weight;
+            weights[j] += weight;
+          }
+        }
+      }
+
+      const pointerPhase = time * config.lanterns.morphSpeed;
+      const response =
+        1 - Math.exp(-config.mouse.smoothing * interactionDt);
+
+      for (let i = 0; i < count; i++) {
+        const lantern = lanterns[i];
+
+        const distance = Math.hypot(
+          lantern.x - mouse.x,
+          lantern.y - mouse.y
+        );
+
+        const proximity = clamp(
+          1 - distance / config.mouse.radius,
+          0,
+          1
+        );
+
+        const target = config.mouse.enabled
+          ? proximity * proximity * mouse.influence
+          : 0;
+
+        lantern.pointerInfluence +=
+          (target - lantern.pointerInfluence) * response;
+
+        const frequency =
+          config.lanterns.morphSpeed *
+          (
+            1 +
+            lantern.frequencyOffset *
+            config.synchronization.phaseDrift
+          );
+
+        const neighborPull =
+          coupling[i] / Math.max(1, weights[i]) *
+          config.synchronization.strength;
+
+        const pointerPull =
+          Math.sin(pointerPhase - lantern.phase) *
+          lantern.pointerInfluence *
+          config.mouse.strength;
+
+        lantern.phase +=
+          (frequency + neighborPull + pointerPull) * dt;
+
+        lantern.phase = (
+          (lantern.phase % (Math.PI * 2)) + Math.PI * 2
+        ) % (Math.PI * 2);
+
+        lantern.x +=
+          lantern.vx * config.lanterns.driftSpeed * dt;
+
+        lantern.y +=
+          lantern.vy * config.lanterns.driftSpeed * dt;
+
+        lantern.rotation +=
+          lantern.rotationDirection *
+          config.lanterns.morphSpeed * 0.08 * dt;
+
+        const margin = config.lanterns.size * 1.5 + 20;
+
+        if (lantern.x < -margin) lantern.x = width + margin;
+        if (lantern.x > width + margin) lantern.x = -margin;
+        if (lantern.y < -margin) lantern.y = height + margin;
+        if (lantern.y > height + margin) lantern.y = -margin;
+      }
+    }
+
+    function drawLantern(lantern) {
+      const phase = lantern.phase;
+      const sides = Math.round(config.lanterns.sides);
+      const sector = Math.PI * 2 / sides;
+
+      const morph =
+        (0.5 + 0.5 * Math.sin(phase)) *
+        config.lanterns.polygonStrength;
+
+      const gapAmount =
+        (0.5 + 0.5 * Math.cos(phase + 1.3)) *
+        config.lanterns.interruption;
+
+      const radius =
+        config.lanterns.size *
+        (
+          1 -
+          config.lanterns.sizeVariation * (1 - lantern.size)
+        ) *
+        (0.9 + Math.sin(phase) * 0.1);
+
+      const baseColor = mix(
+        config.appearance.colorA,
+        config.appearance.colorB,
+        lantern.tint
+      );
+
+      const color = mix(
+        baseColor,
+        config.appearance.highlightColor,
+        lantern.pointerInfluence * 0.65
+      );
+
+      const alpha =
+        config.appearance.opacity *
+        (0.65 + Math.cos(phase) * 0.15 + lantern.size * 0.2);
+
+      ctx.save();
+      ctx.translate(lantern.x, lantern.y);
+      ctx.rotate(lantern.rotation);
+
+      ctx.strokeStyle = rgba(color, alpha);
+      ctx.lineWidth = config.appearance.lineWidth;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.shadowColor = rgba(color);
+      ctx.shadowBlur = config.appearance.glow;
+
+      const samples = 180;
+      let connected = false;
+
+      ctx.beginPath();
+
+      for (let i = 0; i <= samples; i++) {
+        const angle = i / samples * Math.PI * 2;
+
+        // A regular polygon's radial profile, blended toward a circle.
+        const localAngle =
+          ((angle + sector / 2) % sector) - sector / 2;
+
+        const polygonRadius =
+          radius * Math.cos(Math.PI / sides) /
+          Math.cos(localAngle);
+
+        const drawRadius =
+          radius + (polygonRadius - radius) * morph;
+
+        const segmentPosition =
+          ((angle / sector) % 1 + 1) % 1;
+
+        const gap = gapAmount > 0.001 &&
+          Math.abs(segmentPosition - 0.5) < gapAmount * 0.5;
+
+        if (gap) {
+          connected = false;
+          continue;
+        }
+
+        const x = Math.cos(angle) * drawRadius;
+        const y = Math.sin(angle) * drawRadius;
+
+        if (connected) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+
+        connected = true;
+      }
+
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      if (config.appearance.innerRing) {
+        ctx.strokeStyle = rgba(color, alpha * 0.2);
+        ctx.lineWidth = config.appearance.lineWidth * 0.65;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.48, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function drawHalo() {
+      if (
+        !config.mouse.enabled ||
+        !config.mouse.showHalo ||
+        mouse.influence < 0.001
+      ) return;
+
+      const gradient = ctx.createRadialGradient(
+        mouse.x, mouse.y, 0,
+        mouse.x, mouse.y, config.mouse.radius
+      );
+
+      gradient.addColorStop(
+        0,
+        rgba(
+          config.appearance.highlightColor,
+          mouse.influence * 0.03
+        )
+      );
+
+      gradient.addColorStop(
+        1,
+        rgba(config.appearance.highlightColor, 0)
+      );
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      const dt = still ? 0 : realDt * config.animation.speed;
+      time += dt;
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      updateLanterns(dt, realDt);
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      drawHalo();
+
+      for (const lantern of lanterns) {
+        drawLantern(lantern);
+      }
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave",
+      () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    reset();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: syncLanterns,
+            onReset: reset
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>

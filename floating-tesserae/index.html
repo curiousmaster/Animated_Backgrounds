@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Floating Tesserae</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #090e19;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      tiles: {
+        size: 28,
+        spacing: 5,
+        sizeVariation: 0.15,
+        rotation: 14,
+        opacity: 0.38,
+        edgeOpacity: 0.2,
+        edgeWidth: 0.6
+      },
+
+      motion: {
+        drift: 15,
+        speed: 0.3,
+        assemblySpeed: 3,
+        separation: 0.65,
+        cycleDuration: 18
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 180,
+        displacement: 100,
+        rotation: 40,
+        smoothing: 7
+      },
+
+      appearance: {
+        backgroundColor: [9, 14, 25],
+        colorA: [70, 157, 177],
+        colorB: [166, 111, 183],
+        colorC: [211, 165, 112],
+        highlightColor: [215, 229, 235],
+        colorScale: 350,
+        colorSpeed: 0.15,
+        sheen: 0.35
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let tiles = [];
+    let meshKey = "";
+    let time = 0;
+    let previous = null;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      active: false,
+      influence: 0
+    };
+
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const radians = degrees => degrees * Math.PI / 180;
+
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    function mix(a, b, amount) {
+      return a.map((value, index) =>
+        Math.round(value + (b[index] - value) * amount)
+      );
+    }
+
+    function buildTiles() {
+      tiles = [];
+
+      const step = config.tiles.size + config.tiles.spacing;
+      const margin = step * 2;
+      const columns = Math.ceil((width + margin * 2) / step);
+      const rows = Math.ceil((height + margin * 2) / step);
+
+      for (let row = 0; row <= rows; row++) {
+        for (let column = 0; column <= columns; column++) {
+          tiles.push({
+            homeX: column * step - margin,
+            homeY: row * step - margin,
+            size: Math.random(),
+            phase: Math.random() * Math.PI * 2,
+            rotationSign: Math.random() < 0.5 ? -1 : 1,
+            offsetX: 0,
+            offsetY: 0,
+            angle: 0,
+            mouseX: 0,
+            mouseY: 0,
+            mouseAngle: 0
+          });
+        }
+      }
+
+      meshKey = JSON.stringify([
+        width,
+        height,
+        config.tiles.size,
+        config.tiles.spacing
+      ]);
+    }
+
+    function refresh() {
+      const key = JSON.stringify([
+        width,
+        height,
+        config.tiles.size,
+        config.tiles.spacing
+      ]);
+
+      if (key !== meshKey) buildTiles();
+    }
+
+    function resize() {
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      buildTiles();
+    }
+
+    function colorAt(x, y) {
+      const scale = config.appearance.colorScale;
+      const clock = time * config.appearance.colorSpeed;
+
+      const field =
+        Math.sin(x / scale + clock) * 0.45 +
+        Math.cos(y / scale * 1.3 - clock * 0.7) * 0.35 +
+        Math.sin((x + y) / scale * 0.6 + clock * 0.4) * 0.2;
+
+      const position = clamp((field + 1) / 2, 0, 1);
+
+      if (position < 0.5) {
+        return mix(
+          config.appearance.colorA,
+          config.appearance.colorB,
+          position * 2
+        );
+      }
+
+      return mix(
+        config.appearance.colorB,
+        config.appearance.colorC,
+        (position - 0.5) * 2
+      );
+    }
+
+    function drawTile(tile, dt, interactionDt) {
+      const clock = time * config.motion.speed;
+
+      // Broad regions separate together instead of moving independently.
+      const cycle =
+        time / config.motion.cycleDuration * Math.PI * 2 +
+        tile.homeX / 500 +
+        tile.homeY / 650;
+
+      const separation =
+        (0.5 + 0.5 * Math.sin(cycle)) *
+        config.motion.separation;
+
+      const targetX =
+        Math.sin(
+          tile.homeY / 230 + clock + tile.phase * 0.15
+        ) * config.motion.drift * separation;
+
+      const targetY =
+        Math.cos(
+          tile.homeX / 270 - clock * 0.8 + tile.phase * 0.15
+        ) * config.motion.drift * separation;
+
+      const targetAngle =
+        radians(config.tiles.rotation) *
+        Math.sin(clock * 0.7 + tile.phase) *
+        separation;
+
+      const assembly =
+        1 - Math.exp(-config.motion.assemblySpeed * dt);
+
+      tile.offsetX += (targetX - tile.offsetX) * assembly;
+      tile.offsetY += (targetY - tile.offsetY) * assembly;
+      tile.angle += (targetAngle - tile.angle) * assembly;
+
+      const naturalX = tile.homeX + tile.offsetX;
+      const naturalY = tile.homeY + tile.offsetY;
+
+      const dx = naturalX - mouse.x;
+      const dy = naturalY - mouse.y;
+      const distance = Math.hypot(dx, dy);
+
+      const proximity = clamp(
+        1 - distance / config.mouse.radius,
+        0,
+        1
+      );
+
+      const influence = config.mouse.enabled
+        ? proximity * proximity * mouse.influence
+        : 0;
+
+      const nx = distance > 0.001
+        ? dx / distance
+        : Math.cos(tile.phase);
+
+      const ny = distance > 0.001
+        ? dy / distance
+        : Math.sin(tile.phase);
+
+      const mouseSmoothing =
+        1 - Math.exp(-config.mouse.smoothing * interactionDt);
+
+      tile.mouseX +=
+        (
+          nx * config.mouse.displacement * influence -
+          tile.mouseX
+        ) * mouseSmoothing;
+
+      tile.mouseY +=
+        (
+          ny * config.mouse.displacement * influence -
+          tile.mouseY
+        ) * mouseSmoothing;
+
+      tile.mouseAngle +=
+        (
+          radians(config.mouse.rotation) *
+          tile.rotationSign * influence -
+          tile.mouseAngle
+        ) * mouseSmoothing;
+
+      const x = naturalX + tile.mouseX;
+      const y = naturalY + tile.mouseY;
+      const angle = tile.angle + tile.mouseAngle;
+
+      const size =
+        config.tiles.size *
+        (1 - config.tiles.sizeVariation * (1 - tile.size));
+
+      const half = size / 2;
+      const color = colorAt(tile.homeX, tile.homeY);
+
+      const highlight = mix(
+        color,
+        config.appearance.highlightColor,
+        config.appearance.sheen
+      );
+
+      const opacity =
+        config.tiles.opacity *
+        (0.65 + tile.size * 0.35);
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+
+      const gradient = ctx.createLinearGradient(
+        -half, -half,
+        half, half
+      );
+
+      gradient.addColorStop(0, rgba(highlight, opacity));
+      gradient.addColorStop(1, rgba(color, opacity * 0.75));
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(-half, -half, size, size);
+
+      ctx.strokeStyle = rgba(
+        highlight,
+        config.tiles.edgeOpacity
+      );
+
+      ctx.lineWidth = config.tiles.edgeWidth;
+      ctx.strokeRect(-half, -half, size, size);
+
+      ctx.restore();
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      const dt = still ? 0 : realDt * config.animation.speed;
+      time += dt;
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      for (const tile of tiles) {
+        drawTile(tile, dt, realDt);
+      }
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave",
+      () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: refresh,
+            onReset: buildTiles
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>

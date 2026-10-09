@@ -34,9 +34,11 @@
 		left: 50%;
 		transform: translate(-50%, -50%);
 		width: min(440px, calc(100% - 40px));
-		padding: 32px;
+		padding: 28px;
+        max-height: calc(100dvh - 32px);
+        overflow-y: auto;
 
-		background: rgba(0, 0, 0, 0.7);
+		background: rgba(0, 0, 0, 0.24);
 		backdrop-filter: none;
 		-webkit-backdrop-filter: none;
 
@@ -141,6 +143,25 @@
     [hidden] {
         display: none !important;
     }
+
+    #background-select {
+        display: flex; justify-content: space-between; align-items: center;
+        width: 100%; padding: 13px 14px; font-size: 14px; text-align: left;
+        background: rgba(5, 10, 18, .6);
+    }
+    #background-list {
+        max-height: min(220px, 30dvh); overflow-y: auto;
+        margin-top: 7px; padding: 5px; text-align: left;
+        border: 1px solid #ffffff30; border-radius: 10px;
+        background: rgba(8, 15, 25, .96);
+    }
+    .background-option { padding: 9px 11px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .background-option.active { background: #ffffff18; color: #b9e8f8; }
+    .background-option[aria-selected="true"]::after { content: ' ✓'; color: #9ad8c5; }
+    .background-details { text-align: left; margin-top: 18px; padding-top: 16px; border-top: 1px solid #ffffff26; }
+    #detail-label { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .16em; color: #a8c9df; }
+    #detail-title { margin: 0 0 7px; font-size: 18px; font-weight: 600; }
+    #detail-description { margin: 0; min-height: 72px; font-size: 13px; line-height: 1.65; color: #e2e9ef; }
 </style>
 </head>
 
@@ -160,8 +181,21 @@
         the background and see how it responds.
     </p>
 
-    <label for="background-select">Choose your background</label>
-    <select id="background-select"></select>
+    <label id="picker-label">Choose your background</label>
+    <div class="picker">
+        <button id="background-select" type="button" aria-haspopup="listbox"
+            aria-expanded="false" aria-controls="background-list"
+            aria-labelledby="picker-label selected-name">
+            <span id="selected-name"></span><span aria-hidden="true">⌄</span>
+        </button>
+        <div id="background-list" role="listbox" tabindex="-1"
+            aria-labelledby="picker-label" hidden></div>
+    </div>
+    <section class="background-details" aria-live="polite" aria-atomic="true">
+        <p id="detail-label">Now playing</p>
+        <h2 id="detail-title"></h2>
+        <p id="detail-description"></p>
+    </section>
 
     <div class="actions">
         <button id="hide-panel" type="button">
@@ -194,23 +228,42 @@
 // Change "folder" to match your directory names.
 // Each directory should contain its own index.html.
 const backgrounds = [
-    { name: "Blob Grid",             folder: "blob-grid" },
-    { name: "Wave Field",            folder: "wave-field" },
-    { name: "Magnetic Particles",    folder: "magnetic-particles" },
-    { name: "Topographic Contours",  folder: "topographic-contours" },
-    { name: "Aurora Ribbons",        folder: "aurora-ribbons" },
-    { name: "Elastic Mesh",          folder: "elastic-mesh" },
-    { name: "Constellation Network", folder: "constellation-network" },
-    { name: "Liquid Interference",   folder: "liquid-interference" },
-    { name: "Scanning Light",        folder: "scanning-light" },
-    { name: "Flowing Glyphs",        folder: "flowing-glyphs" },
-    { name: "Orbital Trails",        folder: "orbital-trails" },
-    { name: "Impossible Windows",    folder: "impossible-windows" },
-    { name: "Memory Fossils",        folder: "memory-fossils" },
-    { name: "Shadow Organisms",      folder: "shadow-organisms" },
-    { name: "Woven Time",            folder: "woven-time" },
-    { name: "Borrowed Dimensions",   folder: "borrowed-dimensions" },
-    { name: "Living Atlas",          folder: "living-atlas" }
+    { name: "Blob Grid", folder: "blob-grid", description: "A field of luminous dots swells into soft, shifting blobs, turning a simple grid into a living surface." },
+    { name: "Wave Field", folder: "wave-field", description: "Gentle waves travel across a field of points, creating a rolling landscape of light." },
+    { name: "Magnetic Particles", folder: "magnetic-particles", description: "A cloud of glowing particles responds to magnetic forces, gathering and scattering around your pointer." },
+    { name: "Topographic Contours", folder: "topographic-contours", description: "Fine contour lines trace an evolving landscape, revealing flowing ridges and valleys." },
+    { name: "Aurora Ribbons", folder: "aurora-ribbons", description: "Curtains of luminous color drift through the darkness like an abstract northern sky." },
+    { name: "Elastic Mesh", folder: "elastic-mesh", description: "A delicate mesh stretches and relaxes as your pointer disturbs its woven surface." },
+    { name: "Constellation Network", folder: "constellation-network", description: "Drifting stars form fleeting connections, creating a constellation that continually redraws itself." },
+    { name: "Liquid Interference", folder: "liquid-interference", description: "Overlapping waves create liquid patterns, bright seams, and shifting pockets of color." },
+    { name: "Scanning Light", folder: "scanning-light", description: "Bands of light sweep across the surface, revealing details before they disappear into darkness." },
+    { name: "Flowing Glyphs", folder: "flowing-glyphs", description: "Streams of glowing glyphs flow through the scene, creating a quiet, digital atmosphere." },
+    { name: "Orbital Trails", folder: "orbital-trails", description: "Luminous paths curl around invisible centers, leaving graceful traces of their motion." },
+    { name: "Impossible Windows", folder: "impossible-windows", description: "Floating windows reveal fragments of alternate motion, layering different rhythms within one scene." },
+    { name: "Memory Fossils", folder: "memory-fossils", description: "Crystal-like traces emerge and age into delicate fossils, preserving echoes of your interaction." },
+    { name: "Shadow Organisms", folder: "shadow-organisms", description: "Soft shadow creatures drift across the surface, retreating from the light around your pointer." },
+    { name: "Woven Time", folder: "woven-time", description: "Interlaced threads carry different rhythms, weaving a fabric that settles into harmony nearby." },
+    { name: "Borrowed Dimensions", folder: "borrowed-dimensions", description: "Geometric forms shift between shapes and dimensions, creating a gently unfolding spatial illusion." },
+    { name: "Living Atlas", folder: "living-atlas", description: "Contours, particles, memories, and flowing light share a living landscape that responds to exploration." },
+	{ name: "Glass Tides", folder: "glass-tides", description: "Translucent glass plates drift above a hidden pattern, bending its appearance as they shift and tilt." },
+	{ name: "Echo Architecture", folder: "echo-architecture", description: "Wireframe structures unfold and dissolve, suggesting impossible buildings suspended in darkness." },
+	{ name: "Chromatic Faults", folder: "chromatic-faults", description: "Fine fractures carry pulses of color through branching paths; your pointer bends their course." },
+	{ name: "Paper Weather", folder: "paper-weather", description: "Folded shapes float through gentle gusts, tumbling and opening as your pointer stirs the air." },
+	{ name: "Signal Archaeology", folder: "signal-archaeology", description: "Broken waveforms and scattered diagrams drift through darkness. Move nearby to tune them into clarity." },
+	{ name: "Prismatic Rain", folder: "prismatic-rain", description: "Falling strokes of light split into spectral trails as they cross prism bands. Your pointer becomes another prism." },
+	{ name: "Breathing Caverns", folder: "breathing-caverns", description: "Layers of illuminated cave walls breathe around a dark opening. Move your pointer to reveal their depth." },
+	{ name: "Clockwork Garden", folder: "clockwork-garden", description: "Fine stems grow into rotating gears and geometric flowers, then retract. Your pointer awakens nearby mechanisms." },
+	{ name: "Negative Constellations", folder: "negative-constellations", description: "Dark openings drift through a luminous field, joined by shadow lines. Your pointer parts them to reveal light." },
+	{ name: "Velvet Vortices", folder: "velvet-vortices", description: "Soft strokes follow wandering vortices like brushed velvet. Move your pointer to comb the surface and leave a fading impression." },
+	{ name: "Luminous Sediments", folder: "luminous-sediments", description: "Glowing grains settle into layered dunes. Gentle currents loosen them, while your pointer lifts them into drifting clouds." },
+	{ name: "Origami Horizons", folder: "origami-horizons", description: "Translucent triangular folds lift and settle into an abstract landscape. Your pointer raises nearby ridges." },
+	{ name: "Orbiting Silence", folder: "orbiting-silence", description: "Fine arcs orbit invisible centers and briefly align. Your pointer gathers nearby arcs into a temporary orbit." },
+	{ name: "Capillary Light", folder: "capilary-light", description: "Luminous ink spreads through branching channels, blending where colors meet. Your pointer feeds fresh color into the network." },
+	{ name: "Mirage Loom", folder: "mirrage-loom", description: "Fine stripe layers slide across one another, forming shifting moir\u00e9 patterns. Your pointer bends the weave like a lens." },
+	{ name: "Floating Tesserae", folder: "floating-tesserae", description: "Translucent mosaic tiles drift apart and reassemble into flowing patches of color. Your pointer opens a gap that gently closes behind it." },
+	{ name: "Resonant Pools", folder: "resonant-pools", description: "Ripples from scattered pools reinforce and cancel one another, forming bright seams. Your pointer adds a source to reshape the pattern." },
+	{ name: "Solar Herbarium", folder: "solar-herbarium", description: "Translucent leaves slowly unfurl as moving light reveals their veins. Your pointer illuminates the foliage like a soft spotlight." },
+	{ name: "Phase Lanterns", folder: "phase-lanterns", description: "Floating halos morph between rings, polygons, and interrupted loops. Your pointer draws nearby lanterns into a shared rhythm." },
 ];
 
 const frame = document.getElementById("background");
@@ -222,12 +275,96 @@ const openLink = document.getElementById("open-background");
 
 const storageKey = "background-gallery-selection";
 
-for (const background of backgrounds) {
-    const option = document.createElement("option");
-    option.value = background.folder;
-    option.textContent = background.name;
-    select.appendChild(option);
+const list = document.getElementById("background-list");
+const selectedName = document.getElementById("selected-name");
+let selectedIndex = 0;
+let activeIndex = 0;
+let isOpen = false;
+
+function describe(index, preview = false) {
+    const item = backgrounds[index];
+    document.getElementById("detail-label").textContent = preview ? "Explore this background" : "Now playing";
+    document.getElementById("detail-title").textContent = item.name;
+    document.getElementById("detail-description").textContent = item.description;
 }
+
+function highlight(index, scroll = false) {
+    activeIndex = index;
+    [...list.children].forEach((option, i) => option.classList.toggle("active", i === index));
+    list.setAttribute("aria-activedescendant", `background-option-${index}`);
+    describe(index, index !== selectedIndex);
+    if (scroll) list.children[index].scrollIntoView({ block: "nearest" });
+}
+
+function setPickerOpen(open, focus = true) {
+    isOpen = open;
+    list.hidden = !open;
+    select.setAttribute("aria-expanded", String(open));
+    if (open) {
+        highlight(selectedIndex, true);
+        list.focus();
+    } else {
+        describe(selectedIndex);
+        if (focus) select.focus();
+    }
+}
+
+backgrounds.forEach((background, index) => {
+    const option = document.createElement("div");
+    option.id = `background-option-${index}`;
+    option.className = "background-option";
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", "false");
+    option.textContent = background.name;
+    option.addEventListener("pointerenter", () => highlight(index));
+    option.addEventListener("click", () => {
+        selectBackground(background.folder);
+        setPickerOpen(false);
+    });
+    list.append(option);
+});
+
+select.addEventListener("click", () => setPickerOpen(!isOpen));
+select.addEventListener("keydown", event => {
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+        event.preventDefault();
+        setPickerOpen(true);
+    }
+});
+
+let searchText = "";
+let searchTimer;
+list.addEventListener("keydown", event => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        highlight((activeIndex + (event.key === "ArrowDown" ? 1 : -1) + backgrounds.length) % backgrounds.length, true);
+    } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        highlight(event.key === "Home" ? 0 : backgrounds.length - 1, true);
+    } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectBackground(backgrounds[activeIndex].folder);
+        setPickerOpen(false);
+    } else if (event.key === "Escape") {
+        event.preventDefault();
+        setPickerOpen(false);
+    } else if (event.key === "Tab") {
+        setPickerOpen(false);
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        searchText += event.key.toLowerCase();
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => searchText = "", 700);
+        const match = backgrounds.findIndex(item => item.name.toLowerCase().startsWith(searchText));
+        if (match >= 0) highlight(match, true);
+    }
+});
+
+document.addEventListener("pointerdown", event => {
+    if (isOpen && !event.target.closest(".picker")) setPickerOpen(false, false);
+});
+document.addEventListener("focusin", event => {
+    if (isOpen && !event.target.closest(".picker")) setPickerOpen(false, false);
+});
 
 function backgroundURL(folder) {
     const path = folder
@@ -242,7 +379,12 @@ function selectBackground(folder) {
     const background = backgrounds.find(item => item.folder === folder)
         || backgrounds[0];
 
-    select.value = background.folder;
+    selectedIndex = backgrounds.indexOf(background);
+    selectedName.textContent = background.name;
+    [...list.children].forEach((option, index) => {
+        option.setAttribute("aria-selected", String(index === selectedIndex));
+    });
+    describe(selectedIndex);
 
     const url = backgroundURL(background.folder);
     frame.src = url;
@@ -257,6 +399,7 @@ function selectBackground(folder) {
 }
 
 function setPanelVisible(visible) {
+    if (!visible) setPickerOpen(false, false);
     panel.hidden = !visible;
     showButton.hidden = visible;
 
@@ -267,9 +410,7 @@ function setPanelVisible(visible) {
     }
 }
 
-select.addEventListener("change", () => {
-    selectBackground(select.value);
-});
+
 
 hideButton.addEventListener("click", () => setPanelVisible(false));
 showButton.addEventListener("click", () => setPanelVisible(true));

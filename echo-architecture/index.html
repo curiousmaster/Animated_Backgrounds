@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo Architecture</title>
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #030609;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    structures: {
+        count: 16,
+        width: 65,
+        height: 160,
+        floors: 6,
+        cycleDuration: 18,
+        unfolding: 0.3,
+        persistence: 0.35,
+        color: [100, 180, 220]
+    },
+
+    perspective: {
+        distance: 650,
+        horizon: 0.42,
+        spread: 700,
+        depth: 1400,
+        rotation: 0.2
+    },
+
+    appearance: {
+        lineWidth: 0.8,
+        opacity: 0.65,
+        constructionOpacity: 0.12,
+        faceOpacity: 0.025,
+        backgroundColor: [3, 6, 9],
+        constructionColor: [70, 100, 140]
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 250,
+        extraFloors: 4,
+        vanishingShift: 0.18,
+        smoothing: 7,
+        color: [255, 180, 110]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.4,
+        blur: 8
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const smooth = v => {
+    const t = clamp(v, 0, 1);
+    return t * t * (3 - 2 * t);
+};
+
+const rgb = color => `rgb(${color.map(v =>
+    Math.round(clamp(v, 0, 255))
+).join(",")})`;
+
+const mix = (a, b, amount) => a.map((v, i) =>
+    v + (b[i] - v) * clamp(amount, 0, 1)
+);
+
+let width = 0;
+let height = 0;
+let structures = [];
+let elapsed = 0;
+let rotationTime = 0;
+let previousTime = null;
+
+const mouse = {
+    x: 0, y: 0, tx: 0, ty: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+function newStructure() {
+    return {
+        xFactor: Math.random() * 2 - 1,
+        zFactor: Math.random(),
+        widthFactor: 0.6 + Math.random() * 0.8,
+        heightFactor: 0.6 + Math.random() * 1.2,
+        phase: Math.random(),
+        rotation: (Math.random() - 0.5) * 0.5
+    };
+}
+
+function syncStructures() {
+    const count = Math.max(0, Math.floor(config.structures.count));
+    while (structures.length < count) structures.push(newStructure());
+    structures.length = count;
+}
+
+function resetStructures() {
+    structures = [];
+    syncStructures();
+}
+
+function resize() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    width = innerWidth;
+    height = innerHeight;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// --------------------------------------------------
+// Perspective camera
+// --------------------------------------------------
+
+function vanishingPoint() {
+    const amount = mouse.influence * config.mouse.vanishingShift;
+
+    return {
+        x: width / 2 + (mouse.x - width / 2) * amount,
+        y: height * config.perspective.horizon +
+            (mouse.y - height / 2) * amount
+    };
+}
+
+function project(x, y, z, vanishing) {
+    const focal = Math.max(100, config.perspective.distance);
+    const scale = focal / (focal + Math.max(20, z));
+
+    return {
+        x: vanishing.x + x * scale,
+        y: vanishing.y + (220 - y) * scale
+    };
+}
+
+function polygon(points) {
+    const path = new Path2D();
+    path.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        path.lineTo(points[i].x, points[i].y);
+    }
+    path.closePath();
+    return path;
+}
+
+function connect(path, a, b) {
+    path.moveTo(a.x, a.y);
+    path.lineTo(b.x, b.y);
+}
+
+function stroke(path, color, opacity) {
+    if (config.appearance.lineWidth <= 0 || opacity <= 0) return;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = config.appearance.lineWidth;
+
+    if (config.glow.enabled && config.glow.intensity > 0) {
+        ctx.globalAlpha = opacity * config.glow.intensity;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = Math.max(0, config.glow.blur);
+        ctx.stroke(path);
+        ctx.shadowBlur = 0;
+    }
+
+    ctx.globalAlpha = clamp(opacity, 0, 1);
+    ctx.stroke(path);
+    ctx.restore();
+}
+
+// --------------------------------------------------
+// Construction plane
+// --------------------------------------------------
+
+function drawConstructionGrid(vanishing) {
+    const path = new Path2D();
+    const spread = Math.max(100, config.perspective.spread);
+    const depth = Math.max(300, config.perspective.depth);
+
+    for (let i = -10; i <= 10; i++) {
+        const x = i / 10 * spread;
+
+        connect(
+            path,
+            project(x, 0, 20, vanishing),
+            project(x, 0, depth + 300, vanishing)
+        );
+    }
+
+    for (let z = 50; z <= depth + 300; z += 100) {
+        connect(
+            path,
+            project(-spread, 0, z, vanishing),
+            project(spread, 0, z, vanishing)
+        );
+    }
+
+    stroke(
+        path,
+        rgb(config.appearance.constructionColor),
+        config.appearance.constructionOpacity
+    );
+}
+
+// --------------------------------------------------
+// Buildings unfold, persist, and dissolve
+// --------------------------------------------------
+
+function drawStructure(structure, vanishing) {
+    const x = structure.xFactor * config.perspective.spread;
+    const z = 100 + structure.zFactor * config.perspective.depth;
+
+    const center = project(x, 0, z, vanishing);
+    const radius = Math.max(1, config.mouse.radius);
+
+    const influence = config.mouse.enabled
+        ? mouse.influence * Math.exp(
+            -((center.x - mouse.x) ** 2 +
+              (center.y - mouse.y) ** 2) / (2 * radius * radius)
+        )
+        : 0;
+
+    const duration = Math.max(4, config.structures.cycleDuration);
+    const cycle = (elapsed / duration + structure.phase) % 1;
+
+    const unfoldEnd = clamp(config.structures.unfolding, 0.1, 0.5);
+    const holdEnd = Math.min(
+        0.9,
+        unfoldEnd + clamp(config.structures.persistence, 0, 0.4)
+    );
+
+    const unfolding = smooth(cycle / unfoldEnd);
+    const dissolve = cycle > holdEnd
+        ? smooth((cycle - holdEnd) / (1 - holdEnd))
+        : 0;
+
+    const visibility = unfolding * (1 - dissolve);
+    if (visibility < 0.005) return;
+
+    const floors = Math.max(1, Math.floor(config.structures.floors));
+    const extra = Math.max(0, config.mouse.extraFloors) * influence;
+
+    const fullHeight =
+        config.structures.height * structure.heightFactor *
+        (1 + extra / floors);
+
+    const buildingHeight = fullHeight * unfolding;
+    const halfWidth =
+        config.structures.width * structure.widthFactor / 2;
+    const halfDepth = halfWidth * 0.8;
+
+    const angle = structure.rotation +
+        Math.sin(rotationTime + structure.phase * 6) * 0.15;
+
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    function corner(localX, y, localZ) {
+        return project(
+            x + localX * cos - localZ * sin,
+            y,
+            z + localX * sin + localZ * cos,
+            vanishing
+        );
+    }
+
+    function ring(y, scale = 1, offset = 0) {
+        return [
+            corner(-halfWidth * scale + offset, y, -halfDepth * scale),
+            corner( halfWidth * scale + offset, y, -halfDepth * scale),
+            corner( halfWidth * scale + offset, y,  halfDepth * scale),
+            corner(-halfWidth * scale + offset, y,  halfDepth * scale)
+        ];
+    }
+
+    const color = rgb(mix(
+        config.structures.color,
+        config.mouse.color,
+        influence
+    ));
+
+    const base = ring(0);
+    // An offset upper volume gives the building an impossible cantilever.
+    const roof = ring(buildingHeight, 0.85, halfWidth * 0.45);
+
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha =
+        config.appearance.faceOpacity * visibility;
+
+    for (let i = 0; i < 4; i++) {
+        const next = (i + 1) % 4;
+        ctx.fill(polygon([base[i], base[next], roof[next], roof[i]]));
+    }
+    ctx.fill(polygon(roof));
+    ctx.restore();
+
+    const edges = new Path2D();
+    edges.addPath(polygon(base));
+    edges.addPath(polygon(roof));
+
+    for (let i = 0; i < 4; i++) {
+        connect(edges, base[i], roof[i]);
+    }
+
+    // Floor outlines emerge from the ground upward.
+    const floorHeight = fullHeight / Math.max(1, floors + extra);
+    const visibleFloors = Math.floor(buildingHeight / floorHeight);
+
+    for (let floor = 1; floor <= visibleFloors; floor++) {
+        const y = floor * floorHeight;
+        const fraction = y / Math.max(1, buildingHeight);
+
+        edges.addPath(polygon(ring(
+            y,
+            1 - fraction * 0.15,
+            halfWidth * 0.45 * fraction
+        )));
+    }
+
+    stroke(
+        edges,
+        color,
+        config.appearance.opacity * visibility
+    );
+
+    // Faint construction guides survive briefly as the building dissolves.
+    const guides = new Path2D();
+
+    for (let i = 0; i < 4; i++) {
+        const top = ring(fullHeight, 0.85, halfWidth * 0.45)[i];
+        connect(guides, base[i], top);
+    }
+
+    stroke(
+        guides,
+        rgb(config.appearance.constructionColor),
+        config.appearance.constructionOpacity *
+            (unfolding * (1 - dissolve * 0.5))
+    );
+}
+
+// --------------------------------------------------
+// Animation
+// --------------------------------------------------
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    elapsed += delta;
+    rotationTime += delta * config.perspective.rotation;
+
+    const smoothing = 1 - Math.exp(
+        -Math.max(0.1, config.mouse.smoothing) * delta
+    );
+
+    mouse.x += (mouse.tx - mouse.x) * smoothing;
+    mouse.y += (mouse.ty - mouse.y) * smoothing;
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) -
+        mouse.influence
+    ) * smoothing;
+
+    ctx.fillStyle = rgb(config.appearance.backgroundColor);
+    ctx.fillRect(0, 0, width, height);
+
+    const vanishing = vanishingPoint();
+    drawConstructionGrid(vanishing);
+
+    // Far structures first.
+    const sorted = [...structures].sort(
+        (a, b) => b.zFactor - a.zFactor
+    );
+
+    for (const structure of sorted) {
+        drawStructure(structure, vanishing);
+    }
+
+    requestAnimationFrame(animate);
+}
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.tx = event.clientX;
+    mouse.ty = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.tx;
+        mouse.y = mouse.ty;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+syncStructures();
+requestAnimationFrame(animate);
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+                onChange(path) {
+                    if (path === "structures.count") syncStructures();
+                    deactivateMouse();
+                },
+                onReset: resetStructures
+            });
+        })
+        .catch(error => {
+            console.error("Could not load editor:", error);
+        });
+}
+</script>
+</body>
+</html>

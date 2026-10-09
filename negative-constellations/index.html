@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Negative Constellations</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #080d19;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      holes: {
+        count: 36,
+        radius: 32,
+        sizeVariation: 0.65,
+        softness: 0.7,
+        opacity: 0.93,
+        driftSpeed: 12,
+        breathing: 0.12
+      },
+
+      connections: {
+        enabled: true,
+        distance: 190,
+        width: 1.2,
+        opacity: 0.3
+      },
+
+      field: {
+        colorA: [31, 85, 105],
+        colorB: [95, 61, 116],
+        colorC: [51, 121, 122],
+        brightness: 0.8,
+        movement: 0.3,
+        grainOpacity: 0.025
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 200,
+        pushStrength: 160,
+        lightStrength: 0.5,
+        smoothing: 7,
+        returnSpeed: 2,
+        lightColor: [187, 237, 224]
+      },
+
+      appearance: {
+        backgroundColor: [8, 13, 25],
+        holeColor: [3, 6, 13],
+        rimColor: [144, 200, 210],
+        rimOpacity: 0.08
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+
+    const grainCanvas = document.createElement("canvas");
+    const grainCtx = grainCanvas.getContext("2d");
+
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let holes = [];
+    let time = 0;
+    let previous = null;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      active: false,
+      influence: 0
+    };
+
+    const random = (min, max) => min + Math.random() * (max - min);
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    function makeHole() {
+      const angle = random(0, Math.PI * 2);
+
+      return {
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: Math.cos(angle) * random(0.3, 1),
+        vy: Math.sin(angle) * random(0.3, 1),
+        size: Math.random(),
+        phase: random(0, Math.PI * 2),
+        offsetX: 0,
+        offsetY: 0,
+        drawX: 0,
+        drawY: 0,
+        drawRadius: 0
+      };
+    }
+
+    function syncHoles() {
+      const count = Math.round(config.holes.count);
+
+      while (holes.length < count) holes.push(makeHole());
+      holes.length = count;
+    }
+
+    function reset() {
+      holes = [];
+      syncHoles();
+    }
+
+    function createGrain() {
+      grainCanvas.width = 160;
+      grainCanvas.height = 160;
+
+      const image = grainCtx.createImageData(160, 160);
+
+      for (let i = 0; i < image.data.length; i += 4) {
+        const value = Math.floor(Math.random() * 256);
+
+        image.data[i] = value;
+        image.data[i + 1] = value;
+        image.data[i + 2] = value;
+        image.data[i + 3] = 255;
+      }
+
+      grainCtx.putImageData(image, 0, 0);
+    }
+
+    function resize() {
+      const oldWidth = width;
+      const oldHeight = height;
+
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      for (const hole of holes) {
+        hole.x *= width / oldWidth;
+        hole.y *= height / oldHeight;
+      }
+    }
+
+    function drawLight(x, y, radius, color, opacity) {
+      const gradient = ctx.createRadialGradient(
+        x, y, 0,
+        x, y, radius
+      );
+
+      gradient.addColorStop(0, rgba(color, opacity));
+      gradient.addColorStop(0.45, rgba(color, opacity * 0.55));
+      gradient.addColorStop(1, rgba(color, 0));
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    function drawField() {
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      const clock = time * config.field.movement;
+      const radius = Math.max(width, height) * 0.8;
+      const brightness = config.field.brightness;
+
+      drawLight(
+        width * (0.3 + Math.sin(clock * 0.19) * 0.15),
+        height * (0.4 + Math.cos(clock * 0.17) * 0.18),
+        radius,
+        config.field.colorA,
+        brightness
+      );
+
+      drawLight(
+        width * (0.75 + Math.cos(clock * 0.13) * 0.12),
+        height * (0.65 + Math.sin(clock * 0.21) * 0.15),
+        radius * 0.85,
+        config.field.colorB,
+        brightness * 0.75
+      );
+
+      drawLight(
+        width * (0.5 + Math.sin(clock * 0.11) * 0.25),
+        height * (0.15 + Math.cos(clock * 0.15) * 0.12),
+        radius * 0.7,
+        config.field.colorC,
+        brightness * 0.6
+      );
+
+      if (config.mouse.enabled && mouse.influence > 0.001) {
+        ctx.save();
+        ctx.globalCompositeOperation = "screen";
+
+        drawLight(
+          mouse.x,
+          mouse.y,
+          config.mouse.radius * 1.25,
+          config.mouse.lightColor,
+          config.mouse.lightStrength * mouse.influence
+        );
+
+        ctx.restore();
+      }
+
+      if (config.field.grainOpacity > 0) {
+        const pattern = ctx.createPattern(grainCanvas, "repeat");
+
+        ctx.save();
+        ctx.globalAlpha = config.field.grainOpacity;
+        ctx.globalCompositeOperation = "soft-light";
+        ctx.fillStyle = pattern;
+        ctx.fillRect(0, 0, width, height);
+        ctx.restore();
+      }
+    }
+
+    function updateHole(hole, dt, interactionDt) {
+      const sizeFactor =
+        1 - config.holes.sizeVariation * (1 - hole.size);
+
+      const breath =
+        1 +
+        Math.sin(time * 0.7 + hole.phase) *
+        config.holes.breathing;
+
+      hole.drawRadius =
+        config.holes.radius * sizeFactor * breath;
+
+      hole.x += hole.vx * config.holes.driftSpeed * dt;
+      hole.y += hole.vy * config.holes.driftSpeed * dt;
+
+      const margin = config.holes.radius * 2 + 20;
+
+      if (hole.x < -margin) hole.x = width + margin;
+      if (hole.x > width + margin) hole.x = -margin;
+      if (hole.y < -margin) hole.y = height + margin;
+      if (hole.y > height + margin) hole.y = -margin;
+
+      const dx = hole.x - mouse.x;
+      const dy = hole.y - mouse.y;
+      const distance = Math.hypot(dx, dy);
+
+      const proximity = clamp(
+        1 - distance / config.mouse.radius,
+        0,
+        1
+      );
+
+      const influence = config.mouse.enabled
+        ? proximity * proximity * mouse.influence
+        : 0;
+
+      // Give a centered hole a stable direction instead of dividing by zero.
+      const nx = distance > 0.001 ? dx / distance : Math.cos(hole.phase);
+      const ny = distance > 0.001 ? dy / distance : Math.sin(hole.phase);
+
+      const targetX = nx * config.mouse.pushStrength * influence;
+      const targetY = ny * config.mouse.pushStrength * influence;
+
+      const rate = influence > 0.001
+        ? config.mouse.smoothing
+        : config.mouse.returnSpeed;
+
+      const smoothing = 1 - Math.exp(-rate * interactionDt);
+
+      hole.offsetX += (targetX - hole.offsetX) * smoothing;
+      hole.offsetY += (targetY - hole.offsetY) * smoothing;
+
+      hole.drawX = hole.x + hole.offsetX;
+      hole.drawY = hole.y + hole.offsetY;
+    }
+
+    function drawConnections() {
+      if (!config.connections.enabled) return;
+
+      const maximumDistance = config.connections.distance;
+
+      ctx.lineCap = "round";
+      ctx.lineWidth = config.connections.width;
+
+      for (let i = 0; i < holes.length; i++) {
+        const a = holes[i];
+
+        for (let j = i + 1; j < holes.length; j++) {
+          const b = holes[j];
+
+          const distance = Math.hypot(
+            b.drawX - a.drawX,
+            b.drawY - a.drawY
+          );
+
+          if (distance >= maximumDistance) continue;
+
+          const opacity =
+            config.connections.opacity *
+            Math.pow(1 - distance / maximumDistance, 2);
+
+          ctx.strokeStyle = rgba(
+            config.appearance.holeColor,
+            opacity
+          );
+
+          ctx.beginPath();
+          ctx.moveTo(a.drawX, a.drawY);
+          ctx.lineTo(b.drawX, b.drawY);
+          ctx.stroke();
+        }
+      }
+    }
+
+    function drawHole(hole) {
+      const x = hole.drawX;
+      const y = hole.drawY;
+      const radius = hole.drawRadius;
+
+      const innerRadius =
+        radius * (1 - config.holes.softness) * 0.95;
+
+      const outerRadius =
+        radius * (1 + config.holes.softness * 0.75);
+
+      const gradient = ctx.createRadialGradient(
+        x, y, innerRadius,
+        x, y, outerRadius
+      );
+
+      gradient.addColorStop(
+        0,
+        rgba(config.appearance.holeColor, config.holes.opacity)
+      );
+
+      gradient.addColorStop(
+        0.45,
+        rgba(
+          config.appearance.holeColor,
+          config.holes.opacity * 0.8
+        )
+      );
+
+      gradient.addColorStop(
+        1,
+        rgba(config.appearance.holeColor, 0)
+      );
+
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(x, y, outerRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (config.appearance.rimOpacity > 0) {
+        ctx.strokeStyle = rgba(
+          config.appearance.rimColor,
+          config.appearance.rimOpacity
+        );
+
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+
+        // An incomplete rim keeps the openings organic and subdued.
+        ctx.arc(
+          x,
+          y,
+          radius * 1.05,
+          hole.phase,
+          hole.phase + Math.PI * 0.65
+        );
+
+        ctx.stroke();
+      }
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      const dt = still ? 0 : realDt * config.animation.speed;
+      time += dt;
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      drawField();
+
+      for (const hole of holes) {
+        updateHole(hole, dt, realDt);
+      }
+
+      drawConnections();
+
+      for (const hole of holes) {
+        drawHole(hole);
+      }
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave",
+      () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    createGrain();
+    reset();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: syncHoles,
+            onReset: reset
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>

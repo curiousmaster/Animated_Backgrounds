@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Solar Herbarium</title>
+
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #071310;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      plants: {
+        count: 24,
+        height: 900,
+        leaves: 17,
+        leafLength: 100,
+        leafWidth: 25,
+        leafShape: 0.9,
+        unfurlSpeed: 0.16,
+        sway: 120
+      },
+
+      veins: {
+        detail: 7,
+        opacity: 0.5,
+        width: 0.6
+      },
+
+      light: {
+        direction: -30,
+        bandWidth: 180,
+        spacing: 450,
+        speed: 25,
+        strength: 0.75
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 180,
+        strength: 1,
+        smoothing: 7
+      },
+
+      appearance: {
+        backgroundColor: [7, 19, 16],
+        leafColorA: [55, 135, 112],
+        leafColorB: [136, 152, 91],
+        lightColor: [224, 219, 155],
+        translucency: 0.18,
+        edgeOpacity: 0.2,
+        stemOpacity: 0.25
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let plants = [];
+    let time = 0;
+    let previous = null;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      active: false,
+      influence: 0
+    };
+
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    function mix(a, b, amount) {
+      return a.map((value, index) =>
+        Math.round(value + (b[index] - value) * amount)
+      );
+    }
+
+    function makePlant() {
+      return {
+        x: Math.random(),
+        y: 0.55 + Math.random() * 0.55,
+        scale: 0.55 + Math.random() * 0.7,
+        lean: (Math.random() - 0.5) * 0.8,
+        phase: Math.random() * Math.PI * 2,
+        tint: Math.random()
+      };
+    }
+
+    function syncPlants() {
+      const count = Math.round(config.plants.count);
+      while (plants.length < count) plants.push(makePlant());
+      plants.length = count;
+      plants.sort((a, b) => a.scale - b.scale);
+    }
+
+    function reset() {
+      plants = [];
+      syncPlants();
+    }
+
+    function resize() {
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function illumination(x, y) {
+      const angle = config.light.direction * Math.PI / 180;
+      const coordinate =
+        x * Math.cos(angle) + y * Math.sin(angle) -
+        time * config.light.speed;
+
+      const spacing = config.light.spacing;
+      const wrapped = ((coordinate % spacing) + spacing) % spacing;
+      const distance = Math.min(wrapped, spacing - wrapped);
+
+      const band = Math.exp(
+        -Math.pow(distance / config.light.bandWidth, 2) * 2
+      ) * config.light.strength;
+
+      const pointerDistance = Math.hypot(x - mouse.x, y - mouse.y);
+
+      const pointer = config.mouse.enabled
+        ? Math.exp(
+            -Math.pow(pointerDistance / config.mouse.radius, 2) * 2.5
+          ) * config.mouse.strength * mouse.influence
+        : 0;
+
+      return clamp(band + pointer, 0, 1);
+    }
+
+    function stemPoint(plant, progress) {
+      const length = config.plants.height * plant.scale;
+
+      const sway =
+        Math.sin(time * 0.35 + plant.phase) *
+        config.plants.sway * progress * progress;
+
+      return {
+        x: plant.x * width +
+          plant.lean * length * progress +
+          Math.sin(progress * Math.PI) * plant.lean * length * 0.2 +
+          sway,
+
+        y: plant.y * height - length * progress
+      };
+    }
+
+    function leafHalfWidth(u, leafWidth, opening) {
+      const exponent = 0.55 + config.plants.leafShape * 1.4;
+
+      return Math.pow(Math.max(0, Math.sin(u * Math.PI)), exponent) *
+        leafWidth * opening;
+    }
+
+    function drawLeaf(plant, position, side, index, baseColor) {
+      const point = stemPoint(plant, position);
+      const light = illumination(point.x, point.y);
+
+      const cycle =
+        0.5 + 0.5 * Math.sin(
+          time * config.plants.unfurlSpeed +
+          plant.phase - index * 0.4
+        );
+
+      const opening = 0.15 + cycle * 0.85;
+
+      const length =
+        config.plants.leafLength * plant.scale *
+        (0.65 + position * 0.35);
+
+      const leafWidth = config.plants.leafWidth * plant.scale;
+      const angle =
+        side < 0 ? -Math.PI + 0.5 : -0.5;
+
+      const color = mix(
+        baseColor,
+        config.appearance.lightColor,
+        light * 0.65
+      );
+
+      ctx.save();
+      ctx.translate(point.x, point.y);
+      ctx.rotate(angle);
+
+      const path = new Path2D();
+      const samples = 28;
+
+      path.moveTo(0, 0);
+
+      for (let i = 1; i <= samples; i++) {
+        const u = i / samples;
+        path.lineTo(
+          u * length,
+          -leafHalfWidth(u, leafWidth, opening)
+        );
+      }
+
+      for (let i = samples - 1; i >= 0; i--) {
+        const u = i / samples;
+        path.lineTo(
+          u * length,
+          leafHalfWidth(u, leafWidth, opening)
+        );
+      }
+
+      path.closePath();
+
+      ctx.fillStyle = rgba(
+        color,
+        config.appearance.translucency * (0.45 + light * 0.8)
+      );
+      ctx.fill(path);
+
+      ctx.strokeStyle = rgba(
+        color,
+        config.appearance.edgeOpacity * (0.35 + light * 0.65)
+      );
+      ctx.lineWidth = 0.7;
+      ctx.stroke(path);
+
+      ctx.save();
+      ctx.clip(path);
+
+      ctx.strokeStyle = rgba(
+        config.appearance.lightColor,
+        config.veins.opacity * (0.08 + light * 0.92)
+      );
+      ctx.lineWidth = config.veins.width;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(length, 0);
+
+      const detail = Math.round(config.veins.detail);
+
+      for (let i = 1; i <= detail; i++) {
+        const u = i / (detail + 1);
+        const endU = Math.min(0.98, u + 0.16);
+        const spread = leafHalfWidth(endU, leafWidth, opening) * 0.92;
+
+        ctx.moveTo(u * length, 0);
+        ctx.quadraticCurveTo(
+          (u + 0.07) * length,
+          -spread * 0.7,
+          endU * length,
+          -spread
+        );
+
+        ctx.moveTo(u * length, 0);
+        ctx.quadraticCurveTo(
+          (u + 0.07) * length,
+          spread * 0.7,
+          endU * length,
+          spread
+        );
+      }
+
+      ctx.stroke();
+      ctx.restore();
+      ctx.restore();
+    }
+
+    function drawPlant(plant) {
+      const color = mix(
+        config.appearance.leafColorA,
+        config.appearance.leafColorB,
+        plant.tint
+      );
+
+      ctx.strokeStyle = rgba(color, config.appearance.stemOpacity);
+      ctx.lineWidth = 0.7 * plant.scale;
+      ctx.beginPath();
+
+      for (let i = 0; i <= 30; i++) {
+        const point = stemPoint(plant, i / 30);
+        if (!i) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      }
+
+      ctx.stroke();
+
+      const leaves = Math.round(config.plants.leaves);
+
+      for (let i = 0; i < leaves; i++) {
+        const position = 0.15 + i / Math.max(1, leaves - 1) * 0.75;
+        drawLeaf(plant, position, i % 2 ? -1 : 1, i, color);
+      }
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      if (!still) time += realDt * config.animation.speed;
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      for (const plant of plants) drawPlant(plant);
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave", () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    reset();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: syncPlants,
+            onReset: reset
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>

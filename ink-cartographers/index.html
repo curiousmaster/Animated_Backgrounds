@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ink Cartographers</title>
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #05090c;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+"use strict";
+
+const config = {
+    pens: {
+        count: 14,
+        speed: 28,
+        turnRate: 1.2,
+        branching: 0.15,
+        maxCount: 45
+    },
+
+    map: {
+        lifetime: 35,
+        lineWidth: 0.8,
+        opacity: 0.7,
+        islandInterval: 5,
+        islandSize: 45,
+        landmarkInterval: 4,
+        showPenTips: true,
+        backgroundColor: [5, 9, 12],
+        streetColor: [90, 180, 185],
+        islandColor: [90, 135, 170],
+        landmarkColor: [210, 175, 115]
+    },
+
+    mouse: {
+        enabled: true,
+        radius: 350,
+        attraction: 1.8,
+        smoothing: 8,
+        color: [255, 185, 110]
+    },
+
+    glow: {
+        enabled: true,
+        intensity: 0.35,
+        blur: 6
+    },
+
+    panel: {
+        enabled: true
+    }
+};
+
+const canvas = document.getElementById("background");
+const ctx = canvas.getContext("2d");
+
+const inkCanvas = document.createElement("canvas");
+const ink = inkCanvas.getContext("2d");
+
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+function rgb(color) {
+    return `rgb(${color.map(v =>
+        Math.round(clamp(v, 0, 255))
+    ).join(",")})`;
+}
+
+function mix(a, b, amount) {
+    const t = clamp(amount, 0, 1);
+    return a.map((v, i) => v + (b[i] - v) * t);
+}
+
+function angleDifference(target, current) {
+    return Math.atan2(
+        Math.sin(target - current),
+        Math.cos(target - current)
+    );
+}
+
+let width = 0;
+let height = 0;
+let pens = [];
+let time = 0;
+let previousTime = null;
+
+const mouse = {
+    x: 0, y: 0,
+    targetX: 0, targetY: 0,
+    active: false,
+    initialized: false,
+    influence: 0
+};
+
+function newPen(x = Math.random() * width,
+                y = Math.random() * height,
+                angle = Math.random() * TAU) {
+    return {
+        x, y, angle,
+        targetAngle: angle,
+        turnAt: time + 1 + Math.random() * 3,
+        islandAt: time + Math.random() * config.map.islandInterval,
+        landmarkAt: time + Math.random() * config.map.landmarkInterval,
+        speedFactor: 0.65 + Math.random() * 0.7
+    };
+}
+
+function resetMap() {
+    ink.clearRect(0, 0, width, height);
+
+    const count = Math.min(
+        Math.max(0, Math.floor(config.pens.count)),
+        Math.max(0, Math.floor(config.pens.maxCount))
+    );
+
+    pens = Array.from({ length: count }, () => newPen());
+}
+
+function resize() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+
+    width = innerWidth;
+    height = innerHeight;
+
+    for (const surface of [canvas, inkCanvas]) {
+        surface.width = Math.round(width * dpr);
+        surface.height = Math.round(height * dpr);
+    }
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ink.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Resizing starts a fresh map.
+    resetMap();
+}
+
+function prepareInk(color, width, opacity) {
+    ink.strokeStyle = rgb(color);
+    ink.fillStyle = rgb(color);
+    ink.lineWidth = Math.max(0.1, width);
+    ink.globalAlpha = clamp(opacity, 0, 1);
+    ink.lineCap = "round";
+    ink.lineJoin = "round";
+
+    if (config.glow.enabled) {
+        ink.shadowColor = rgb(color);
+        ink.shadowBlur =
+            config.glow.blur * config.glow.intensity;
+    }
+}
+
+function drawIsland(x, y) {
+    const size = Math.max(5, config.map.islandSize);
+    const phase = Math.random() * TAU;
+
+    ink.save();
+    prepareInk(
+        config.map.islandColor,
+        config.map.lineWidth,
+        config.map.opacity * 0.45
+    );
+
+    // Nested irregular outlines resemble coastlines and elevation.
+    for (let ring = 0; ring < 3; ring++) {
+        const scale = 1 - ring * 0.22;
+        ink.beginPath();
+
+        for (let i = 0; i <= 64; i++) {
+            const angle = i / 64 * TAU;
+            const radius = size * scale * (
+                0.8 +
+                0.13 * Math.sin(angle * 3 + phase) +
+                0.07 * Math.cos(angle * 5 - phase)
+            );
+
+            const px = x + Math.cos(angle) * radius;
+            const py = y + Math.sin(angle) * radius * 0.7;
+
+            if (i === 0) ink.moveTo(px, py);
+            else ink.lineTo(px, py);
+        }
+
+        ink.closePath();
+        ink.stroke();
+    }
+
+    ink.restore();
+}
+
+function drawLandmark(x, y) {
+    ink.save();
+    prepareInk(
+        config.map.landmarkColor,
+        config.map.lineWidth,
+        config.map.opacity
+    );
+
+    const kind = Math.floor(Math.random() * 3);
+    ink.beginPath();
+
+    if (kind === 0) {
+        // Survey marker.
+        ink.arc(x, y, 4, 0, TAU);
+        ink.moveTo(x - 8, y);
+        ink.lineTo(x + 8, y);
+        ink.moveTo(x, y - 8);
+        ink.lineTo(x, y + 8);
+    } else if (kind === 1) {
+        // Small building.
+        ink.rect(x - 5, y - 4, 10, 8);
+        ink.moveTo(x - 5, y - 4);
+        ink.lineTo(x, y - 8);
+        ink.lineTo(x + 5, y - 4);
+    } else {
+        // Mountain symbol.
+        ink.moveTo(x - 7, y + 4);
+        ink.lineTo(x, y - 7);
+        ink.lineTo(x + 7, y + 4);
+        ink.closePath();
+    }
+
+    ink.stroke();
+    ink.restore();
+}
+
+function fadeInk(delta) {
+    const lifetime = Math.max(1, config.map.lifetime);
+
+    ink.save();
+    ink.globalCompositeOperation = "destination-out";
+    ink.fillStyle = `rgba(0,0,0,${
+        1 - Math.exp(-Math.log(100) * delta / lifetime)
+    })`;
+    ink.fillRect(0, 0, width, height);
+    ink.restore();
+}
+
+function updatePens(delta) {
+    const additions = [];
+
+    for (const pen of pens) {
+        if (time >= pen.turnAt) {
+            // Mostly right-angle branches, with occasional diagonal streets.
+            const turn = Math.random() < 0.75
+                ? Math.PI / 2
+                : Math.PI / 4;
+
+            pen.targetAngle += (Math.random() < 0.5 ? -1 : 1) * turn;
+            pen.turnAt = time + 1 + Math.random() * 3;
+        }
+
+        let target = pen.targetAngle;
+        let influence = 0;
+
+        if (config.mouse.enabled) {
+            const dx = mouse.x - pen.x;
+            const dy = mouse.y - pen.y;
+            const distance = Math.hypot(dx, dy);
+            const radius = Math.max(1, config.mouse.radius);
+
+            influence = mouse.influence * Math.exp(
+                -distance * distance / (2 * radius * radius)
+            );
+
+            // Stop steering directly into the exact cursor position.
+            if (distance > 20) {
+                target += angleDifference(
+                    Math.atan2(dy, dx),
+                    target
+                ) * clamp(
+                    influence * config.mouse.attraction,
+                    0, 1
+                );
+            }
+        }
+
+        const turnAmount = 1 - Math.exp(
+            -Math.max(0.1, config.pens.turnRate) * delta
+        );
+
+        pen.angle += angleDifference(target, pen.angle) * turnAmount;
+
+        const oldX = pen.x;
+        const oldY = pen.y;
+
+        pen.x += Math.cos(pen.angle) *
+            config.pens.speed * pen.speedFactor * delta;
+        pen.y += Math.sin(pen.angle) *
+            config.pens.speed * pen.speedFactor * delta;
+
+        ink.save();
+        prepareInk(
+            mix(config.map.streetColor, config.mouse.color, influence),
+            config.map.lineWidth,
+            config.map.opacity
+        );
+
+        if (config.map.lineWidth > 0 && delta > 0) {
+            ink.beginPath();
+            ink.moveTo(oldX, oldY);
+            ink.lineTo(pen.x, pen.y);
+            ink.stroke();
+        }
+        ink.restore();
+
+        // Wrap without drawing a line across the viewport.
+        let wrapped = false;
+
+        if (pen.x < 0) { pen.x = width; wrapped = true; }
+        if (pen.x > width) { pen.x = 0; wrapped = true; }
+        if (pen.y < 0) { pen.y = height; wrapped = true; }
+        if (pen.y > height) { pen.y = 0; wrapped = true; }
+
+        if (wrapped) {
+            pen.targetAngle = pen.angle;
+        }
+
+        if (config.map.islandInterval > 0 && time >= pen.islandAt) {
+            drawIsland(
+                pen.x + Math.cos(pen.angle + Math.PI / 2) *
+                    config.map.islandSize,
+                pen.y + Math.sin(pen.angle + Math.PI / 2) *
+                    config.map.islandSize
+            );
+
+            pen.islandAt = time +
+                config.map.islandInterval * (0.7 + Math.random());
+        }
+
+        if (config.map.landmarkInterval > 0 &&
+            time >= pen.landmarkAt) {
+            drawLandmark(pen.x, pen.y);
+
+            pen.landmarkAt = time +
+                config.map.landmarkInterval * (0.7 + Math.random());
+        }
+
+        const branchProbability =
+            1 - Math.exp(-config.pens.branching * delta);
+
+        if (
+            pens.length + additions.length < config.pens.maxCount &&
+            Math.random() < branchProbability
+        ) {
+            additions.push(newPen(
+                pen.x,
+                pen.y,
+                pen.angle + (Math.random() < 0.5 ? -1 : 1) * Math.PI / 2
+            ));
+        }
+    }
+
+    pens.push(...additions);
+}
+
+function animate(timestamp) {
+    const delta = previousTime === null
+        ? 0
+        : Math.min((timestamp - previousTime) / 1000, 0.05);
+
+    previousTime = timestamp;
+    time += delta;
+
+    const smoothing = 1 - Math.exp(
+        -Math.max(0.1, config.mouse.smoothing) * delta
+    );
+
+    mouse.x += (mouse.targetX - mouse.x) * smoothing;
+    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) -
+        mouse.influence
+    ) * smoothing;
+
+    fadeInk(delta);
+    updatePens(delta);
+
+    ctx.fillStyle = rgb(config.map.backgroundColor);
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(inkCanvas, 0, 0, width, height);
+
+    if (config.map.showPenTips) {
+        ctx.fillStyle = rgb(config.map.landmarkColor);
+
+        for (const pen of pens) {
+            ctx.beginPath();
+            ctx.arc(pen.x, pen.y, 1.5, 0, TAU);
+            ctx.fill();
+        }
+    }
+
+    requestAnimationFrame(animate);
+}
+
+function updateMouse(event) {
+    if (
+        event.target instanceof Element &&
+        event.target.closest("[data-background-editor]")
+    ) {
+        mouse.active = false;
+        return;
+    }
+
+    mouse.targetX = event.clientX;
+    mouse.targetY = event.clientY;
+    mouse.active = true;
+
+    if (!mouse.initialized) {
+        mouse.x = mouse.targetX;
+        mouse.y = mouse.targetY;
+        mouse.initialized = true;
+    }
+}
+
+function deactivateMouse() {
+    mouse.active = false;
+}
+
+window.addEventListener("pointermove", updateMouse);
+window.addEventListener("pointerdown", updateMouse);
+window.addEventListener("blur", deactivateMouse);
+window.addEventListener("pointercancel", deactivateMouse);
+
+document.documentElement.addEventListener(
+    "pointerleave", deactivateMouse
+);
+
+window.addEventListener("pointerup", event => {
+    if (event.pointerType !== "mouse") deactivateMouse();
+});
+
+document.addEventListener("visibilitychange", () => {
+    previousTime = null;
+    deactivateMouse();
+});
+
+window.addEventListener("resize", resize);
+
+resize();
+requestAnimationFrame(animate);
+
+if (config.panel.enabled) {
+    import("./settings-editor.js")
+        .then(({ mountEditor }) => {
+            mountEditor({
+                config,
+                onChange(path) {
+                    if (path === "pens.count") resetMap();
+
+                    if (path === "pens.maxCount") {
+                        pens.length = Math.min(
+                            pens.length,
+                            Math.floor(config.pens.maxCount)
+                        );
+                    }
+
+                    deactivateMouse();
+                },
+                onReset: resetMap
+            });
+        })
+        .catch(error => {
+            console.error("Could not load editor:", error);
+        });
+}
+</script>
+</body>
+</html>

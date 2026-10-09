@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clockwork Garden</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #080e12;
+    }
+
+    #background {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="background" aria-hidden="true"></canvas>
+
+  <script type="module">
+    const config = {
+      garden: {
+        count: 22,
+        height: 240,
+        spread: 0.7,
+        growthTime: 8,
+        bloomTime: 12,
+        retractTime: 7,
+        restTime: 3
+      },
+
+      gears: {
+        radius: 19,
+        teeth: 12,
+        rotationSpeed: 0.35,
+        coupling: 0.8
+      },
+
+      flowers: {
+        petals: 7,
+        petalLength: 24,
+        opening: 0.75,
+        breathing: 0.15
+      },
+
+      mouse: {
+        enabled: true,
+        radius: 210,
+        acceleration: 3,
+        bloomStrength: 0.7,
+        smoothing: 6,
+        showHalo: true
+      },
+
+      appearance: {
+        backgroundColor: [8, 14, 18],
+        stemColor: [87, 143, 133],
+        gearColor: [191, 167, 112],
+        flowerColor: [136, 190, 197],
+        accentColor: [222, 189, 154],
+        opacity: 0.55,
+        lineWidth: 0.8,
+        glow: 5
+      },
+
+      animation: {
+        speed: 1,
+        paused: false,
+        respectReducedMotion: true
+      },
+
+      panel: {
+        enabled: true
+      }
+    };
+
+    const canvas = document.querySelector("#background");
+    const ctx = canvas.getContext("2d");
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+    let width = 1;
+    let height = 1;
+    let plants = [];
+    let previous = null;
+    let time = 0;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      active: false,
+      influence: 0
+    };
+
+    const random = (min, max) => min + Math.random() * (max - min);
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const rgba = (color, alpha = 1) =>
+      `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+    const smoothstep = value => {
+      const t = clamp(value, 0, 1);
+      return t * t * (3 - 2 * t);
+    };
+
+    function lifecycleDuration() {
+      const g = config.garden;
+      return g.growthTime + g.bloomTime + g.retractTime + g.restTime;
+    }
+
+    function makePlant() {
+      return {
+        x: Math.random(),
+        y: random(0.3, 1.08),
+        scale: random(0.55, 1.2),
+        lean: random(-1, 1),
+        bend: random(-1, 1),
+        phase: random(0, Math.PI * 2),
+        age: Math.random() * lifecycleDuration(),
+        angle: random(0, Math.PI * 2),
+        influence: 0
+      };
+    }
+
+    function syncPlants() {
+      const count = Math.round(config.garden.count);
+
+      while (plants.length < count) plants.push(makePlant());
+      plants.length = count;
+
+      plants.sort((a, b) => a.scale - b.scale);
+    }
+
+    function reset() {
+      plants = [];
+      syncPlants();
+    }
+
+    function resize() {
+      width = innerWidth;
+      height = innerHeight;
+
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function lifecycle(plant) {
+      const g = config.garden;
+      const duration = lifecycleDuration();
+      const age = plant.age % duration;
+
+      let growth;
+      let bloom;
+
+      if (age < g.growthTime) {
+        const progress = age / g.growthTime;
+        growth = smoothstep(progress);
+        bloom = smoothstep((progress - 0.6) / 0.4);
+      } else if (age < g.growthTime + g.bloomTime) {
+        growth = 1;
+        bloom = 1;
+      } else if (
+        age < g.growthTime + g.bloomTime + g.retractTime
+      ) {
+        const progress =
+          (age - g.growthTime - g.bloomTime) / g.retractTime;
+
+        growth = 1 - smoothstep(progress);
+        bloom = 1 - smoothstep(progress * 1.8);
+      } else {
+        growth = 0;
+        bloom = 0;
+      }
+
+      return { growth, bloom };
+    }
+
+    function stemPoint(plant, progress) {
+      const length = config.garden.height * plant.scale;
+      const spread = config.garden.spread;
+
+      return {
+        x:
+          plant.x * width +
+          plant.lean * length * spread * progress +
+          Math.sin(progress * Math.PI) *
+          plant.bend * length * spread * 0.2,
+
+        y: plant.y * height - length * progress
+      };
+    }
+
+    function drawGear(x, y, radius, angle, color, alpha) {
+      const teeth = Math.round(config.gears.teeth);
+      const pitch = Math.PI * 2 / teeth;
+
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.strokeStyle = rgba(color, alpha);
+      ctx.lineWidth = config.appearance.lineWidth;
+      ctx.shadowColor = rgba(color);
+      ctx.shadowBlur = config.appearance.glow;
+
+      ctx.beginPath();
+
+      for (let tooth = 0; tooth < teeth; tooth++) {
+        const profile = [
+          [0, 0.91],
+          [0.18, 0.91],
+          [0.28, 1.08],
+          [0.62, 1.08],
+          [0.72, 0.91],
+          [1, 0.91]
+        ];
+
+        for (let i = 0; i < profile.length; i++) {
+          const [offset, factor] = profile[i];
+          const a = (tooth + offset) * pitch;
+          const px = Math.cos(a) * radius * factor;
+          const py = Math.sin(a) * radius * factor;
+
+          if (tooth === 0 && i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+      }
+
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.28, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.beginPath();
+
+      for (let i = 0; i < 3; i++) {
+        const a = i * Math.PI * 2 / 3;
+        ctx.moveTo(
+          Math.cos(a) * radius * 0.35,
+          Math.sin(a) * radius * 0.35
+        );
+        ctx.lineTo(
+          Math.cos(a) * radius * 0.74,
+          Math.sin(a) * radius * 0.74
+        );
+      }
+
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawFlower(plant, x, y, radius, bloom, alpha) {
+      const f = config.flowers;
+
+      const breathing =
+        Math.sin(time * 0.8 + plant.phase) * f.breathing;
+
+      const opening = clamp(
+        bloom * (
+          f.opening +
+          breathing +
+          plant.influence * config.mouse.bloomStrength
+        ),
+        0,
+        1.5
+      );
+
+      if (opening < 0.005) return;
+
+      const petals = Math.round(f.petals);
+      const length = f.petalLength * plant.scale * opening;
+      const petalWidth = length * 0.32;
+
+      // Petals turn gently with the central mechanism.
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(plant.angle * 0.15);
+
+      ctx.strokeStyle = rgba(config.appearance.flowerColor, alpha);
+      ctx.fillStyle = rgba(
+        config.appearance.flowerColor,
+        alpha * 0.035
+      );
+
+      ctx.lineWidth = config.appearance.lineWidth;
+      ctx.shadowColor = rgba(config.appearance.flowerColor);
+      ctx.shadowBlur = config.appearance.glow;
+
+      for (let i = 0; i < petals; i++) {
+        ctx.save();
+        ctx.rotate(i * Math.PI * 2 / petals);
+
+        const base = radius * 1.15;
+        const tip = base + length;
+
+        ctx.beginPath();
+        ctx.moveTo(base, 0);
+        ctx.lineTo(base + length * 0.55, -petalWidth);
+        ctx.lineTo(tip, 0);
+        ctx.lineTo(base + length * 0.55, petalWidth);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.restore();
+      }
+
+      ctx.restore();
+    }
+
+    function drawPlant(plant, dt, interactionDt) {
+      plant.age += dt;
+
+      const { growth, bloom } = lifecycle(plant);
+      const tip = stemPoint(plant, growth);
+
+      const distance = Math.hypot(
+        tip.x - mouse.x,
+        tip.y - mouse.y
+      );
+
+      const proximity = clamp(
+        1 - distance / config.mouse.radius,
+        0,
+        1
+      );
+
+      const target = config.mouse.enabled
+        ? proximity * proximity * mouse.influence
+        : 0;
+
+      plant.influence +=
+        (target - plant.influence) *
+        (1 - Math.exp(-config.mouse.smoothing * interactionDt));
+
+      plant.angle +=
+        config.gears.rotationSpeed *
+        (1 + plant.influence * config.mouse.acceleration) *
+        dt;
+
+      if (growth < 0.002) return;
+
+      const alpha =
+        config.appearance.opacity *
+        (0.45 + plant.scale * 0.45) *
+        smoothstep(growth * 5);
+
+      ctx.strokeStyle = rgba(config.appearance.stemColor, alpha);
+      ctx.lineWidth = config.appearance.lineWidth;
+      ctx.shadowBlur = 0;
+
+      ctx.beginPath();
+
+      for (let i = 0; i <= 36; i++) {
+        const point = stemPoint(plant, growth * i / 36);
+
+        if (!i) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      }
+
+      ctx.stroke();
+
+      // Small angular leaves appear progressively along the stem.
+      for (let i = 1; i <= 3; i++) {
+        const location = i * 0.2;
+        const visibility = smoothstep((growth - location) / 0.15);
+
+        if (visibility <= 0) continue;
+
+        const point = stemPoint(plant, location);
+        const side = i % 2 ? -1 : 1;
+        const leafSize = 17 * plant.scale * visibility;
+
+        ctx.beginPath();
+        ctx.moveTo(point.x, point.y);
+        ctx.lineTo(
+          point.x + side * leafSize,
+          point.y - leafSize * 0.7
+        );
+        ctx.lineTo(
+          point.x + side * leafSize * 0.7,
+          point.y + leafSize * 0.15
+        );
+        ctx.closePath();
+        ctx.stroke();
+      }
+
+      const gearReveal = smoothstep((growth - 0.45) / 0.55);
+      const radius =
+        config.gears.radius * plant.scale * gearReveal;
+
+      if (radius < 0.2) return;
+
+      const pairAngle = plant.lean * 0.4;
+      const partnerX = tip.x + Math.cos(pairAngle) * radius * 2;
+      const partnerY = tip.y + Math.sin(pairAngle) * radius * 2;
+
+      const coupling = config.gears.coupling;
+
+      // Full coupling makes equal-sized gears counter-rotate.
+      const partnerAngle =
+        plant.angle * (1 - 2 * coupling) +
+        pairAngle * 2 +
+        Math.PI / Math.round(config.gears.teeth);
+
+      drawFlower(plant, tip.x, tip.y, radius, bloom, alpha);
+
+      drawGear(
+        tip.x,
+        tip.y,
+        radius,
+        plant.angle,
+        config.appearance.gearColor,
+        alpha
+      );
+
+      drawGear(
+        partnerX,
+        partnerY,
+        radius,
+        partnerAngle,
+        config.appearance.accentColor,
+        alpha * 0.65 * gearReveal
+      );
+    }
+
+    function drawHalo() {
+      if (
+        !config.mouse.enabled ||
+        !config.mouse.showHalo ||
+        mouse.influence < 0.001
+      ) return;
+
+      const gradient = ctx.createRadialGradient(
+        mouse.x, mouse.y, 0,
+        mouse.x, mouse.y, config.mouse.radius
+      );
+
+      gradient.addColorStop(
+        0,
+        rgba(config.appearance.gearColor, mouse.influence * 0.035)
+      );
+
+      gradient.addColorStop(
+        1,
+        rgba(config.appearance.gearColor, 0)
+      );
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    function frame(timestamp) {
+      const realDt = previous === null
+        ? 0
+        : Math.min((timestamp - previous) / 1000, 0.05);
+
+      previous = timestamp;
+
+      const still =
+        config.animation.paused ||
+        (
+          config.animation.respectReducedMotion &&
+          reducedMotion.matches
+        );
+
+      const dt = still ? 0 : realDt * config.animation.speed;
+      time += dt;
+
+      const smoothing =
+        1 - Math.exp(-config.mouse.smoothing * realDt);
+
+      mouse.x += (mouse.targetX - mouse.x) * smoothing;
+      mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+      mouse.influence +=
+        ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = rgba(config.appearance.backgroundColor);
+      ctx.fillRect(0, 0, width, height);
+
+      drawHalo();
+
+      for (const plant of plants) {
+        drawPlant(plant, dt, realDt);
+      }
+
+      requestAnimationFrame(frame);
+    }
+
+    function updatePointer(event) {
+      if (event.target.closest?.("[data-background-editor]")) {
+        mouse.active = false;
+        return;
+      }
+
+      if (!mouse.active) {
+        mouse.x = event.clientX;
+        mouse.y = event.clientY;
+      }
+
+      mouse.targetX = event.clientX;
+      mouse.targetY = event.clientY;
+      mouse.active = true;
+    }
+
+    addEventListener("pointermove", updatePointer);
+    addEventListener("pointerdown", updatePointer);
+
+    addEventListener("pointerup", event => {
+      if (event.pointerType !== "mouse") mouse.active = false;
+    });
+
+    addEventListener("pointercancel", () => mouse.active = false);
+    addEventListener("blur", () => mouse.active = false);
+
+    document.documentElement.addEventListener(
+      "pointerleave",
+      () => mouse.active = false
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      previous = null;
+      mouse.active = false;
+    });
+
+    addEventListener("resize", resize);
+
+    resize();
+    reset();
+    requestAnimationFrame(frame);
+
+    if (config.panel.enabled) {
+      import("./settings-editor.js")
+        .then(({ createSettingsEditor }) => {
+          createSettingsEditor({
+            config,
+            onChange: syncPlants,
+            onReset: reset
+          });
+        })
+        .catch(error => console.error("Editor could not load:", error));
+    }
+  </script>
+</body>
+</html>
