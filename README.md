@@ -33,7 +33,7 @@ Each background directory contains two files:
 - `index.html`: animation, styles, and permanent configuration.
 - `settings-editor.js`: optional settings pane, editor styles, and configuration export.
 
-The parent directory can also contain:
+The parent directory also contain:
 
 - `index.html`: background selection gallery.
 - `example.html`: an example content page with a fixed animated background.
