@@ -85,6 +85,9 @@
       }
     };
 
+    window.getBackgroundConfig = () =>
+      JSON.parse(JSON.stringify(config));
+
     const canvas = document.querySelector("#background");
     const ctx = canvas.getContext("2d");
     const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
