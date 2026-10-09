@@ -104,6 +104,9 @@ const config = {
     }
 };
 
+window.getBackgroundConfig = () =>
+      JSON.parse(JSON.stringify(config));
+
 const canvas = document.getElementById("atlas");
 const ctx = canvas.getContext("2d");
 const TAU = Math.PI * 2;
