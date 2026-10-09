@@ -220,4 +220,4 @@ The existing animations do not automatically stop when reduced motion is request
 
 ## License
 
-No project license has been selected. Add a `LICENSE` file before distributing the project under a specific license.
+This project is licensed under the Apache License, Version 2.0. You are free to use, modify, and distribute the software in accordance with the terms of the license. See the [LICENSE](LICENSE) file for full details.
