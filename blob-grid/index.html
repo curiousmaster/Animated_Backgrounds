@@ -2,412 +2,684 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dot Blob Background</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Background Gallery</title>
 
 <style>
+    * {
+        box-sizing: border-box;
+    }
+
     html, body {
         margin: 0;
         width: 100%;
         height: 100%;
         overflow: hidden;
         background: #000;
+        color: #fff;
+        font-family: system-ui, sans-serif;
     }
 
     #background {
-        display: block;
+        position: fixed;
+        inset: 0;
         width: 100%;
         height: 100%;
+        border: 0;
+    }
+
+	.panel {
+		position: fixed;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		width: min(440px, calc(100% - 40px));
+		padding: 28px;
+        max-height: calc(100dvh - 32px);
+        overflow-y: auto;
+
+		background: rgba(0, 0, 0, 0.24);
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+
+		border: 1px solid rgba(255, 255, 255, 0.25);
+		border-radius: 20px;
+		text-align: center;
+
+		box-shadow: none;
+		text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+	}
+
+    .eyebrow {
+        margin: 0 0 12px;
+        color: #a8c9df;
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+    }
+
+    h1 {
+        margin: 0 0 12px;
+        font-size: clamp(26px, 5vw, 36px);
+        font-weight: 600;
+        letter-spacing: -0.04em;
+    }
+
+    .description {
+        margin: 0 0 26px;
+        color: rgba(255, 255, 255, 0.75);
+        font-size: 14px;
+        line-height: 1.65;
+    }
+
+    label {
+        display: block;
+        margin-bottom: 10px;
+        text-align: left;
+        font-size: 12px;
+        color: #c7d5df;
+    }
+
+    select {
+        width: 100%;
+        padding: 13px 14px;
+        color: #fff;
+        background: rgba(5, 10, 18, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 10px;
+        font: 14px system-ui, sans-serif;
+        cursor: pointer;
+    }
+
+    option {
+        color: #fff;
+        background: #111820;
+    }
+
+    .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+    }
+
+    button, .open-link {
+        flex: 1;
+        padding: 11px 12px;
+        color: #fff;
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 10px;
+        font: 12px system-ui, sans-serif;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    button:hover, .open-link:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+
+    :focus-visible {
+        outline: 2px solid #8acde5;
+        outline-offset: 3px;
+    }
+
+    .hint {
+        margin: 20px 0 0;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 11px;
+        line-height: 1.6;
+    }
+
+    #show-panel {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(15, 20, 28, 0.6);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    }
+
+    [hidden] {
+        display: none !important;
+    }
+
+    #background-select {
+        display: flex; justify-content: space-between; align-items: center;
+        width: 100%; padding: 13px 14px; font-size: 14px; text-align: left;
+        background: rgba(5, 10, 18, .6);
+    }
+    #background-list {
+        max-height: min(220px, 30dvh); overflow-y: auto;
+        margin-top: 7px; padding: 5px; text-align: left;
+        border: 1px solid #ffffff30; border-radius: 10px;
+        background: rgba(8, 15, 25, .96);
+    }
+    .background-option { padding: 9px 11px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .background-option.active { background: #ffffff18; color: #b9e8f8; }
+    .background-option[aria-selected="true"]::after { content: ' ✓'; color: #9ad8c5; }
+    .background-details { text-align: left; margin-top: 18px; padding-top: 16px; border-top: 1px solid #ffffff26; }
+    #detail-label { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .16em; color: #a8c9df; }
+    #detail-title { margin: 0 0 7px; font-size: 18px; font-weight: 600; }
+    #detail-description { margin: 0; min-height: 72px; font-size: 13px; line-height: 1.65; color: #e2e9ef; }
+
+    /* Viewport-safe layout, including browser chrome and display cutouts. */
+    .panel {
+        inset: max(12px, env(safe-area-inset-top))
+               max(12px, env(safe-area-inset-right))
+               max(12px, env(safe-area-inset-bottom))
+               max(12px, env(safe-area-inset-left));
+        margin: auto;
+        transform: none;
+        width: min(480px, calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        height: fit-content;
+        max-height: calc(100vh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+        max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+        padding: clamp(18px, 4vw, 32px);
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        scrollbar-color: #ffffff40 transparent;
+    }
+    button, .open-link, .background-option {
+        min-height: 44px;
+        touch-action: manipulation;
+    }
+    button, .open-link { font-size: 13px; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; }
+    .open-link { display: flex; align-items: center; justify-content: center; }
+    #background-select { font-size: 16px; gap: 12px; }
+    #selected-name { min-width: 0; overflow-wrap: anywhere; }
+    #background-list {
+        max-height: min(240px, 35vh);
+        max-height: min(240px, 35dvh);
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+        scrollbar-width: thin;
+    }
+    .background-option { display: flex; align-items: center; font-size: 14px; }
+    .background-option[aria-selected="true"]::after { margin-left: auto; padding-left: 8px; }
+    #detail-description { min-height: 0; font-size: 14px; }
+    .download-option {
+        display: flex; align-items: center; gap: 10px;
+        min-height: 44px; margin: 8px 0 0; font-size: 12px;
+        cursor: pointer;
+    }
+    .download-option input {
+        flex: 0 0 auto; width: 18px; height: 18px; margin: 0;
+        accent-color: #8acde5;
+    }
+    #download-status { overflow-wrap: anywhere; }
+    #download-status:empty { display: none; }
+    #show-panel {
+        bottom: max(16px, env(safe-area-inset-bottom));
+        max-width: calc(100% - 32px);
+        padding-inline: 20px;
+    }
+    button:disabled { cursor: wait; opacity: .65; }
+    @media (max-width: 480px) {
+        .panel { border-radius: 16px; }
+        .eyebrow { font-size: 10px; letter-spacing: .13em; margin-bottom: 8px; }
+        h1 { font-size: clamp(24px, 7vw, 32px); margin-bottom: 8px; }
+        .description { font-size: 13px; margin-bottom: 18px; }
+        .background-details { margin-top: 14px; padding-top: 12px; }
+        .hint { margin-top: 12px; }
+    }
+    @media (max-width: 360px) {
+        .actions { grid-template-columns: 1fr; gap: 8px; }
+    }
+    @media (max-height: 550px) and (min-width: 600px) {
+        .panel { width: min(620px, calc(100% - 32px)); padding: 18px 24px; }
+        .eyebrow { margin-bottom: 5px; }
+        h1 { font-size: 26px; margin-bottom: 6px; }
+        .description { margin-bottom: 12px; }
+        .hint { margin-top: 10px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; }
     }
 </style>
 </head>
 
 <body>
-<canvas id="background" aria-hidden="true"></canvas>
+<iframe
+    id="background"
+    title="Selected animated background"
+></iframe>
 
-<script type="module">
+<main class="panel" id="panel">
+    <p class="eyebrow">Interactive background collection</p>
+
+    <h1>A little moving magic.</h1>
+
+    <p class="description">
+        Choose a world to explore. Move your pointer across
+        the background and see how it responds.
+    </p>
+
+    <label id="picker-label">Choose your background</label>
+    <div class="picker">
+        <button id="background-select" type="button" aria-haspopup="listbox"
+            aria-expanded="false" aria-controls="background-list"
+            aria-labelledby="picker-label selected-name">
+            <span id="selected-name"></span><span aria-hidden="true">⌄</span>
+        </button>
+        <div id="background-list" role="listbox" tabindex="-1"
+            aria-labelledby="picker-label" hidden></div>
+    </div>
+    <section class="background-details" aria-live="polite" aria-atomic="true">
+        <p id="detail-label">Now playing</p>
+        <h2 id="detail-title"></h2>
+        <p id="detail-description"></p>
+    </section>
+
+    <div class="actions">
+        <button id="hide-panel" type="button">
+            Hide panel
+        </button>
+
+        <a
+            class="open-link"
+            id="open-background"
+            target="_blank"
+            rel="noopener"
+        >
+            Open background ↗
+        </a>
+    </div>
+
+    <button id="download-background" type="button" style="width:100%;margin-top:12px">
+        Download background ZIP ↓
+    </button>
+    <label class="download-option">
+        <input id="download-editor-enabled" type="checkbox">
+        Enable settings editor in downloaded background
+    </label>
+    <p id="download-status" role="status" aria-live="polite"
+        style="font-size:12px;line-height:1.5;margin:10px 0 0"></p>
+
+    <p class="hint">
+        Your selection is remembered.<br>
+        Hide the panel to explore the entire background.
+    </p>
+</main>
+
+<button id="show-panel" type="button" hidden>
+    Show selection
+</button>
+
+<script>
 "use strict";
 
-// Replace this block with configuration copied from the editor.
-const config = {
-    spacing: 27,
-    minRadius: 0.65,
-    maxRadius: 4.2,
+// Change "folder" to match your directory names.
+// Each directory should contain its own index.html.
+const backgrounds = [
+    { name: "Blob Grid", folder: "blob-grid", description: "A field of luminous dots swells into soft, shifting blobs, turning a simple grid into a living surface." },
+    { name: "Wave Field", folder: "wave-field", description: "Gentle waves travel across a field of points, creating a rolling landscape of light." },
+    { name: "Magnetic Particles", folder: "magnetic-particles", description: "A cloud of glowing particles responds to magnetic forces, gathering and scattering around your pointer." },
+    { name: "Topographic Contours", folder: "topographic-contours", description: "Fine contour lines trace an evolving landscape, revealing flowing ridges and valleys." },
+    { name: "Aurora Ribbons", folder: "aurora-ribbons", description: "Curtains of luminous color drift through the darkness like an abstract northern sky." },
+    { name: "Elastic Mesh", folder: "elastic-mesh", description: "A delicate mesh stretches and relaxes as your pointer disturbs its woven surface." },
+    { name: "Constellation Network", folder: "constellation-network", description: "Drifting stars form fleeting connections, creating a constellation that continually redraws itself." },
+    { name: "Liquid Interference", folder: "liquid-interference", description: "Overlapping waves create liquid patterns, bright seams, and shifting pockets of color." },
+    { name: "Scanning Light", folder: "scanning-light", description: "Bands of light sweep across the surface, revealing details before they disappear into darkness." },
+    { name: "Flowing Glyphs", folder: "flowing-glyphs", description: "Streams of glowing glyphs flow through the scene, creating a quiet, digital atmosphere." },
+    { name: "Orbital Trails", folder: "orbital-trails", description: "Luminous paths curl around invisible centers, leaving graceful traces of their motion." },
+    { name: "Impossible Windows", folder: "impossible-windows", description: "Floating windows reveal fragments of alternate motion, layering different rhythms within one scene." },
+    { name: "Memory Fossils", folder: "memory-fossils", description: "Crystal-like traces emerge and age into delicate fossils, preserving echoes of your interaction." },
+    { name: "Shadow Organisms", folder: "shadow-organisms", description: "Soft shadow creatures drift across the surface, retreating from the light around your pointer." },
+    { name: "Woven Time", folder: "woven-time", description: "Interlaced threads carry different rhythms, weaving a fabric that settles into harmony nearby." },
+    { name: "Borrowed Dimensions", folder: "borrowed-dimensions", description: "Geometric forms shift between shapes and dimensions, creating a gently unfolding spatial illusion." },
+    { name: "Living Atlas", folder: "living-atlas", description: "Contours, particles, memories, and flowing light share a living landscape that responds to exploration." },
+	{ name: "Glass Tides", folder: "glass-tides", description: "Translucent glass plates drift above a hidden pattern, bending its appearance as they shift and tilt." },
+	{ name: "Echo Architecture", folder: "echo-architecture", description: "Wireframe structures unfold and dissolve, suggesting impossible buildings suspended in darkness." },
+	{ name: "Chromatic Faults", folder: "chromatic-faults", description: "Fine fractures carry pulses of color through branching paths; your pointer bends their course." },
+	{ name: "Paper Weather", folder: "paper-weather", description: "Folded shapes float through gentle gusts, tumbling and opening as your pointer stirs the air." },
+	{ name: "Signal Archaeology", folder: "signal-archaeology", description: "Broken waveforms and scattered diagrams drift through darkness. Move nearby to tune them into clarity." },
+	{ name: "Prismatic Rain", folder: "prismatic-rain", description: "Falling strokes of light split into spectral trails as they cross prism bands. Your pointer becomes another prism." },
+	{ name: "Breathing Caverns", folder: "breathing-caverns", description: "Layers of illuminated cave walls breathe around a dark opening. Move your pointer to reveal their depth." },
+	{ name: "Clockwork Garden", folder: "clockwork-garden", description: "Fine stems grow into rotating gears and geometric flowers, then retract. Your pointer awakens nearby mechanisms." },
+	{ name: "Negative Constellations", folder: "negative-constellations", description: "Dark openings drift through a luminous field, joined by shadow lines. Your pointer parts them to reveal light." },
+	{ name: "Velvet Vortices", folder: "velvet-vortices", description: "Soft strokes follow wandering vortices like brushed velvet. Move your pointer to comb the surface and leave a fading impression." },
+	{ name: "Luminous Sediments", folder: "luminous-sediments", description: "Glowing grains settle into layered dunes. Gentle currents loosen them, while your pointer lifts them into drifting clouds." },
+	{ name: "Origami Horizons", folder: "origami-horizons", description: "Translucent triangular folds lift and settle into an abstract landscape. Your pointer raises nearby ridges." },
+	{ name: "Orbiting Silence", folder: "orbiting-silence", description: "Fine arcs orbit invisible centers and briefly align. Your pointer gathers nearby arcs into a temporary orbit." },
+	{ name: "Capillary Light", folder: "capilary-light", description: "Luminous ink spreads through branching channels, blending where colors meet. Your pointer feeds fresh color into the network." },
+	{ name: "Mirage Loom", folder: "mirrage-loom", description: "Fine stripe layers slide across one another, forming shifting moir\u00e9 patterns. Your pointer bends the weave like a lens." },
+	{ name: "Floating Tesserae", folder: "floating-tesserae", description: "Translucent mosaic tiles drift apart and reassemble into flowing patches of color. Your pointer opens a gap that gently closes behind it." },
+	{ name: "Resonant Pools", folder: "resonant-pools", description: "Ripples from scattered pools reinforce and cancel one another, forming bright seams. Your pointer adds a source to reshape the pattern." },
+	{ name: "Solar Herbarium", folder: "solar-herbarium", description: "Translucent leaves slowly unfurl as moving light reveals their veins. Your pointer illuminates the foliage like a soft spotlight." },
+	{ name: "Phase Lanterns", folder: "phase-lanterns", description: "Floating halos morph between rings, polygons, and interrupted loops. Your pointer draws nearby lanterns into a shared rhythm." },
+];
 
-    blobRadius: 190,
-    blobCount: 5,
-    speed: 0.38,
-    blobColor: [80, 160, 255],
+const frame = document.getElementById("background");
+const select = document.getElementById("background-select");
+const panel = document.getElementById("panel");
+const showButton = document.getElementById("show-panel");
+const hideButton = document.getElementById("hide-panel");
+const openLink = document.getElementById("open-background");
 
-    mouseStrength: 1,
-    mouseRadius: 110,
-    mouseColor: [255, 80, 160],
+const storageKey = "background-gallery-selection";
 
-    glow: {
-        enabled: true,
-        intensity: 0.7,
-        blur: 12,
-        radius: 1
-    },
+const list = document.getElementById("background-list");
+const selectedName = document.getElementById("selected-name");
+let selectedIndex = 0;
+let activeIndex = 0;
+let isOpen = false;
 
-    gridTilt: 15,
-    perspectiveTiltX: 25,
-    perspectiveTiltY: 0,
-    perspective: 1000,
-
-    panel: {
-        enabled: true // false: editor is not imported
-    }
-};
-
-const canvas = document.getElementById("background");
-const ctx = canvas.getContext("2d");
-
-const clamp = (value, min, max) =>
-    Math.max(min, Math.min(max, value));
-
-const radians = degrees => degrees * Math.PI / 180;
-
-const mouse = {
-    x: 0,
-    y: 0,
-    active: false,
-    influence: 0
-};
-
-let width = 0;
-let height = 0;
-let dots = [];
-let blobs = [];
-let gridDirty = true;
-let previousTime = null;
-let animationTime = 0;
-
-function mixColor(a, b, amount) {
-    const t = clamp(amount, 0, 1);
-    return a.map((value, i) => value + (b[i] - value) * t);
+function describe(index, preview = false) {
+    const item = backgrounds[index];
+    document.getElementById("detail-label").textContent = preview ? "Explore this background" : "Now playing";
+    document.getElementById("detail-title").textContent = item.name;
+    document.getElementById("detail-description").textContent = item.description;
 }
 
-function rgb(color) {
-    return `rgb(${color.map(value =>
-        Math.round(clamp(value, 0, 255))
-    ).join(",")})`;
+function highlight(index, scroll = false) {
+    activeIndex = index;
+    [...list.children].forEach((option, i) => option.classList.toggle("active", i === index));
+    list.setAttribute("aria-activedescendant", `background-option-${index}`);
+    describe(index, index !== selectedIndex);
+    if (scroll) list.children[index].scrollIntoView({ block: "nearest" });
 }
 
-function createBlobs() {
-    const count = Math.max(0, Math.floor(config.blobCount));
-
-    while (blobs.length < count) {
-        blobs.push({
-            phase: blobs.length * 2.3999632297,
-            speedX: 0.65 + Math.random() * 0.5,
-            speedY: 0.55 + Math.random() * 0.5,
-            radiusFactor: 0.8 + Math.random() * 0.4
-        });
-    }
-
-    blobs.length = count;
-}
-
-function rebuildGrid() {
-    dots = [];
-
-    const rz = radians(config.gridTilt);
-    const rx = radians(config.perspectiveTiltX);
-    const ry = radians(config.perspectiveTiltY);
-
-    const cz = Math.cos(rz), sz = Math.sin(rz);
-    const cx = Math.cos(rx), sx = Math.sin(rx);
-    const cy = Math.cos(ry), sy = Math.sin(ry);
-
-    const focal = Math.max(1, config.perspective);
-    const spacing = Math.max(2, config.spacing);
-    const extent = Math.hypot(width, height) * 2 + focal;
-    const steps = Math.ceil(extent / spacing);
-    const margin = Math.max(
-        1, config.minRadius, config.maxRadius
-    ) * 3;
-
-    for (let row = -steps; row <= steps; row++) {
-        const y = row * spacing;
-
-        for (let column = -steps; column <= steps; column++) {
-            const x = column * spacing;
-
-            const x1 = x * cz - y * sz;
-            const y1 = x * sz + y * cz;
-
-            const y2 = y1 * cx;
-            const z2 = y1 * sx;
-
-            const x3 = x1 * cy + z2 * sy;
-            const z3 = -x1 * sy + z2 * cy;
-            const depth = focal + z3;
-
-            if (depth <= 1) continue;
-
-            const scale = focal / depth;
-            const screenX = width / 2 + x3 * scale;
-            const screenY = height / 2 + y2 * scale;
-
-            if (
-                screenX < -margin ||
-                screenX > width + margin ||
-                screenY < -margin ||
-                screenY > height + margin
-            ) continue;
-
-            dots.push({ x: screenX, y: screenY, scale });
-        }
+function setPickerOpen(open, focus = true) {
+    isOpen = open;
+    list.hidden = !open;
+    select.setAttribute("aria-expanded", String(open));
+    if (open) {
+        highlight(selectedIndex, true);
+        list.focus();
+    } else {
+        describe(selectedIndex);
+        if (focus) select.focus();
     }
 }
 
-function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-    width = window.innerWidth;
-    height = window.innerHeight;
-
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    gridDirty = true;
-}
-
-function getBlobPositions(t) {
-    return blobs.map(blob => {
-        let x = width * (
-            0.5 + 0.32 * Math.cos(t * blob.speedX + blob.phase)
-        );
-
-        let y = height * (
-            0.5 + 0.32 *
-            Math.sin(t * blob.speedY + blob.phase * 1.3)
-        );
-
-        const dx = mouse.x - x;
-        const dy = mouse.y - y;
-
-        const attraction = clamp(
-            mouse.influence * config.mouseStrength * 0.3 *
-            Math.exp(-(dx * dx + dy * dy) / (2 * 260 * 260)),
-            0, 1
-        );
-
-        x += dx * attraction;
-        y += dy * attraction;
-
-        return {
-            x,
-            y,
-            radius: Math.max(
-                1, config.blobRadius * blob.radiusFactor
-            )
-        };
+backgrounds.forEach((background, index) => {
+    const option = document.createElement("div");
+    option.id = `background-option-${index}`;
+    option.className = "background-option";
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", "false");
+    option.textContent = background.name;
+    option.addEventListener("pointerenter", event => {
+        if (event.pointerType !== "touch") highlight(index);
     });
+    option.addEventListener("click", () => {
+        selectBackground(background.folder);
+        setPickerOpen(false);
+    });
+    list.append(option);
+});
+
+select.addEventListener("click", () => setPickerOpen(!isOpen));
+select.addEventListener("keydown", event => {
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+        event.preventDefault();
+        setPickerOpen(true);
+    }
+});
+
+let searchText = "";
+let searchTimer;
+list.addEventListener("keydown", event => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        highlight((activeIndex + (event.key === "ArrowDown" ? 1 : -1) + backgrounds.length) % backgrounds.length, true);
+    } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        highlight(event.key === "Home" ? 0 : backgrounds.length - 1, true);
+    } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectBackground(backgrounds[activeIndex].folder);
+        setPickerOpen(false);
+    } else if (event.key === "Escape") {
+        event.preventDefault();
+        setPickerOpen(false);
+    } else if (event.key === "Tab") {
+        setPickerOpen(false);
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        searchText += event.key.toLowerCase();
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => searchText = "", 700);
+        const match = backgrounds.findIndex(item => item.name.toLowerCase().startsWith(searchText));
+        if (match >= 0) highlight(match, true);
+    }
+});
+
+document.addEventListener("pointerdown", event => {
+    if (isOpen && !event.target.closest(".picker")) setPickerOpen(false, false);
+});
+document.addEventListener("focusin", event => {
+    if (isOpen && !event.target.closest(".picker")) setPickerOpen(false, false);
+});
+
+function backgroundURL(folder) {
+    const path = folder
+        .split("/")
+        .map(segment => encodeURIComponent(segment))
+        .join("/");
+
+    return `${path}/index.html`;
 }
 
-function getAppearance(dot, positions) {
-    let blobInfluence = 0;
+function selectBackground(folder) {
+    const background = backgrounds.find(item => item.folder === folder)
+        || backgrounds[0];
 
-    for (const blob of positions) {
-        const dx = dot.x - blob.x;
-        const dy = dot.y - blob.y;
+    selectedIndex = backgrounds.indexOf(background);
+    selectedName.textContent = background.name;
+    [...list.children].forEach((option, index) => {
+        option.setAttribute("aria-selected", String(index === selectedIndex));
+    });
+    describe(selectedIndex);
 
-        blobInfluence += Math.exp(
-            -(dx * dx + dy * dy) /
-            (2 * blob.radius * blob.radius)
-        );
+    const url = backgroundURL(background.folder);
+    frame.src = url;
+    frame.title = `${background.name} animated background`;
+    openLink.href = url;
+
+    try {
+        localStorage.setItem(storageKey, background.folder);
+    } catch {
+        // Selection still works when storage is unavailable.
     }
-
-    let mouseInfluence = 0;
-
-    if (mouse.influence > 0.001) {
-        const dx = dot.x - mouse.x;
-        const dy = dot.y - mouse.y;
-        const radius = Math.max(1, config.mouseRadius);
-
-        mouseInfluence =
-            mouse.influence * config.mouseStrength *
-            Math.exp(
-                -(dx * dx + dy * dy) / (2 * radius * radius)
-            );
-    }
-
-    const normalized =
-        1 - Math.exp(-(blobInfluence + mouseInfluence) * 1.3);
-
-    const minimum = Math.max(0, config.minRadius);
-    const maximum = Math.max(minimum, config.maxRadius);
-
-    const radius = Math.min(
-        maximum * 3,
-        (
-            minimum +
-            (maximum - minimum) * Math.pow(normalized, 1.7)
-        ) * dot.scale
-    );
-
-    const blobAmount = 1 - Math.exp(-blobInfluence * 1.3);
-    const mouseAmount = 1 - Math.exp(-mouseInfluence * 1.8);
-
-    let color = mixColor(
-        [255, 255, 255], config.blobColor, blobAmount
-    );
-
-    color = mixColor(color, config.mouseColor, mouseAmount);
-
-    return {
-        radius,
-        color,
-        glowStrength: Math.max(blobAmount, mouseAmount)
-    };
 }
 
-function animate(time) {
-    const delta = previousTime === null
-        ? 0
-        : Math.min((time - previousTime) / 1000, 0.05);
+function setPanelVisible(visible) {
+    if (!visible) setPickerOpen(false, false);
+    panel.hidden = !visible;
+    showButton.hidden = visible;
 
-    previousTime = time;
-    animationTime += delta * Math.max(0, config.speed);
+    if (visible) {
+        select.focus();
+    } else {
+        showButton.focus();
+    }
+}
 
-    if (gridDirty) {
-        gridDirty = false;
-        rebuildGrid();
+
+
+hideButton.addEventListener("click", () => setPanelVisible(false));
+showButton.addEventListener("click", () => setPanelVisible(true));
+
+let savedSelection = null;
+
+try {
+    savedSelection = localStorage.getItem(storageKey);
+} catch {
+    // Use the first background when storage is unavailable.
+}
+
+selectBackground(savedSelection);
+
+// The foreground panel blocks pointer events from reaching the iframe.
+// Deactivate its cursor interaction when entering foreground controls.
+function deactivateBackgroundPointer() {
+    try {
+        frame.contentWindow.dispatchEvent(new Event("blur"));
+    } catch {
+        // Applicable when the background is served from the same origin.
+    }
+}
+
+panel.addEventListener("pointerenter", deactivateBackgroundPointer);
+showButton.addEventListener("pointerenter", deactivateBackgroundPointer);
+
+// Dependency-free ZIP writer (stored entries, UTF-8 filenames).
+function makeBackgroundZip(files) {
+    const encoder = new TextEncoder();
+    const parts = [];
+    const directory = [];
+    let offset = 0;
+    let directorySize = 0;
+    const now = new Date();
+    const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const dosDate = ((Math.max(1980, now.getFullYear()) - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+
+    function crc32(bytes) {
+        let crc = 0xffffffff;
+        for (const byte of bytes) {
+            crc ^= byte;
+            for (let bit = 0; bit < 8; bit++) {
+                crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+            }
+        }
+        return (crc ^ 0xffffffff) >>> 0;
     }
 
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, width, height);
+    for (const file of files) {
+        const name = encoder.encode(file.name);
+        const data = encoder.encode(file.text);
+        const crc = crc32(data);
+        const local = new Uint8Array(30 + name.length);
+        const view = new DataView(local.buffer);
+        view.setUint32(0, 0x04034b50, true);
+        view.setUint16(4, 20, true);
+        view.setUint16(6, 0x0800, true);
+        view.setUint16(10, dosTime, true);
+        view.setUint16(12, dosDate, true);
+        view.setUint32(14, crc, true);
+        view.setUint32(18, data.length, true);
+        view.setUint32(22, data.length, true);
+        view.setUint16(26, name.length, true);
+        local.set(name, 30);
+        parts.push(local, data);
 
-    mouse.influence +=
-        ((mouse.active ? 1 : 0) - mouse.influence) *
-        (1 - Math.exp(-3.4 * delta));
+        const central = new Uint8Array(46 + name.length);
+        const cv = new DataView(central.buffer);
+        cv.setUint32(0, 0x02014b50, true);
+        cv.setUint16(4, 20, true);
+        cv.setUint16(6, 20, true);
+        cv.setUint16(8, 0x0800, true);
+        cv.setUint16(12, dosTime, true);
+        cv.setUint16(14, dosDate, true);
+        cv.setUint32(16, crc, true);
+        cv.setUint32(20, data.length, true);
+        cv.setUint32(24, data.length, true);
+        cv.setUint16(28, name.length, true);
+        cv.setUint32(42, offset, true);
+        central.set(name, 46);
+        directory.push(central);
+        directorySize += central.length;
+        offset += local.length + data.length;
+    }
 
-    const positions = getBlobPositions(animationTime);
+    const end = new Uint8Array(22);
+    const ev = new DataView(end.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(8, files.length, true);
+    ev.setUint16(10, files.length, true);
+    ev.setUint32(12, directorySize, true);
+    ev.setUint32(16, offset, true);
+    return new Blob([...parts, ...directory, end], { type: "application/zip" });
+}
 
-    for (const dot of dots) {
-        const { radius, color, glowStrength } =
-            getAppearance(dot, positions);
+function applyDownloadedConfig(html, config) {
+    // Backgrounds use a multiline object declaration ending on its own line.
+    const pattern = /\bconst\s+config\s*=\s*\{[\s\S]*?^\s*\};/gm;
+    const matches = [...html.matchAll(pattern)];
+    if (matches.length !== 1) {
+        throw new Error("Could not locate one configuration block in this background.");
+    }
+    const serialized = JSON.stringify(config, null, 2)
+        .replace(/</g, "\\u003c")
+        .replace(/\u2028/g, "\\u2028")
+        .replace(/\u2029/g, "\\u2029");
+    const match = matches[0];
+    return html.slice(0, match.index) + "const config = " + serialized + ";" +
+        html.slice(match.index + match[0].length);
+}
 
-        if (radius <= 0.05) continue;
+const downloadButton = document.getElementById("download-background");
+const downloadStatus = document.getElementById("download-status");
 
-        const dotColor = rgb(color);
+async function fetchBackgroundSource(url) {
+    const response = await fetch(url, { cache: "no-cache" });
+    if (!response.ok) throw new Error(`Could not download ${url.pathname} (${response.status}).`);
+    return response.text();
+}
 
-        if (
-            config.glow.enabled &&
-            config.glow.intensity > 0 &&
-            config.glow.radius > 0 &&
-            glowStrength > 0.05
-        ) {
-            ctx.save();
+downloadButton.addEventListener("click", async () => {
+    downloadButton.disabled = true;
+    downloadButton.textContent = "Preparing download…";
+    downloadStatus.textContent = "";
 
-            ctx.globalAlpha = clamp(
-                glowStrength * config.glow.intensity, 0, 1
-            );
+    try {
+        if (!/^https?:$/.test(location.protocol)) {
+            throw new Error("Open the gallery through a local web server or website to download backgrounds.");
+        }
+        const background = backgrounds[selectedIndex];
+        const sourceURL = new URL(backgroundURL(background.folder), document.baseURI);
+        const child = frame.contentWindow;
 
-            ctx.shadowColor = dotColor;
-            ctx.shadowBlur =
-                Math.max(0, config.glow.blur) * glowStrength;
-
-            ctx.fillStyle = dotColor;
-            ctx.beginPath();
-            ctx.arc(
-                dot.x, dot.y,
-                radius * config.glow.radius,
-                0, Math.PI * 2
-            );
-            ctx.fill();
-
-            ctx.restore();
+        if (child.location.href !== sourceURL.href ||
+            typeof child.getBackgroundConfig !== "function") {
+            throw new Error("Wait for the background to load. It must expose window.getBackgroundConfig().");
         }
 
-        ctx.fillStyle = dotColor;
-        ctx.beginPath();
-        ctx.arc(dot.x, dot.y, radius, 0, Math.PI * 2);
-        ctx.fill();
+        // Capture settings before fetching, even if the selection changes.
+        const currentConfig = JSON.parse(JSON.stringify(child.getBackgroundConfig()));
+        if (!currentConfig || typeof currentConfig !== "object" || Array.isArray(currentConfig)) {
+            throw new Error("The background returned an invalid configuration.");
+        }
+        if (currentConfig.panel && typeof currentConfig.panel === "object") {
+            currentConfig.panel.enabled = document.getElementById("download-editor-enabled").checked;
+        }
+
+        const results = await Promise.all([
+            fetchBackgroundSource(sourceURL),
+            fetchBackgroundSource(new URL("settings-editor.js", sourceURL))
+        ]);
+        const html = applyDownloadedConfig(results[0], currentConfig);
+        if (!/\bexport\b/.test(results[1]) || /^\s*</.test(results[1])) {
+            throw new Error("The settings editor could not be retrieved as JavaScript.");
+        }
+
+        const blob = makeBackgroundZip([
+            { name: "index.html", text: html },
+            { name: "settings-editor.js", text: results[1] }
+        ]);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${background.folder.split("/").pop()}-custom.zip`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        downloadStatus.textContent = `${background.name} downloaded with your current settings.`;
+    } catch (error) {
+        downloadStatus.textContent = error.name === "SecurityError"
+            ? "The gallery and background must be served from the same origin."
+            : error.message;
+    } finally {
+        downloadButton.disabled = false;
+        downloadButton.textContent = "Download background ZIP ↓";
     }
-
-    requestAnimationFrame(animate);
-}
-
-// The editor marks its own elements with this attribute.
-window.addEventListener("pointermove", event => {
-    if (
-        event.target instanceof Element &&
-        event.target.closest("[data-background-editor]")
-    ) {
-        mouse.active = false;
-        return;
-    }
-
-    mouse.x = event.clientX;
-    mouse.y = event.clientY;
-    mouse.active = true;
 });
 
-function deactivateMouse() {
-    mouse.active = false;
-}
-
-document.documentElement.addEventListener(
-    "pointerleave", deactivateMouse
-);
-
-window.addEventListener("blur", deactivateMouse);
-window.addEventListener("pointercancel", deactivateMouse);
-
-window.addEventListener("pointerup", event => {
-    if (event.pointerType !== "mouse") deactivateMouse();
-});
-
-document.addEventListener("visibilitychange", () => {
-    previousTime = null;
-    deactivateMouse();
-});
-
-window.addEventListener("resize", resize);
-
-resize();
-createBlobs();
-requestAnimationFrame(animate);
-
-// --------------------------------------------------
-// Optional editor: nothing is downloaded when disabled.
-// --------------------------------------------------
-
-if (config.panel.enabled) {
-    import("./settings-editor.js")
-        .then(({ mountEditor }) => {
-            mountEditor({
-                config,
-
-                onChange(path) {
-                    if (path === "blobCount") {
-                        createBlobs();
-                    }
-
-                    if ([
-                        "spacing",
-                        "minRadius",
-                        "maxRadius",
-                        "gridTilt",
-                        "perspectiveTiltX",
-                        "perspectiveTiltY",
-                        "perspective"
-                    ].includes(path)) {
-                        gridDirty = true;
-                    }
-
-                    deactivateMouse();
-                }
-            });
-        })
-        .catch(error => {
-            console.error("Could not load settings editor:", error);
-        });
-}
 </script>
 </body>
 </html>
