@@ -4,6 +4,9 @@ A collection of animated HTML Canvas backgrounds with mouse interaction, optiona
 
 Each background is standalone and uses plain HTML, CSS, and JavaScript. No framework, build step, or external JavaScript dependency is required.
 
+## Demo
+You can try it out [here](https://curiousmaster.github.io/Animated_Backgrounds/) at the demo page.
+
 ## Background collection
 
 | Background | Effect |
