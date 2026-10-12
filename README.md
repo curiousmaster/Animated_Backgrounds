@@ -11,10 +11,10 @@ You can try it out [here](https://curiousmaster.github.io/Animated_Backgrounds/)
 
 | Background | Effect |
 | --- | --- |
-|Blob Grid|A field of luminous dots swells into soft, shifting blobs, turning a simple grid into a living surface." },
-|Wave Field|Gentle waves travel across a field of points, creating a rolling landscape of light." },
-|Magnetic Particles|A cloud of glowing particles responds to magnetic forces, gathering and scattering around your pointer." },
-|Topographic Contours|Fine contour lines trace an evolving landscape, revealing flowing ridges and valleys." },
+|Blob Grid|A field of luminous dots swells into soft, shifting blobs, turning a simple grid into a living surface.|
+|Wave Field|Gentle waves travel across a field of points, creating a rolling landscape of light.|
+|Magnetic Particles|A cloud of glowing particles responds to magnetic forces, gathering and scattering around your pointer.|
+|Topographic Contours|Fine contour lines trace an evolving landscape, revealing flowing ridges and valleys.|
 |Aurora Ribbons|Curtains of luminous color drift through the darkness like an abstract northern sky.|
 |Elastic Mesh|A delicate mesh stretches and relaxes as your pointer disturbs its woven surface.|
 |Constellation Network|Drifting stars form fleeting connections, creating a constellation that continually redraws itself.|
