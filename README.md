@@ -1,3 +1,5 @@
+![Interactive Backgrounds — motion, light, and a little magic.](resources/banner.svg)
+
 # Interactive Backgrounds
 
 A collection of animated HTML Canvas backgrounds with mouse interaction, optional live settings editors, and a gallery for switching between scenes.
