@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Background Gallery</title>
 
 <style>
@@ -162,6 +162,83 @@
     #detail-label { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .16em; color: #a8c9df; }
     #detail-title { margin: 0 0 7px; font-size: 18px; font-weight: 600; }
     #detail-description { margin: 0; min-height: 72px; font-size: 13px; line-height: 1.65; color: #e2e9ef; }
+
+    /* Viewport-safe layout, including browser chrome and display cutouts. */
+    .panel {
+        inset: max(12px, env(safe-area-inset-top))
+               max(12px, env(safe-area-inset-right))
+               max(12px, env(safe-area-inset-bottom))
+               max(12px, env(safe-area-inset-left));
+        margin: auto;
+        transform: none;
+        width: min(480px, calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        height: fit-content;
+        max-height: calc(100vh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+        max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+        padding: clamp(18px, 4vw, 32px);
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        scrollbar-color: #ffffff40 transparent;
+    }
+    button, .open-link, .background-option {
+        min-height: 44px;
+        touch-action: manipulation;
+    }
+    button, .open-link { font-size: 13px; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; }
+    .open-link { display: flex; align-items: center; justify-content: center; }
+    #background-select { font-size: 16px; gap: 12px; }
+    #selected-name { min-width: 0; overflow-wrap: anywhere; }
+    #background-list {
+        max-height: min(240px, 35vh);
+        max-height: min(240px, 35dvh);
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+        scrollbar-width: thin;
+    }
+    .background-option { display: flex; align-items: center; font-size: 14px; }
+    .background-option[aria-selected="true"]::after { margin-left: auto; padding-left: 8px; }
+    #detail-description { min-height: 0; font-size: 14px; }
+    .download-option {
+        display: flex; align-items: center; gap: 10px;
+        min-height: 44px; margin: 8px 0 0; font-size: 12px;
+        cursor: pointer;
+    }
+    .download-option input {
+        flex: 0 0 auto; width: 18px; height: 18px; margin: 0;
+        accent-color: #8acde5;
+    }
+    #download-status { overflow-wrap: anywhere; }
+    #download-status:empty { display: none; }
+    #show-panel {
+        bottom: max(16px, env(safe-area-inset-bottom));
+        max-width: calc(100% - 32px);
+        padding-inline: 20px;
+    }
+    button:disabled { cursor: wait; opacity: .65; }
+    @media (max-width: 480px) {
+        .panel { border-radius: 16px; }
+        .eyebrow { font-size: 10px; letter-spacing: .13em; margin-bottom: 8px; }
+        h1 { font-size: clamp(24px, 7vw, 32px); margin-bottom: 8px; }
+        .description { font-size: 13px; margin-bottom: 18px; }
+        .background-details { margin-top: 14px; padding-top: 12px; }
+        .hint { margin-top: 12px; }
+    }
+    @media (max-width: 360px) {
+        .actions { grid-template-columns: 1fr; gap: 8px; }
+    }
+    @media (max-height: 550px) and (min-width: 600px) {
+        .panel { width: min(620px, calc(100% - 32px)); padding: 18px 24px; }
+        .eyebrow { margin-bottom: 5px; }
+        h1 { font-size: 26px; margin-bottom: 6px; }
+        .description { margin-bottom: 12px; }
+        .hint { margin-top: 10px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; }
+    }
 </style>
 </head>
 
@@ -177,7 +254,7 @@
     <h1>A little moving magic.</h1>
 
     <p class="description">
-        Choose a world to explore. Move your mouse across
+        Choose a world to explore. Move your pointer across
         the background and see how it responds.
     </p>
 
@@ -211,6 +288,16 @@
             Open background ↗
         </a>
     </div>
+
+    <button id="download-background" type="button" style="width:100%;margin-top:12px">
+        Download background ZIP ↓
+    </button>
+    <label class="download-option">
+        <input id="download-editor-enabled" type="checkbox">
+        Enable settings editor in downloaded background
+    </label>
+    <p id="download-status" role="status" aria-live="polite"
+        style="font-size:12px;line-height:1.5;margin:10px 0 0"></p>
 
     <p class="hint">
         Your selection is remembered.<br>
@@ -316,7 +403,9 @@ backgrounds.forEach((background, index) => {
     option.setAttribute("role", "option");
     option.setAttribute("aria-selected", "false");
     option.textContent = background.name;
-    option.addEventListener("pointerenter", () => highlight(index));
+    option.addEventListener("pointerenter", event => {
+        if (event.pointerType !== "touch") highlight(index);
+    });
     option.addEventListener("click", () => {
         selectBackground(background.folder);
         setPickerOpen(false);
@@ -437,6 +526,160 @@ function deactivateBackgroundPointer() {
 
 panel.addEventListener("pointerenter", deactivateBackgroundPointer);
 showButton.addEventListener("pointerenter", deactivateBackgroundPointer);
+
+// Dependency-free ZIP writer (stored entries, UTF-8 filenames).
+function makeBackgroundZip(files) {
+    const encoder = new TextEncoder();
+    const parts = [];
+    const directory = [];
+    let offset = 0;
+    let directorySize = 0;
+    const now = new Date();
+    const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const dosDate = ((Math.max(1980, now.getFullYear()) - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+
+    function crc32(bytes) {
+        let crc = 0xffffffff;
+        for (const byte of bytes) {
+            crc ^= byte;
+            for (let bit = 0; bit < 8; bit++) {
+                crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+            }
+        }
+        return (crc ^ 0xffffffff) >>> 0;
+    }
+
+    for (const file of files) {
+        const name = encoder.encode(file.name);
+        const data = encoder.encode(file.text);
+        const crc = crc32(data);
+        const local = new Uint8Array(30 + name.length);
+        const view = new DataView(local.buffer);
+        view.setUint32(0, 0x04034b50, true);
+        view.setUint16(4, 20, true);
+        view.setUint16(6, 0x0800, true);
+        view.setUint16(10, dosTime, true);
+        view.setUint16(12, dosDate, true);
+        view.setUint32(14, crc, true);
+        view.setUint32(18, data.length, true);
+        view.setUint32(22, data.length, true);
+        view.setUint16(26, name.length, true);
+        local.set(name, 30);
+        parts.push(local, data);
+
+        const central = new Uint8Array(46 + name.length);
+        const cv = new DataView(central.buffer);
+        cv.setUint32(0, 0x02014b50, true);
+        cv.setUint16(4, 20, true);
+        cv.setUint16(6, 20, true);
+        cv.setUint16(8, 0x0800, true);
+        cv.setUint16(12, dosTime, true);
+        cv.setUint16(14, dosDate, true);
+        cv.setUint32(16, crc, true);
+        cv.setUint32(20, data.length, true);
+        cv.setUint32(24, data.length, true);
+        cv.setUint16(28, name.length, true);
+        cv.setUint32(42, offset, true);
+        central.set(name, 46);
+        directory.push(central);
+        directorySize += central.length;
+        offset += local.length + data.length;
+    }
+
+    const end = new Uint8Array(22);
+    const ev = new DataView(end.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(8, files.length, true);
+    ev.setUint16(10, files.length, true);
+    ev.setUint32(12, directorySize, true);
+    ev.setUint32(16, offset, true);
+    return new Blob([...parts, ...directory, end], { type: "application/zip" });
+}
+
+function applyDownloadedConfig(html, config) {
+    // Backgrounds use a multiline object declaration ending on its own line.
+    const pattern = /\bconst\s+config\s*=\s*\{[\s\S]*?^\s*\};/gm;
+    const matches = [...html.matchAll(pattern)];
+    if (matches.length !== 1) {
+        throw new Error("Could not locate one configuration block in this background.");
+    }
+    const serialized = JSON.stringify(config, null, 2)
+        .replace(/</g, "\\u003c")
+        .replace(/\u2028/g, "\\u2028")
+        .replace(/\u2029/g, "\\u2029");
+    const match = matches[0];
+    return html.slice(0, match.index) + "const config = " + serialized + ";" +
+        html.slice(match.index + match[0].length);
+}
+
+const downloadButton = document.getElementById("download-background");
+const downloadStatus = document.getElementById("download-status");
+
+async function fetchBackgroundSource(url) {
+    const response = await fetch(url, { cache: "no-cache" });
+    if (!response.ok) throw new Error(`Could not download ${url.pathname} (${response.status}).`);
+    return response.text();
+}
+
+downloadButton.addEventListener("click", async () => {
+    downloadButton.disabled = true;
+    downloadButton.textContent = "Preparing download…";
+    downloadStatus.textContent = "";
+
+    try {
+        if (!/^https?:$/.test(location.protocol)) {
+            throw new Error("Open the gallery through a local web server or website to download backgrounds.");
+        }
+        const background = backgrounds[selectedIndex];
+        const sourceURL = new URL(backgroundURL(background.folder), document.baseURI);
+        const child = frame.contentWindow;
+
+        if (child.location.href !== sourceURL.href ||
+            typeof child.getBackgroundConfig !== "function") {
+            throw new Error("Wait for the background to load. It must expose window.getBackgroundConfig().");
+        }
+
+        // Capture settings before fetching, even if the selection changes.
+        const currentConfig = JSON.parse(JSON.stringify(child.getBackgroundConfig()));
+        if (!currentConfig || typeof currentConfig !== "object" || Array.isArray(currentConfig)) {
+            throw new Error("The background returned an invalid configuration.");
+        }
+        if (currentConfig.panel && typeof currentConfig.panel === "object") {
+            currentConfig.panel.enabled = document.getElementById("download-editor-enabled").checked;
+        }
+
+        const results = await Promise.all([
+            fetchBackgroundSource(sourceURL),
+            fetchBackgroundSource(new URL("settings-editor.js", sourceURL))
+        ]);
+        const html = applyDownloadedConfig(results[0], currentConfig);
+        if (!/\bexport\b/.test(results[1]) || /^\s*</.test(results[1])) {
+            throw new Error("The settings editor could not be retrieved as JavaScript.");
+        }
+
+        const blob = makeBackgroundZip([
+            { name: "index.html", text: html },
+            { name: "settings-editor.js", text: results[1] }
+        ]);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${background.folder.split("/").pop()}-custom.zip`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        downloadStatus.textContent = `${background.name} downloaded with your current settings.`;
+    } catch (error) {
+        downloadStatus.textContent = error.name === "SecurityError"
+            ? "The gallery and background must be served from the same origin."
+            : error.message;
+    } finally {
+        downloadButton.disabled = false;
+        downloadButton.textContent = "Download background ZIP ↓";
+    }
+});
+
 </script>
 </body>
 </html>
