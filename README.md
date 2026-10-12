@@ -13,7 +13,7 @@ Explore, customize, and preview animated backgrounds using the interactive confi
 
 ## Background collection
 
-You can find the gallery [here](https://curiousmaster.github.io/Interactive_Backgrounds/gallery.html).).
+You can find the gallery [here](https://curiousmaster.github.io/Interactive_Backgrounds/gallery.html).
 
 | Background | Effect |
 | --- | --- |
