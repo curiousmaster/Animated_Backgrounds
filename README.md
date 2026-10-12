@@ -9,7 +9,7 @@ Each background is standalone and uses plain HTML, CSS, and JavaScript. No frame
 ## Configurator
 Explore, customize, and preview animated backgrounds using the interactive configurator. Once you're satisfied with your design, you can download the fully configured, ready-to-use source code.
 
-[Try the Animated Background Configurator](https://curiousmaster.github.io/Animated_Backgrounds/)
+[Try the Interactive Background Configurator](https://curiousmaster.github.io/Interactive_Backgrounds/)
 
 ## Background collection
 
