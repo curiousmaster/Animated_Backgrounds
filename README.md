@@ -11,23 +11,42 @@ You can try it out [here](https://curiousmaster.github.io/Animated_Backgrounds/)
 
 | Background | Effect |
 | --- | --- |
-| Blob Grid | Stationary dots change size around moving blobs, with color, glow, and perspective controls. |
-| Wave Field | Traveling waves change dot sizes; mouse interaction creates expanding ripples. |
-| Magnetic Particles | Particles circulate around moving force-field poles and respond to cursor attraction or repulsion. |
-| Topographic Contours | Animated terrain generates contour lines; the cursor creates a hill or depression. |
-| Aurora Ribbons | Translucent ribbons drift and bend toward the cursor. |
-| Elastic Mesh | A spring-driven grid stretches and returns to its resting shape. |
-| Constellation Network | Drifting points connect to nearby points and the cursor. |
-| Liquid Interference | Moving wave sources produce flowing bands of color. |
-| Scanning Light | Beams illuminate a stationary grid and leave fading light trails. |
-| Flowing Glyphs | Character streams drift across the screen and scramble near the cursor. |
-| Orbital Trails | Particles follow elliptical paths with perspective and fading trails. |
-| Impossible Windows | Floating portals combine changes to time direction, gravity orientation, and scale. |
-| Memory Fossils | Cursor movement plants branching crystals that mineralize and erode into dust. |
-| Shadow Organisms | Soft silhouettes retreat from cursor light, deform, and split. |
-| Woven Time | Threads evolve at different local rates; the cursor synchronizes nearby regions. |
-| Borrowed Dimensions | Fragments transform between points, polygons, and solids. |
-| Living Atlas | A shared terrain field combines contours, dots, particle currents, ripples, crystals, and an aurora scan. |
+|Blob Grid|A field of luminous dots swells into soft, shifting blobs, turning a simple grid into a living surface." },
+|Wave Field|Gentle waves travel across a field of points, creating a rolling landscape of light." },
+|Magnetic Particles|A cloud of glowing particles responds to magnetic forces, gathering and scattering around your pointer." },
+|Topographic Contours|Fine contour lines trace an evolving landscape, revealing flowing ridges and valleys." },
+|Aurora Ribbons|Curtains of luminous color drift through the darkness like an abstract northern sky.|
+|Elastic Mesh|A delicate mesh stretches and relaxes as your pointer disturbs its woven surface.|
+|Constellation Network|Drifting stars form fleeting connections, creating a constellation that continually redraws itself.|
+|Liquid Interference|Overlapping waves create liquid patterns, bright seams, and shifting pockets of color.|
+|Scanning Light|Bands of light sweep across the surface, revealing details before they disappear into darkness.|
+|Flowing Glyphs|Streams of glowing glyphs flow through the scene, creating a quiet, digital atmosphere.|
+|Orbital Trails|Luminous paths curl around invisible centers, leaving graceful traces of their motion.|
+|Impossible Windows|Floating windows reveal fragments of alternate motion, layering different rhythms within one scene.|
+|Memory Fossils|Crystal-like traces emerge and age into delicate fossils, preserving echoes of your interaction.|
+|Shadow Organisms|Soft shadow creatures drift across the surface, retreating from the light around your pointer.|
+|Woven Time|Interlaced threads carry different rhythms, weaving a fabric that settles into harmony nearby.|
+|Borrowed Dimensions|Geometric forms shift between shapes and dimensions, creating a gently unfolding spatial illusion.|
+|Living Atlas|Contours, particles, memories, and flowing light share a living landscape that responds to exploration.|
+|Glass Tides|Translucent glass plates drift above a hidden pattern, bending its appearance as they shift and tilt.|
+|Echo Architecture|Wireframe structures unfold and dissolve, suggesting impossible buildings suspended in darkness.|
+|Chromatic Faults|Fine fractures carry pulses of color through branching paths; your pointer bends their course.|
+|Paper Weather|Folded shapes float through gentle gusts, tumbling and opening as your pointer stirs the air.|
+|Signal Archaeology|Broken waveforms and scattered diagrams drift through darkness. Move nearby to tune them into clarity.|
+|Prismatic Rain|Falling strokes of light split into spectral trails as they cross prism bands. Your pointer becomes another prism.|
+|Breathing Caverns|Layers of illuminated cave walls breathe around a dark opening. Move your pointer to reveal their depth.|
+|Clockwork Garden|Fine stems grow into rotating gears and geometric flowers, then retract. Your pointer awakens nearby mechanisms.|
+|Negative Constellations|Dark openings drift through a luminous field, joined by shadow lines. Your pointer parts them to reveal light.|
+|Velvet Vortices|Soft strokes follow wandering vortices like brushed velvet. Move your pointer to comb the surface and leave a fading impression.|
+|Luminous Sediments|Glowing grains settle into layered dunes. Gentle currents loosen them, while your pointer lifts them into drifting clouds.|
+|Origami Horizons|Translucent triangular folds lift and settle into an abstract landscape. Your pointer raises nearby ridges.|
+|Orbiting Silence|Fine arcs orbit invisible centers and briefly align. Your pointer gathers nearby arcs into a temporary orbit.|
+|Capillary Light|Luminous ink spreads through branching channels, blending where colors meet. Your pointer feeds fresh color into the network.|
+|Mirage Loom|Fine stripe layers slide across one another, forming shifting moir\u00e9 patterns. Your pointer bends the weave like a lens.|
+|Floating Tesserae|Translucent mosaic tiles drift apart and reassemble into flowing patches of color. Your pointer opens a gap that gently closes behind it.|
+|Resonant Pools|Ripples from scattered pools reinforce and cancel one another, forming bright seams. Your pointer adds a source to reshape the pattern.|
+|Solar Herbarium|Translucent leaves slowly unfurl as moving light reveals their veins. Your pointer illuminates the foliage like a soft spotlight.|
+|Phase Lanterns|Floating halos morph between rings, polygons, and interrupted loops. Your pointer draws nearby lanterns into a shared rhythm.|
 
 ## Project layout
 
