@@ -230,6 +230,62 @@ function schedule() {
     }
 }
 
+// Forward interaction through the scrolling document to both visible scenes.
+// Keep the iframe non-interactive so wheel and touch scrolling stay on this page.
+let lastPointer = null;
+
+function clearBackgroundPointer() {
+    lastPointer = null;
+    for (const slot of slots) {
+        if (!slot.ready) continue;
+        try {
+            slot.frame.contentWindow.dispatchEvent(new Event("blur"));
+        } catch { /* Same-origin backgrounds are required. */ }
+    }
+}
+
+function forwardPointer(event) {
+    // Links and controls should remain ordinary foreground UI.
+    if (event.target.closest?.("a, button, input, select, textarea")) {
+        clearBackgroundPointer();
+        return;
+    }
+    lastPointer = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        isPrimary: event.isPrimary,
+        buttons: event.buttons,
+        button: event.button,
+        pressure: event.pressure
+    };
+    for (const slot of slots) {
+        if (!slot.ready || Number(slot.frame.style.opacity) <= 0) continue;
+        try {
+            const child = slot.frame.contentWindow;
+            child.document.documentElement.dispatchEvent(
+                new child.PointerEvent(event.type, {
+                    ...lastPointer, bubbles: true, cancelable: false
+                })
+            );
+        } catch { /* Same-origin backgrounds are required. */ }
+    }
+    if (event.type === "pointercancel" ||
+        (event.type === "pointerup" && event.pointerType !== "mouse")) {
+        clearBackgroundPointer();
+    }
+}
+
+for (const type of ["pointermove", "pointerdown", "pointerup", "pointercancel"]) {
+    addEventListener(type, forwardPointer, { passive: true });
+}
+document.documentElement.addEventListener("pointerleave", clearBackgroundPointer);
+addEventListener("blur", clearBackgroundPointer);
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) clearBackgroundPointer();
+});
+
 addEventListener("scroll", schedule, { passive: true });
 addEventListener("resize", measure);
 reducedMotion.addEventListener("change", schedule);
