@@ -53,6 +53,12 @@ You can find the gallery [here](https://curiousmaster.github.io/Interactive_Back
 |Resonant Pools|Ripples from scattered pools reinforce and cancel one another, forming bright seams. Your pointer adds a source to reshape the pattern.|
 |Solar Herbarium|Translucent leaves slowly unfurl as moving light reveals their veins. Your pointer illuminates the foliage like a soft spotlight.|
 |Phase Lanterns|Floating halos morph between rings, polygons, and interrupted loops. Your pointer draws nearby lanterns into a shared rhythm.|
+|Gravity Calligraphy|Luminous ribbons curl through wandering gravity wells. Move your pointer to attract them; click or tap to send them spiraling outward.|
+|Frostlight Windows|Fine frost branches spread across a dark glass-like surface. Your pointer melts a clear opening; the crystals gradually return after it passes.|
+|Acoustic Silk|Translucent sheets ripple like suspended silk. Move your pointer to pluck the fabric; click or tap to release a larger wave.|
+|Polarized Secrets|Hidden geometric layers become visible beneath a moving lens. Move your pointer to reveal them; scroll to rotate the lens and uncover different patterns.|
+|Ember Migration|Glowing embers travel in loose flocks, gathering into shifting formations. Your pointer attracts them like a warm beacon; click or tap to release a cooling wave.|
+|Melody Currents|Musical staves flow through three-dimensional space, carrying drifting notes and rests that become brighter and thicker nearby. Move your pointer to swirl the music; click or tap to send a ripple.|
 
 ## Project layout
 
