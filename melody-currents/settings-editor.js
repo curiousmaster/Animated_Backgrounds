@@ -4,7 +4,7 @@ export function createSettingsEditor({
   onReset = () => {}
 }) {
   const limits = {
-    "ribbons.count": [1, 10, 1],
+    "ribbons.count": [1, 20, 1],
     "ribbons.staffSpacing": [3, 15, 0.5],
     "ribbons.waveHeight": [0, 180, 1],
     "ribbons.waveVariation": [0, 1.5, 0.01],
