@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frostlight Windows</title>
+
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #08111c;
+  }
+
+  canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+const config = {
+  frost: {
+    crystals: 38,
+    size: 125,
+    branching: 3,
+    branchAngle: 38,
+    growthSpeed: 0.3,
+    irregularity: 0.35
+  },
+
+  melting: {
+    enabled: true,
+    radius: 145,
+    strength: 5,
+    refreezeDelay: 2,
+    refreezeSpeed: 0.6,
+    smoothing: 8
+  },
+
+  appearance: {
+    backgroundColor: [8, 17, 28],
+    colorA: [107, 189, 216],
+    colorB: [164, 150, 222],
+    highlightColor: [215, 237, 244],
+    opacity: 0.5,
+    lineWidth: 0.8,
+    glow: 5,
+    shimmer: 0.35,
+    showHalo: true
+  },
+
+  animation: {
+    speed: 1,
+    paused: false,
+    respectReducedMotion: true
+  },
+
+  panel: {
+    enabled: true
+  }
+};
+
+window.getBackgroundConfig = () =>
+  JSON.parse(JSON.stringify(config));
+
+const canvas = document.querySelector("#background");
+const ctx = canvas.getContext("2d");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+let width = 1;
+let height = 1;
+let crystals = [];
+let geometryKey = "";
+let time = 0;
+let previous = null;
+
+const mouse = {
+  x: 0,
+  y: 0,
+  targetX: 0,
+  targetY: 0,
+  active: false,
+  influence: 0
+};
+
+const random = (min, max) => min + Math.random() * (max - min);
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const radians = degrees => degrees * Math.PI / 180;
+
+const rgba = (color, alpha = 1) =>
+  `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+function mix(a, b, amount) {
+  return a.map((value, index) =>
+    Math.round(value + (b[index] - value) * amount)
+  );
+}
+
+function makeCrystal() {
+  const crystal = {
+    x: Math.random(),
+    y: Math.random(),
+    scale: random(0.55, 1.2),
+    tint: Math.random(),
+    phase: random(0, Math.PI * 2),
+    rotation: random(0, Math.PI * 2),
+    age: random(0.3, 1.2),
+    segments: []
+  };
+
+  const maximumDepth = Math.round(config.frost.branching);
+
+  function branch(x, y, angle, length, depth, birth) {
+    const pieces = 4;
+    let px = x;
+    let py = y;
+
+    for (let i = 0; i < pieces; i++) {
+      const jitter =
+        random(-1, 1) * config.frost.irregularity * 0.12;
+
+      const direction = angle + jitter;
+      const nx = px + Math.cos(direction) * length / pieces;
+      const ny = py + Math.sin(direction) * length / pieces;
+
+      crystal.segments.push({
+        x1: px,
+        y1: py,
+        x2: nx,
+        y2: ny,
+        birth: birth + i * 0.07,
+        depth,
+        frost: 1,
+        delay: 0
+      });
+
+      if (
+        depth < maximumDepth &&
+        (i === 1 || i === 2)
+      ) {
+        const forkAngle = radians(config.frost.branchAngle);
+        const childLength = length * random(0.28, 0.4);
+        const childBirth = birth + i * 0.07 + 0.12;
+
+        branch(
+          nx, ny,
+          angle - forkAngle,
+          childLength,
+          depth + 1,
+          childBirth
+        );
+
+        branch(
+          nx, ny,
+          angle + forkAngle,
+          childLength,
+          depth + 1,
+          childBirth
+        );
+      }
+
+      px = nx;
+      py = ny;
+    }
+  }
+
+  for (let arm = 0; arm < 6; arm++) {
+    branch(
+      0,
+      0,
+      crystal.rotation + arm * Math.PI / 3,
+      crystal.scale,
+      0,
+      0
+    );
+  }
+
+  return crystal;
+}
+
+function currentGeometryKey() {
+  return JSON.stringify([
+    config.frost.crystals,
+    config.frost.branching,
+    config.frost.branchAngle,
+    config.frost.irregularity
+  ]);
+}
+
+function reset() {
+  crystals = Array.from(
+    { length: Math.round(config.frost.crystals) },
+    makeCrystal
+  );
+
+  geometryKey = currentGeometryKey();
+}
+
+function refresh() {
+  if (geometryKey !== currentGeometryKey()) reset();
+}
+
+function resize() {
+  width = innerWidth;
+  height = innerHeight;
+
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function drawCrystal(crystal, dt, interactionDt) {
+  crystal.age += config.frost.growthSpeed * dt;
+
+  const originX = crystal.x * width;
+  const originY = crystal.y * height;
+  const size = config.frost.size;
+
+  const baseColor = mix(
+    config.appearance.colorA,
+    config.appearance.colorB,
+    crystal.tint
+  );
+
+  const shimmer =
+    0.5 + Math.sin(time * 0.45 + crystal.phase) * 0.5;
+
+  const color = mix(
+    baseColor,
+    config.appearance.highlightColor,
+    shimmer * config.appearance.shimmer
+  );
+
+  // Batch segments into opacity groups to reduce canvas draw calls.
+  const paths = Array.from({ length: 8 }, () => new Path2D());
+
+  for (const segment of crystal.segments) {
+    const growth = clamp(
+      (crystal.age - segment.birth) / 0.2,
+      0,
+      1
+    );
+
+    if (growth <= 0) continue;
+
+    const x1 = originX + segment.x1 * size;
+    const y1 = originY + segment.y1 * size;
+    const x2 = originX + segment.x2 * size;
+    const y2 = originY + segment.y2 * size;
+
+    // Distance to the whole segment produces a cleaner melted opening.
+    const sx = x2 - x1;
+    const sy = y2 - y1;
+    const lengthSquared = sx * sx + sy * sy;
+
+    const projection = lengthSquared > 0
+      ? clamp(
+          (
+            (mouse.x - x1) * sx +
+            (mouse.y - y1) * sy
+          ) / lengthSquared,
+          0,
+          1
+        )
+      : 0;
+
+    const distance = Math.hypot(
+      x1 + sx * projection - mouse.x,
+      y1 + sy * projection - mouse.y
+    );
+
+    const proximity = clamp(
+      1 - distance / config.melting.radius,
+      0,
+      1
+    );
+
+    const influence = config.melting.enabled
+      ? proximity * proximity * mouse.influence
+      : 0;
+
+    if (influence > 0.01) {
+      segment.frost *= Math.exp(
+        -config.melting.strength * influence * interactionDt
+      );
+      segment.delay = config.melting.refreezeDelay;
+    } else {
+      segment.delay = Math.max(0, segment.delay - dt);
+
+      if (segment.delay === 0) {
+        segment.frost +=
+          (1 - segment.frost) *
+          (1 - Math.exp(-config.melting.refreezeSpeed * dt));
+      }
+    }
+
+    const opacity =
+      segment.frost *
+      growth *
+      (1 - segment.depth * 0.12);
+
+    if (opacity < 0.025) continue;
+
+    const band = Math.min(7, Math.floor(opacity * 8));
+    const path = paths[band];
+
+    path.moveTo(x1, y1);
+    path.lineTo(
+      x1 + (x2 - x1) * growth,
+      y1 + (y2 - y1) * growth
+    );
+  }
+
+  ctx.lineWidth = config.appearance.lineWidth;
+  ctx.shadowColor = rgba(color);
+  ctx.shadowBlur = config.appearance.glow;
+
+  for (let band = 0; band < paths.length; band++) {
+    ctx.strokeStyle = rgba(
+      color,
+      config.appearance.opacity * (band + 0.5) / 8
+    );
+    ctx.stroke(paths[band]);
+  }
+
+  ctx.shadowBlur = 0;
+}
+
+function drawHalo() {
+  if (
+    !config.melting.enabled ||
+    !config.appearance.showHalo ||
+    mouse.influence < 0.001
+  ) return;
+
+  const gradient = ctx.createRadialGradient(
+    mouse.x, mouse.y, 0,
+    mouse.x, mouse.y, config.melting.radius
+  );
+
+  gradient.addColorStop(
+    0,
+    rgba(config.appearance.highlightColor, mouse.influence * 0.025)
+  );
+  gradient.addColorStop(
+    1,
+    rgba(config.appearance.highlightColor, 0)
+  );
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+}
+
+function frame(timestamp) {
+  const realDt = previous === null
+    ? 0
+    : Math.min((timestamp - previous) / 1000, 0.05);
+
+  previous = timestamp;
+
+  const still =
+    config.animation.paused ||
+    (
+      config.animation.respectReducedMotion &&
+      reducedMotion.matches
+    );
+
+  const dt = still ? 0 : realDt * config.animation.speed;
+  time += dt;
+
+  const smoothing =
+    1 - Math.exp(-config.melting.smoothing * realDt);
+
+  mouse.x += (mouse.targetX - mouse.x) * smoothing;
+  mouse.y += (mouse.targetY - mouse.y) * smoothing;
+  mouse.influence +=
+    ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = rgba(config.appearance.backgroundColor);
+  ctx.fillRect(0, 0, width, height);
+
+  drawHalo();
+
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  for (const crystal of crystals) {
+    drawCrystal(crystal, dt, realDt);
+  }
+
+  requestAnimationFrame(frame);
+}
+
+function updatePointer(event) {
+  if (event.target.closest?.("[data-background-editor]")) {
+    mouse.active = false;
+    return;
+  }
+
+  if (!mouse.active) {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+  }
+
+  mouse.targetX = event.clientX;
+  mouse.targetY = event.clientY;
+  mouse.active = true;
+}
+
+addEventListener("pointermove", updatePointer);
+addEventListener("pointerdown", updatePointer);
+
+addEventListener("pointerup", event => {
+  if (event.pointerType !== "mouse") mouse.active = false;
+});
+
+addEventListener("pointercancel", () => mouse.active = false);
+addEventListener("blur", () => mouse.active = false);
+
+document.documentElement.addEventListener(
+  "pointerleave",
+  () => mouse.active = false
+);
+
+document.addEventListener("visibilitychange", () => {
+  previous = null;
+  mouse.active = false;
+});
+
+addEventListener("resize", resize);
+
+resize();
+reset();
+requestAnimationFrame(frame);
+
+if (config.panel.enabled) {
+  import("./settings-editor.js")
+    .then(({ createSettingsEditor }) => {
+      createSettingsEditor({
+        config,
+        onChange: refresh,
+        onReset: reset
+      });
+    })
+    .catch(error => console.error("Editor could not load:", error));
+}
+</script>
+</body>
+</html>

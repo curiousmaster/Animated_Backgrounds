@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acoustic Silk</title>
+
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0b0d1b;
+  }
+
+  canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+const config = {
+  silk: {
+    sheets: 3,
+    width: 1.15,
+    height: 0.55,
+    separation: 65,
+    rotation: -12,
+    folds: 5,
+    foldDepth: 20
+  },
+
+  waves: {
+    tension: 140,
+    damping: 0.8,
+    wavelength: 130,
+    amplitude: 28,
+    ambientStrength: 0.3,
+    ambientSpeed: 0.5
+  },
+
+  mouse: {
+    enabled: true,
+    pluckStrength: 0.65,
+    pulseStrength: 1.5,
+    pluckInterval: 0.12,
+    smoothing: 8
+  },
+
+  appearance: {
+    backgroundColor: [11, 13, 27],
+    colorA: [82, 175, 192],
+    colorB: [175, 115, 199],
+    highlightColor: [223, 221, 199],
+    translucency: 0.12,
+    lineOpacity: 0.35,
+    lineWidth: 0.7,
+    threadSpacing: 14,
+    detail: 14,
+    glow: 3
+  },
+
+  animation: {
+    speed: 1,
+    paused: false,
+    respectReducedMotion: true
+  },
+
+  panel: {
+    enabled: true
+  }
+};
+
+window.getBackgroundConfig = () =>
+  JSON.parse(JSON.stringify(config));
+
+const canvas = document.querySelector("#background");
+const ctx = canvas.getContext("2d");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+let width = 1;
+let height = 1;
+let time = 0;
+let previous = null;
+let impulses = [];
+let pluckClock = 0;
+
+const mouse = {
+  x: 0,
+  y: 0,
+  targetX: 0,
+  targetY: 0,
+  previousX: 0,
+  previousY: 0,
+  active: false
+};
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const radians = degrees => degrees * Math.PI / 180;
+
+const rgba = (color, alpha = 1) =>
+  `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+function mix(a, b, amount) {
+  return a.map((value, index) =>
+    Math.round(value + (b[index] - value) * amount)
+  );
+}
+
+function resize() {
+  width = innerWidth;
+  height = innerHeight;
+
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function reset() {
+  impulses = [];
+  time = 0;
+}
+
+function addImpulse(x, y, strength) {
+  if (impulses.length >= 24) impulses.shift();
+
+  impulses.push({
+    // Normalized screen coordinates survive viewport resizing.
+    x: x / width,
+    y: y / height,
+    strength,
+    born: time
+  });
+}
+
+function waveAt(screenX, screenY, sheet) {
+  let displacement = 0;
+
+  for (const impulse of impulses) {
+    const age = time - impulse.born;
+    const distance = Math.hypot(
+      screenX - impulse.x * width,
+      screenY - impulse.y * height
+    );
+
+    const radius = age * config.waves.tension;
+    const shell = distance - radius;
+    const wavelength = config.waves.wavelength;
+
+    const envelope =
+      Math.exp(-Math.pow(shell / wavelength, 2) * 2) *
+      Math.exp(-config.waves.damping * age) *
+      (1 - Math.exp(-age * 8));
+
+    displacement +=
+      Math.cos(
+        shell / wavelength * Math.PI * 2 -
+        sheet * 0.3
+      ) *
+      envelope *
+      impulse.strength *
+      config.waves.amplitude;
+  }
+
+  return displacement;
+}
+
+function silkPoint(x, y, sheet) {
+  const count = Math.round(config.silk.sheets);
+  const offset = sheet - (count - 1) / 2;
+  const angle = radians(config.silk.rotation);
+
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  const localX = x * width * config.silk.width;
+  const localY = y * height * config.silk.height;
+
+  const baseX = width / 2 + localX * cos - localY * sin;
+  const baseY =
+    height / 2 +
+    localX * sin +
+    localY * cos +
+    offset * config.silk.separation;
+
+  const edgeEnvelope = Math.pow(
+    Math.max(0, Math.sin((x + 0.5) * Math.PI)),
+    0.6
+  );
+
+  const fold =
+    Math.sin(
+      x * Math.PI * 2 * config.silk.folds +
+      y * 2 +
+      sheet * 0.8 +
+      time * 0.15
+    ) * config.silk.foldDepth;
+
+  const ambient =
+    Math.sin(
+      x * 7 -
+      y * 3 +
+      time * config.waves.ambientSpeed +
+      sheet
+    ) *
+    config.waves.amplitude *
+    config.waves.ambientStrength;
+
+  const interaction = waveAt(baseX, baseY, sheet);
+
+  // Limit distortion when several impulses overlap.
+  const displacement =
+    clamp(fold + ambient + interaction, -150, 150) *
+    edgeEnvelope;
+
+  return {
+    x: baseX - sin * displacement * 0.3,
+    y: baseY + cos * displacement
+  };
+}
+
+function traceThread(y, sheet, steps) {
+  ctx.beginPath();
+
+  for (let i = 0; i <= steps; i++) {
+    const point = silkPoint(i / steps - 0.5, y, sheet);
+
+    if (!i) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
+  }
+}
+
+function drawSheet(sheet) {
+  const count = Math.round(config.silk.sheets);
+  const tint = count <= 1 ? 0.5 : sheet / (count - 1);
+
+  const color = mix(
+    config.appearance.colorA,
+    config.appearance.colorB,
+    tint
+  );
+
+  const highlight = mix(
+    color,
+    config.appearance.highlightColor,
+    0.4
+  );
+
+  const steps = Math.max(
+    12,
+    Math.ceil(
+      width * config.silk.width / config.appearance.detail
+    )
+  );
+
+  // Fill a closed surface between the upper and lower threads.
+  ctx.beginPath();
+
+  for (let i = 0; i <= steps; i++) {
+    const point = silkPoint(i / steps - 0.5, -0.5, sheet);
+    if (!i) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
+  }
+
+  for (let i = steps; i >= 0; i--) {
+    const point = silkPoint(i / steps - 0.5, 0.5, sheet);
+    ctx.lineTo(point.x, point.y);
+  }
+
+  ctx.closePath();
+
+  const gradient = ctx.createLinearGradient(
+    0,
+    height * 0.2,
+    width,
+    height * 0.8
+  );
+
+  gradient.addColorStop(
+    0,
+    rgba(color, config.appearance.translucency * 0.25)
+  );
+  gradient.addColorStop(
+    0.5,
+    rgba(highlight, config.appearance.translucency)
+  );
+  gradient.addColorStop(
+    1,
+    rgba(color, config.appearance.translucency * 0.35)
+  );
+
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  const threads = Math.max(
+    2,
+    Math.ceil(
+      height * config.silk.height /
+      config.appearance.threadSpacing
+    )
+  );
+
+  ctx.lineWidth = config.appearance.lineWidth;
+  ctx.shadowColor = rgba(color);
+  ctx.shadowBlur = config.appearance.glow;
+
+  for (let thread = 0; thread <= threads; thread++) {
+    const y = thread / threads - 0.5;
+    const centerBrightness = 1 - Math.abs(y) * 1.2;
+
+    ctx.strokeStyle = rgba(
+      highlight,
+      config.appearance.lineOpacity *
+      (0.3 + centerBrightness * 0.7)
+    );
+
+    traceThread(y, sheet, steps);
+    ctx.stroke();
+  }
+
+  ctx.shadowBlur = 0;
+}
+
+function frame(timestamp) {
+  const realDt = previous === null
+    ? 0
+    : Math.min((timestamp - previous) / 1000, 0.05);
+
+  previous = timestamp;
+
+  const still =
+    config.animation.paused ||
+    (
+      config.animation.respectReducedMotion &&
+      reducedMotion.matches
+    );
+
+  const dt = still ? 0 : realDt * config.animation.speed;
+  time += dt;
+
+  const smoothing =
+    1 - Math.exp(-config.mouse.smoothing * realDt);
+
+  mouse.x += (mouse.targetX - mouse.x) * smoothing;
+  mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+  const movement = Math.hypot(
+    mouse.x - mouse.previousX,
+    mouse.y - mouse.previousY
+  );
+
+  pluckClock += dt;
+
+  if (
+    dt > 0 &&
+    config.mouse.enabled &&
+    mouse.active &&
+    movement > 0.5 &&
+    pluckClock >= config.mouse.pluckInterval
+  ) {
+    addImpulse(mouse.x, mouse.y, config.mouse.pluckStrength);
+    pluckClock = 0;
+  }
+
+  mouse.previousX = mouse.x;
+  mouse.previousY = mouse.y;
+
+  const lifetime = Math.min(
+    20,
+    Math.max(4, 5 / config.waves.damping)
+  );
+
+  impulses = impulses.filter(
+    impulse => time - impulse.born < lifetime
+  );
+
+  ctx.fillStyle = rgba(config.appearance.backgroundColor);
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  for (let sheet = 0; sheet < Math.round(config.silk.sheets); sheet++) {
+    drawSheet(sheet);
+  }
+
+  requestAnimationFrame(frame);
+}
+
+function updatePointer(event) {
+  if (event.target.closest?.("[data-background-editor]")) {
+    mouse.active = false;
+    return false;
+  }
+
+  if (!mouse.active) {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+    mouse.previousX = event.clientX;
+    mouse.previousY = event.clientY;
+  }
+
+  mouse.targetX = event.clientX;
+  mouse.targetY = event.clientY;
+  mouse.active = true;
+  return true;
+}
+
+addEventListener("pointermove", updatePointer);
+
+addEventListener("pointerdown", event => {
+  if (!updatePointer(event) || !config.mouse.enabled) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+
+  addImpulse(
+    event.clientX,
+    event.clientY,
+    config.mouse.pulseStrength
+  );
+});
+
+addEventListener("pointerup", event => {
+  if (event.pointerType !== "mouse") mouse.active = false;
+});
+
+addEventListener("pointercancel", () => mouse.active = false);
+addEventListener("blur", () => mouse.active = false);
+
+document.documentElement.addEventListener(
+  "pointerleave",
+  () => mouse.active = false
+);
+
+document.addEventListener("visibilitychange", () => {
+  previous = null;
+  mouse.active = false;
+});
+
+addEventListener("resize", resize);
+
+resize();
+requestAnimationFrame(frame);
+
+if (config.panel.enabled) {
+  import("./settings-editor.js")
+    .then(({ createSettingsEditor }) => {
+      createSettingsEditor({
+        config,
+        onReset: reset
+      });
+    })
+    .catch(error => console.error("Editor could not load:", error));
+}
+</script>
+</body>
+</html>

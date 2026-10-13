@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gravity Calligraphy</title>
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #090b17;
+  }
+
+  canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+const config = {
+  ribbons: {
+    count: 65,
+    speed: 55,
+    strokeWidth: 1.1,
+    trailLifetime: 3.5,
+    opacity: 0.65,
+    glow: 5
+  },
+
+  gravity: {
+    wells: 4,
+    strength: 65,
+    radius: 260,
+    swirl: 85,
+    wandering: 90,
+    wanderingSpeed: 0.18
+  },
+
+  mouse: {
+    enabled: true,
+    radius: 230,
+    attraction: 130,
+    swirl: 70,
+    smoothing: 8,
+    showHalo: true
+  },
+
+  pulse: {
+    enabled: true,
+    strength: 140,
+    swirl: 110,
+    speed: 260,
+    width: 85,
+    lifetime: 2.5
+  },
+
+  appearance: {
+    backgroundColor: [9, 11, 23],
+    colorA: [92, 194, 207],
+    colorB: [187, 124, 213],
+    colorC: [235, 186, 124]
+  },
+
+  animation: {
+    speed: 1,
+    paused: false,
+    respectReducedMotion: true
+  },
+
+  panel: {
+    enabled: true
+  }
+};
+
+window.getBackgroundConfig = () =>
+  JSON.parse(JSON.stringify(config));
+
+const canvas = document.querySelector("#background");
+const ctx = canvas.getContext("2d");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+let width = 1;
+let height = 1;
+let ribbons = [];
+let wells = [];
+let pulses = [];
+let time = 0;
+let previous = null;
+
+const mouse = {
+  x: 0, y: 0,
+  targetX: 0, targetY: 0,
+  active: false,
+  influence: 0
+};
+
+const random = (min, max) => min + Math.random() * (max - min);
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const rgba = (color, alpha = 1) =>
+  `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+function ribbonColor(t) {
+  const a = t < 0.5
+    ? config.appearance.colorA
+    : config.appearance.colorB;
+
+  const b = t < 0.5
+    ? config.appearance.colorB
+    : config.appearance.colorC;
+
+  const blend = t < 0.5 ? t * 2 : (t - 0.5) * 2;
+  return a.map((v, i) => Math.round(v + (b[i] - v) * blend));
+}
+
+function makeRibbon() {
+  const angle = random(0, Math.PI * 2);
+
+  return {
+    x: Math.random() * width,
+    y: Math.random() * height,
+    vx: Math.cos(angle) * config.ribbons.speed,
+    vy: Math.sin(angle) * config.ribbons.speed,
+    tint: Math.random(),
+    phase: random(0, Math.PI * 2),
+    history: [],
+    sampleClock: 0,
+    cooling: 0
+  };
+}
+
+function makeWell() {
+  return {
+    x: random(0.15, 0.85),
+    y: random(0.15, 0.85),
+    phase: random(0, Math.PI * 2),
+    direction: Math.random() < 0.5 ? -1 : 1
+  };
+}
+
+function refresh() {
+  const count = Math.round(config.ribbons.count);
+  const wellCount = Math.round(config.gravity.wells);
+
+  while (ribbons.length < count) ribbons.push(makeRibbon());
+  ribbons.length = count;
+
+  while (wells.length < wellCount) wells.push(makeWell());
+  wells.length = wellCount;
+}
+
+function reset() {
+  ribbons = [];
+  wells = [];
+  pulses = [];
+  refresh();
+}
+
+function resize() {
+  const oldWidth = width;
+  const oldHeight = height;
+
+  width = innerWidth;
+  height = innerHeight;
+
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  for (const ribbon of ribbons) {
+    ribbon.x *= width / oldWidth;
+    ribbon.y *= height / oldHeight;
+    ribbon.history = [];
+  }
+}
+
+function wellPositions() {
+  const clock = time * config.gravity.wanderingSpeed;
+
+  return wells.map(well => ({
+    x: well.x * width +
+      Math.sin(clock + well.phase) * config.gravity.wandering,
+
+    y: well.y * height +
+      Math.cos(clock * 0.73 + well.phase) *
+      config.gravity.wandering * 0.7,
+
+    direction: well.direction
+  }));
+}
+
+function applyForce(ribbon, x, y, radius, attraction, swirl, dt) {
+  const dx = x - ribbon.x;
+  const dy = y - ribbon.y;
+  const distance = Math.hypot(dx, dy);
+  const denominator = Math.max(distance, 25);
+  const influence = Math.exp(-Math.pow(distance / radius, 2));
+
+  ribbon.vx += (
+    dx / denominator * attraction -
+    dy / denominator * swirl
+  ) * influence * dt;
+
+  ribbon.vy += (
+    dy / denominator * attraction +
+    dx / denominator * swirl
+  ) * influence * dt;
+}
+
+function updateRibbon(ribbon, centers, dt) {
+  if (dt <= 0) return;
+
+  for (const center of centers) {
+    applyForce(
+      ribbon,
+      center.x, center.y,
+      config.gravity.radius,
+      config.gravity.strength,
+      config.gravity.swirl * center.direction,
+      dt
+    );
+  }
+
+  if (config.mouse.enabled) {
+    applyForce(
+      ribbon,
+      mouse.x, mouse.y,
+      config.mouse.radius,
+      config.mouse.attraction * mouse.influence,
+      config.mouse.swirl * mouse.influence,
+      dt
+    );
+  }
+
+  for (const pulse of pulses) {
+    const dx = ribbon.x - pulse.x;
+    const dy = ribbon.y - pulse.y;
+    const distance = Math.hypot(dx, dy);
+    const denominator = Math.max(distance, 10);
+    const waveRadius = pulse.age * config.pulse.speed;
+
+    const influence =
+      Math.exp(
+        -Math.pow(
+          (distance - waveRadius) / config.pulse.width,
+          2
+        ) * 2
+      ) *
+      Math.max(0, 1 - pulse.age / config.pulse.lifetime);
+
+    ribbon.vx += (
+      dx / denominator * config.pulse.strength -
+      dy / denominator * config.pulse.swirl
+    ) * influence * dt;
+
+    ribbon.vy += (
+      dy / denominator * config.pulse.strength +
+      dx / denominator * config.pulse.swirl
+    ) * influence * dt;
+
+    ribbon.cooling = Math.max(ribbon.cooling, influence);
+  }
+
+  // Relax toward cruising speed without abruptly removing momentum.
+  const speed = Math.hypot(ribbon.vx, ribbon.vy);
+  const targetSpeed = config.ribbons.speed;
+  const relaxedSpeed =
+    speed + (targetSpeed - speed) * (1 - Math.exp(-0.8 * dt));
+
+  if (speed > 0.001) {
+    ribbon.vx *= relaxedSpeed / speed;
+    ribbon.vy *= relaxedSpeed / speed;
+  }
+
+  const maximumSpeed = Math.max(80, targetSpeed * 3);
+  const currentSpeed = Math.hypot(ribbon.vx, ribbon.vy);
+
+  if (currentSpeed > maximumSpeed) {
+    ribbon.vx *= maximumSpeed / currentSpeed;
+    ribbon.vy *= maximumSpeed / currentSpeed;
+  }
+
+  ribbon.x += ribbon.vx * dt;
+  ribbon.y += ribbon.vy * dt;
+  ribbon.cooling *= Math.exp(-2 * dt);
+
+  const margin = 40;
+  let wrapped = false;
+
+  if (ribbon.x < -margin) {
+    ribbon.x = width + margin;
+    wrapped = true;
+  }
+  if (ribbon.x > width + margin) {
+    ribbon.x = -margin;
+    wrapped = true;
+  }
+  if (ribbon.y < -margin) {
+    ribbon.y = height + margin;
+    wrapped = true;
+  }
+  if (ribbon.y > height + margin) {
+    ribbon.y = -margin;
+    wrapped = true;
+  }
+
+  if (wrapped) ribbon.history = [];
+
+  ribbon.sampleClock += dt;
+
+  if (ribbon.sampleClock >= 1 / 30 || !ribbon.history.length) {
+    ribbon.sampleClock %= 1 / 30;
+    ribbon.history.push({
+      x: ribbon.x,
+      y: ribbon.y,
+      time
+    });
+  }
+
+  const cutoff = time - config.ribbons.trailLifetime;
+  while (ribbon.history.length && ribbon.history[0].time < cutoff) {
+    ribbon.history.shift();
+  }
+
+  // Also bound history independently of frame rate.
+  while (ribbon.history.length > 400) ribbon.history.shift();
+}
+
+function drawRibbon(ribbon) {
+  const points = ribbon.history;
+  if (points.length < 2) return;
+
+  const color = ribbonColor(ribbon.tint);
+
+  ctx.shadowColor = rgba(color);
+  ctx.shadowBlur = config.ribbons.glow;
+
+  // Eight opacity bands give a tapered tail at modest rendering cost.
+  for (let band = 0; band < 8; band++) {
+    const start = Math.floor(band / 8 * (points.length - 1));
+    const end = Math.floor((band + 1) / 8 * (points.length - 1));
+
+    if (end <= start) continue;
+
+    const strength = (band + 1) / 8;
+
+    ctx.strokeStyle = rgba(
+      color,
+      config.ribbons.opacity *
+      strength * strength *
+      (0.8 + ribbon.cooling * 0.2)
+    );
+
+    ctx.lineWidth =
+      config.ribbons.strokeWidth * (0.35 + strength * 0.65);
+
+    ctx.beginPath();
+    ctx.moveTo(points[start].x, points[start].y);
+
+    for (let i = start + 1; i <= end; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+
+    ctx.stroke();
+  }
+}
+
+function drawInteraction() {
+  ctx.shadowBlur = 0;
+
+  if (
+    config.mouse.enabled &&
+    config.mouse.showHalo &&
+    mouse.influence > 0.001
+  ) {
+    const gradient = ctx.createRadialGradient(
+      mouse.x, mouse.y, 0,
+      mouse.x, mouse.y, config.mouse.radius
+    );
+
+    gradient.addColorStop(
+      0,
+      rgba(config.appearance.colorA, mouse.influence * 0.035)
+    );
+    gradient.addColorStop(1, rgba(config.appearance.colorA, 0));
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  for (const pulse of pulses) {
+    ctx.strokeStyle = rgba(
+      config.appearance.colorC,
+      (1 - pulse.age / config.pulse.lifetime) * 0.15
+    );
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.arc(
+      pulse.x, pulse.y,
+      pulse.age * config.pulse.speed,
+      0, Math.PI * 2
+    );
+    ctx.stroke();
+  }
+}
+
+function frame(timestamp) {
+  const realDt = previous === null
+    ? 0
+    : Math.min((timestamp - previous) / 1000, 0.05);
+
+  previous = timestamp;
+
+  const still =
+    config.animation.paused ||
+    (
+      config.animation.respectReducedMotion &&
+      reducedMotion.matches
+    );
+
+  const dt = still ? 0 : realDt * config.animation.speed;
+  time += dt;
+
+  const smoothing = 1 - Math.exp(-config.mouse.smoothing * realDt);
+  mouse.x += (mouse.targetX - mouse.x) * smoothing;
+  mouse.y += (mouse.targetY - mouse.y) * smoothing;
+  mouse.influence +=
+    ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+  for (const pulse of pulses) pulse.age += dt;
+  pulses = pulses.filter(pulse => pulse.age < config.pulse.lifetime);
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = rgba(config.appearance.backgroundColor);
+  ctx.fillRect(0, 0, width, height);
+
+  drawInteraction();
+
+  const centers = wellPositions();
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  for (const ribbon of ribbons) {
+    updateRibbon(ribbon, centers, dt);
+    drawRibbon(ribbon);
+  }
+
+  ctx.restore();
+  requestAnimationFrame(frame);
+}
+
+function updatePointer(event) {
+  if (event.target.closest?.("[data-background-editor]")) {
+    mouse.active = false;
+    return false;
+  }
+
+  if (!mouse.active) {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+  }
+
+  mouse.targetX = event.clientX;
+  mouse.targetY = event.clientY;
+  mouse.active = true;
+  return true;
+}
+
+addEventListener("pointermove", updatePointer);
+
+addEventListener("pointerdown", event => {
+  if (!updatePointer(event) || !config.pulse.enabled) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+
+  if (pulses.length >= 12) pulses.shift();
+  pulses.push({ x: event.clientX, y: event.clientY, age: 0 });
+});
+
+addEventListener("pointerup", event => {
+  if (event.pointerType !== "mouse") mouse.active = false;
+});
+addEventListener("pointercancel", () => mouse.active = false);
+addEventListener("blur", () => mouse.active = false);
+
+document.documentElement.addEventListener(
+  "pointerleave", () => mouse.active = false
+);
+
+document.addEventListener("visibilitychange", () => {
+  previous = null;
+  mouse.active = false;
+});
+
+addEventListener("resize", resize);
+
+resize();
+reset();
+
+// Seed short trails so the initial and reduced-motion views are visible.
+const initialCenters = wellPositions();
+for (let step = 0; step < 45; step++) {
+  time += 1 / 30;
+  for (const ribbon of ribbons) {
+    updateRibbon(ribbon, initialCenters, 1 / 30);
+  }
+}
+
+requestAnimationFrame(frame);
+
+if (config.panel.enabled) {
+  import("./settings-editor.js")
+    .then(({ createSettingsEditor }) => {
+      createSettingsEditor({
+        config,
+        onChange: refresh,
+        onReset: reset
+      });
+    })
+    .catch(error => console.error("Editor could not load:", error));
+}
+</script>
+</body>
+</html>

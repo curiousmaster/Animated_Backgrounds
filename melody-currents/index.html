@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Melody Currents · Perspective</title>
+
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #090d1b;
+  }
+
+  #background {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+const config = {
+  ribbons: {
+    count: 5,
+    staffSpacing: 7,
+    waveHeight: 65,
+    waveVariation: 1,
+    spacingVariation: 1,
+    wavelength: 650,
+    flowSpeed: 0.3,
+    curl: 45,
+    lineWidth: 0.7,
+    opacity: 0.3
+  },
+
+  depth: {
+    waveAmplitude: 160,
+    wavelength: 900,
+    speed: 0.35,
+    separation: 75,
+    phaseOffset: 0.8
+  },
+
+  depthStyle: {
+    enabled: true,
+    range: 600,
+    curve: 1,
+    nearThickness: 1.7,
+    farThickness: 0.45,
+    nearOpacity: 1.4,
+    farOpacity: 0.25,
+    nearIntensity: 1.15,
+    farIntensity: 0.45,
+    nearGlow: 1.4,
+    farGlow: 0.15
+  },
+
+  camera: {
+    x: 0,
+    y: 0,
+    distance: 1100,
+    fieldOfView: 50,
+    targetX: 0,
+    targetY: 0,
+    targetZ: 0,
+    roll: 0,
+    zoom: 1
+  },
+
+  rotation: {
+    x: 12,
+    y: -18,
+    z: -8
+  },
+
+  notes: {
+    perRibbon: 14,
+    size: 9,
+    speed: 35,
+    opacity: 0.8,
+    rests: 0.15,
+    glow: 5,
+    strokeWidth: 1.1,
+    wholeWeight: 12,
+    halfWeight: 16,
+    quarterWeight: 24,
+    eighthWeight: 23,
+    sixteenthWeight: 17,
+    dottedWeight: 8
+  },
+
+  mouse: {
+    enabled: true,
+    radius: 230,
+    attraction: 0.35,
+    swirl: 1.4,
+    orbitSpeed: 0.5,
+    depthPush: 120,
+    smoothing: 7,
+    showHalo: true
+  },
+
+  pulse: {
+    enabled: true,
+    amplitude: 45,
+    depthAmplitude: 75,
+    speed: 300,
+    width: 110,
+    lifetime: 3
+  },
+
+  appearance: {
+    backgroundColor: [9, 13, 27],
+    colorA: [105, 193, 212],
+    colorB: [191, 139, 221],
+    highlightColor: [241, 215, 168]
+  },
+
+  animation: {
+    speed: 1,
+    paused: false,
+    respectReducedMotion: true
+  },
+
+  panel: {
+    enabled: true
+  }
+};
+
+window.getBackgroundConfig = () =>
+  JSON.parse(JSON.stringify(config));
+
+const canvas = document.querySelector("#background");
+const ctx = canvas.getContext("2d");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+let width = 1;
+let height = 1;
+let time = 0;
+let previous = null;
+let ribbons = [];
+let pulses = [];
+let view;
+
+const mouse = {
+  x: 0,
+  y: 0,
+  targetX: 0,
+  targetY: 0,
+  active: false,
+  influence: 0
+};
+
+const clamp = (value, min, max) =>
+  Math.max(min, Math.min(max, value));
+
+const random = (min, max) => min + Math.random() * (max - min);
+const radians = degrees => degrees * Math.PI / 180;
+const lerp = (a, b, amount) => a + (b - a) * amount;
+
+const rgba = (color, alpha = 1) =>
+  `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+function mix(a, b, amount) {
+  return a.map((value, index) =>
+    Math.round(lerp(value, b[index], amount))
+  );
+}
+
+function normalize(vector) {
+  const length = Math.hypot(vector.x, vector.y, vector.z) || 1;
+  return {
+    x: vector.x / length,
+    y: vector.y / length,
+    z: vector.z / length
+  };
+}
+
+function cross(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x
+  };
+}
+
+function dot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function makeNote(index, count) {
+  return {
+    position: (index + Math.random() * 0.4) / count,
+    pitch: Math.floor(random(-7, 8)),
+    type: Math.random(),
+    rest: Math.random(),
+    phase: random(0, Math.PI * 2)
+  };
+}
+
+function refresh() {
+  const count = Math.round(config.ribbons.count);
+  const noteCount = Math.round(config.notes.perRibbon);
+
+  while (ribbons.length < count) {
+    ribbons.push({
+      phase: random(0, Math.PI * 2),
+      notes: []
+    });
+  }
+
+  ribbons.length = count;
+
+  for (const ribbon of ribbons) {
+    if (ribbon.notes.length !== noteCount) {
+      ribbon.notes = Array.from(
+        { length: noteCount },
+        (_, index) => makeNote(index, noteCount)
+      );
+    }
+  }
+}
+
+function reset() {
+  ribbons = [];
+  pulses = [];
+  refresh();
+}
+
+function resize() {
+  width = innerWidth;
+  height = innerHeight;
+
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function makeView() {
+  const position = {
+    x: config.camera.x,
+    y: config.camera.y,
+    z: config.camera.distance
+  };
+
+  const target = {
+    x: config.camera.targetX,
+    y: config.camera.targetY,
+    z: config.camera.targetZ
+  };
+
+  const forward = normalize({
+    x: target.x - position.x,
+    y: target.y - position.y,
+    z: target.z - position.z
+  });
+
+  const right = normalize(
+    cross(forward, { x: 0, y: 1, z: 0 })
+  );
+
+  const up = normalize(cross(right, forward));
+  const roll = radians(config.camera.roll);
+
+  return {
+    position,
+    forward,
+    right,
+    up,
+    referenceDistance: Math.hypot(
+      target.x - position.x,
+      target.y - position.y,
+      target.z - position.z
+    ),
+    rollCos: Math.cos(roll),
+    rollSin: Math.sin(roll),
+    focal:
+      height / 2 /
+      Math.tan(radians(config.camera.fieldOfView) / 2) *
+      config.camera.zoom,
+    rx: radians(config.rotation.x),
+    ry: radians(config.rotation.y),
+    rz: radians(config.rotation.z)
+  };
+}
+
+function rotateScene(point) {
+  let { x, y, z } = point;
+
+  let cos = Math.cos(view.rx);
+  let sin = Math.sin(view.rx);
+  let nextY = y * cos - z * sin;
+  let nextZ = y * sin + z * cos;
+  y = nextY;
+  z = nextZ;
+
+  cos = Math.cos(view.ry);
+  sin = Math.sin(view.ry);
+  const nextX = x * cos + z * sin;
+  nextZ = -x * sin + z * cos;
+  x = nextX;
+  z = nextZ;
+
+  cos = Math.cos(view.rz);
+  sin = Math.sin(view.rz);
+
+  return {
+    x: x * cos - y * sin,
+    y: x * sin + y * cos,
+    z
+  };
+}
+
+function project(point) {
+  const world = rotateScene(point);
+
+  const relative = {
+    x: world.x - view.position.x,
+    y: world.y - view.position.y,
+    z: world.z - view.position.z
+  };
+
+  const distance = dot(relative, view.forward);
+
+  if (distance <= 60) return null;
+
+  const horizontal = dot(relative, view.right);
+  const vertical = dot(relative, view.up);
+
+  const rx =
+    horizontal * view.rollCos -
+    vertical * view.rollSin;
+
+  const ry =
+    horizontal * view.rollSin +
+    vertical * view.rollCos;
+
+  const scale = view.focal / distance;
+
+  return {
+    x: width / 2 + rx * scale,
+    y: height / 2 - ry * scale,
+    scale,
+    distance
+  };
+}
+
+// All depth styling uses camera-space distance.
+// Rotation, camera movement, and depth interaction therefore affect it.
+function styleAt(distance) {
+  const settings = config.depthStyle;
+
+  if (!settings.enabled) {
+    return {
+      thickness: 1,
+      opacity: 1,
+      intensity: 1,
+      glow: 1
+    };
+  }
+
+  const near = Math.max(
+    60,
+    view.referenceDistance - settings.range / 2
+  );
+
+  const far = Math.max(
+    near + 1,
+    view.referenceDistance + settings.range / 2
+  );
+
+  const normalized = clamp(
+    (distance - near) / (far - near),
+    0,
+    1
+  );
+
+  const smooth = normalized * normalized * (3 - 2 * normalized);
+  const amount = Math.pow(smooth, settings.curve);
+
+  return {
+    thickness: lerp(
+      settings.nearThickness,
+      settings.farThickness,
+      amount
+    ),
+    opacity: lerp(
+      settings.nearOpacity,
+      settings.farOpacity,
+      amount
+    ),
+    intensity: lerp(
+      settings.nearIntensity,
+      settings.farIntensity,
+      amount
+    ),
+    glow: lerp(
+      settings.nearGlow,
+      settings.farGlow,
+      amount
+    )
+  };
+}
+
+function depthColor(color, intensity) {
+  return color.map(channel =>
+    Math.round(clamp(channel * intensity, 0, 255))
+  );
+}
+
+function worldPoint(x, index) {
+  const ribbon = ribbons[index];
+  const count = ribbons.length;
+  const phase = ribbon.phase;
+  const clock = time * config.ribbons.flowSpeed;
+  const u = x / config.ribbons.wavelength;
+  const variation = config.ribbons.waveVariation;
+
+  const envelope =
+    0.75 +
+    (
+      Math.sin(u * 2.1 - clock * 0.35 + phase) * 0.35 +
+      Math.cos(u * 0.9 + clock * 0.22 - phase) * 0.2
+    ) * variation;
+
+  const mainWave =
+    Math.sin(u * Math.PI * 2 + clock + phase) *
+    config.ribbons.waveHeight * envelope;
+
+  const broadWave =
+    Math.sin(u * 2.4 - clock * 0.55 + phase * 1.7) *
+    config.ribbons.waveHeight * 0.55 * variation;
+
+  const fineWave =
+    Math.sin(u * Math.PI * 4.3 + clock * 0.7 + phase * 0.6) *
+    config.ribbons.waveHeight * 0.12 * variation;
+
+  const screenBaseY = height * (index + 1) / (count + 1);
+
+  const depthPhase =
+    x / config.depth.wavelength * Math.PI * 2 +
+    time * config.depth.speed +
+    phase +
+    index * config.depth.phaseOffset;
+
+  return {
+    x:
+      x +
+      Math.sin(u * 3.2 + clock * 0.4 + phase) *
+      config.ribbons.curl *
+      (0.6 + envelope * 0.4),
+
+    y:
+      height / 2 -
+      screenBaseY -
+      mainWave -
+      broadWave -
+      fineWave,
+
+    z:
+      Math.sin(depthPhase) * config.depth.waveAmplitude +
+      Math.cos(depthPhase * 0.43 + phase) *
+      config.depth.waveAmplitude * 0.25 +
+      (index - (count - 1) / 2) * config.depth.separation
+  };
+}
+
+function spacingAt(x, index) {
+  const phase = ribbons[index].phase;
+  const u = x / config.ribbons.wavelength;
+  const clock = time * config.ribbons.flowSpeed;
+
+  return config.ribbons.staffSpacing * (
+    1 +
+    (
+      Math.sin(u * 3.1 + clock * 0.45 + phase) * 0.22 +
+      Math.cos(u * 1.3 - clock * 0.3 + phase) * 0.12
+    ) * config.ribbons.spacingVariation
+  );
+}
+
+function distort(point) {
+  let x = point.x;
+  let y = point.y;
+  let scale = point.scale;
+  let distance = point.distance;
+
+  if (config.mouse.enabled && mouse.influence > 0.001) {
+    const dx = x - mouse.x;
+    const dy = y - mouse.y;
+    const radius = Math.hypot(dx, dy);
+    const normalized = radius / config.mouse.radius;
+
+    if (normalized < 1) {
+      const influence =
+        Math.pow(1 - normalized * normalized, 2) *
+        mouse.influence;
+
+      const angle =
+        influence * config.mouse.swirl *
+        (0.8 + Math.sin(time * config.mouse.orbitSpeed) * 0.2);
+
+      const nextDistance =
+        distance + config.mouse.depthPush * influence;
+
+      const depthScale = distance / nextDistance;
+      const contraction =
+        (1 - influence * config.mouse.attraction) * depthScale;
+
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+
+      x = mouse.x + (dx * cos - dy * sin) * contraction;
+      y = mouse.y + (dx * sin + dy * cos) * contraction;
+
+      distance = nextDistance;
+      scale *= depthScale;
+    }
+  }
+
+  for (const pulse of pulses) {
+    const dx = x - pulse.x;
+    const dy = y - pulse.y;
+    const radius = Math.hypot(dx, dy);
+    const shell = radius - pulse.age * config.pulse.speed;
+
+    const envelope =
+      Math.exp(-Math.pow(shell / config.pulse.width, 2) * 2) *
+      Math.max(0, 1 - pulse.age / config.pulse.lifetime);
+
+    const oscillation =
+      Math.sin(shell / config.pulse.width * Math.PI);
+
+    const displacement =
+      oscillation * config.pulse.amplitude * envelope;
+
+    const denominator = Math.max(radius, 15);
+
+    x += dx / denominator * displacement;
+    y += dy / denominator * displacement;
+
+    const nextDistance = Math.max(
+      61,
+      distance -
+      oscillation * envelope * config.pulse.depthAmplitude
+    );
+
+    const depthScale = distance / nextDistance;
+
+    x = pulse.x + (x - pulse.x) * depthScale;
+    y = pulse.y + (y - pulse.y) * depthScale;
+    scale *= depthScale;
+    distance = nextDistance;
+  }
+
+  return { x, y, scale, distance };
+}
+
+function screenPoint(x, index, staffOffset = 0) {
+  const point = worldPoint(x, index);
+  point.y -= staffOffset * spacingAt(x, index);
+
+  const projected = project(point);
+  return projected ? distort(projected) : null;
+}
+
+function pathFrame(x, index, staffOffset = 0) {
+  const point = screenPoint(x, index, staffOffset);
+  if (!point) return null;
+
+  const before = screenPoint(x - 1, index, staffOffset);
+  const after = screenPoint(x + 1, index, staffOffset);
+
+  const angle = before && after
+    ? Math.atan2(after.y - before.y, after.x - before.x)
+    : 0;
+
+  return { ...point, angle };
+}
+
+function sceneSpan() {
+  return Math.max(width * 1.8, 1600);
+}
+
+function collectStaffSegments(index, color, output) {
+  const span = sceneSpan();
+  const samples = Math.ceil(span / 10);
+
+  for (let line = -2; line <= 2; line++) {
+    let previousPoint = null;
+
+    for (let i = 0; i <= samples; i++) {
+      const x = -span / 2 + span * i / samples;
+      const point = screenPoint(x, index, line);
+
+      if (!point) {
+        previousPoint = null;
+        continue;
+      }
+
+      if (previousPoint) {
+        output.push({
+          a: previousPoint,
+          b: point,
+          color,
+          distance: (previousPoint.distance + point.distance) / 2
+        });
+      }
+
+      previousPoint = point;
+    }
+  }
+}
+
+function drawStaffSegment(segment) {
+  const { a, b, color, distance } = segment;
+  const style = styleAt(distance);
+  const shadedColor = depthColor(color, style.intensity);
+  const scale = clamp((a.scale + b.scale) / 2, 0.1, 4);
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = rgba(
+    shadedColor,
+    config.ribbons.opacity * style.opacity
+  );
+
+  ctx.lineWidth = Math.max(
+    0.08,
+    config.ribbons.lineWidth * scale * style.thickness
+  );
+
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+}
+
+function noteKind(value) {
+  const choices = [
+    ["whole", config.notes.wholeWeight],
+    ["half", config.notes.halfWeight],
+    ["quarter", config.notes.quarterWeight],
+    ["eighth", config.notes.eighthWeight],
+    ["sixteenth", config.notes.sixteenthWeight],
+    ["dotted", config.notes.dottedWeight]
+  ];
+
+  const total = choices.reduce(
+    (sum, [, weight]) => sum + Math.max(0, weight),
+    0
+  );
+
+  if (total === 0) return "quarter";
+
+  let remaining = value * total;
+
+  for (const [kind, weight] of choices) {
+    const amount = Math.max(0, weight);
+    if (remaining < amount) return kind;
+    remaining -= amount;
+  }
+
+  return "quarter";
+}
+
+function drawNoteSymbol(note, size, thickness) {
+  const kind = noteKind(note.type);
+  const whole = kind === "whole";
+  const half = kind === "half";
+  const eighth = kind === "eighth";
+  const sixteenth = kind === "sixteenth";
+  const dotted = kind === "dotted";
+
+  const stemUp = note.pitch >= 0;
+  const direction = stemUp ? -1 : 1;
+
+  // Filled noteheads also become fuller near the viewer.
+  const headThickness = clamp(
+    0.7 + thickness * 0.3,
+    0.65,
+    1.4
+  );
+
+  ctx.beginPath();
+  ctx.ellipse(
+    0,
+    0,
+    size * (whole ? 0.85 : 0.65),
+    size * 0.42 * headThickness,
+    whole ? 0 : -0.35,
+    0,
+    Math.PI * 2
+  );
+
+  if (whole || half) ctx.stroke();
+  else ctx.fill();
+
+  if (!whole) {
+    const stemX = (stemUp ? 1 : -1) * size * 0.55;
+    const stemEnd = direction * size * 3;
+
+    ctx.beginPath();
+    ctx.moveTo(stemX, 0);
+    ctx.lineTo(stemX, stemEnd);
+    ctx.stroke();
+
+    const flags = sixteenth ? 2 : eighth ? 1 : 0;
+
+    for (let flag = 0; flag < flags; flag++) {
+      const y = stemEnd - direction * flag * size * 0.75;
+
+      ctx.beginPath();
+      ctx.moveTo(stemX, y);
+      ctx.bezierCurveTo(
+        stemX + size * 1.5,
+        y - direction * size * 0.55,
+        stemX + size * 1.15,
+        y - direction * size * 1.5,
+        stemX + size * 0.3,
+        y - direction * size * 1.85
+      );
+      ctx.stroke();
+    }
+  }
+
+  if (dotted) {
+    ctx.beginPath();
+    ctx.arc(
+      size * 1.15,
+      -size * 0.12,
+      size * 0.15 * headThickness,
+      0,
+      Math.PI * 2
+    );
+    ctx.fill();
+  }
+}
+
+function drawRest(size, type, thickness) {
+  const fullness = clamp(
+    0.7 + thickness * 0.3,
+    0.65,
+    1.4
+  );
+
+  if (type < 0.45) {
+    const whole = type < 0.25;
+    const blockHeight = size * 0.5 * fullness;
+    const lineY = whole ? -size * 0.5 : 0;
+
+    ctx.fillRect(
+      -size * 0.65,
+      whole ? lineY : -blockHeight,
+      size * 1.3,
+      blockHeight
+    );
+
+    ctx.beginPath();
+    ctx.moveTo(-size, lineY);
+    ctx.lineTo(size, lineY);
+    ctx.stroke();
+
+  } else if (type < 0.7) {
+    ctx.beginPath();
+    ctx.moveTo(-size * 0.15, -size * 1.3);
+    ctx.lineTo(size * 0.4, -size * 0.65);
+    ctx.lineTo(-size * 0.25, 0);
+    ctx.lineTo(size * 0.3, size * 0.55);
+    ctx.bezierCurveTo(
+      -size * 0.65, size * 0.3,
+      -size * 0.55, size * 1.15,
+      -size * 0.1, size * 1.3
+    );
+    ctx.stroke();
+
+  } else {
+    const heads = type > 0.88 ? 2 : 1;
+
+    ctx.beginPath();
+    ctx.moveTo(size * 0.45, -size);
+    ctx.lineTo(-size * 0.25, size * 1.1);
+    ctx.stroke();
+
+    for (let i = 0; i < heads; i++) {
+      const y = -size * 0.65 + i * size * 0.65;
+
+      ctx.beginPath();
+      ctx.arc(
+        -size * 0.25,
+        y,
+        size * 0.22 * fullness,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(-size * 0.25, y);
+      ctx.quadraticCurveTo(
+        size * 0.2, y + size * 0.25,
+        size * (0.4 - i * 0.2), y - size * 0.1
+      );
+      ctx.stroke();
+    }
+  }
+}
+
+function collectNotes(index, color, output) {
+  const span = sceneSpan();
+
+  for (const note of ribbons[index].notes) {
+    const travel =
+      note.position * span +
+      time * config.notes.speed * (index % 2 ? -1 : 1);
+
+    const x = ((travel % span) + span) % span - span / 2;
+    const isRest = note.rest < config.notes.rests;
+    const offset = isRest ? 0 : note.pitch / 2;
+    const frame = pathFrame(x, index, offset);
+
+    if (!frame) continue;
+
+    output.push({
+      note,
+      index,
+      color,
+      x,
+      frame,
+      isRest,
+      distance: frame.distance
+    });
+  }
+}
+
+function drawNote(item) {
+  const { note, index, color, x, frame, isRest } = item;
+  const style = styleAt(frame.distance);
+
+  const proximity = config.mouse.enabled
+    ? clamp(
+        1 -
+        Math.hypot(frame.x - mouse.x, frame.y - mouse.y) /
+        config.mouse.radius,
+        0,
+        1
+      ) * mouse.influence
+    : 0;
+
+  const noteColor = depthColor(
+    mix(
+      color,
+      config.appearance.highlightColor,
+      proximity * 0.8
+    ),
+    style.intensity
+  );
+
+  const opacity =
+    config.notes.opacity *
+    (0.85 + Math.sin(time * 0.5 + note.phase) * 0.15) *
+    style.opacity;
+
+  if (!isRest) {
+    ctx.shadowBlur = 0;
+
+    for (
+      let pitch = 6;
+      pitch <= Math.abs(note.pitch);
+      pitch += 2
+    ) {
+      const offset = Math.sign(note.pitch) * pitch / 2;
+      const center = pathFrame(x, index, offset);
+      if (!center) continue;
+
+      const ledgerStyle = styleAt(center.distance);
+      const halfLength = config.notes.size * center.scale;
+
+      ctx.strokeStyle = rgba(
+        depthColor(color, ledgerStyle.intensity),
+        config.notes.opacity * ledgerStyle.opacity
+      );
+
+      ctx.lineWidth = Math.max(
+        0.08,
+        config.notes.strokeWidth *
+        center.scale *
+        ledgerStyle.thickness *
+        0.65
+      );
+
+      ctx.beginPath();
+      ctx.moveTo(
+        center.x - Math.cos(center.angle) * halfLength,
+        center.y - Math.sin(center.angle) * halfLength
+      );
+      ctx.lineTo(
+        center.x + Math.cos(center.angle) * halfLength,
+        center.y + Math.sin(center.angle) * halfLength
+      );
+      ctx.stroke();
+    }
+  }
+
+  ctx.save();
+  ctx.translate(frame.x, frame.y);
+  ctx.rotate(frame.angle);
+
+  const scale = clamp(frame.scale, 0.1, 4);
+  ctx.scale(scale, scale);
+
+  ctx.strokeStyle = rgba(noteColor, opacity);
+  ctx.fillStyle = rgba(noteColor, opacity);
+
+  // The context handles perspective size; this multiplier adds
+  // independently adjustable depth-dependent stroke thickness.
+  ctx.lineWidth = Math.max(
+    0.08,
+    config.notes.strokeWidth * style.thickness
+  );
+
+  ctx.shadowColor = rgba(
+    noteColor,
+    clamp(opacity, 0, 1)
+  );
+
+  ctx.shadowBlur =
+    config.notes.glow * scale * style.glow;
+
+  if (isRest) {
+    drawRest(config.notes.size, note.type, style.thickness);
+  } else {
+    drawNoteSymbol(note, config.notes.size, style.thickness);
+  }
+
+  ctx.restore();
+}
+
+function drawHalo() {
+  if (
+    !config.mouse.enabled ||
+    !config.mouse.showHalo ||
+    mouse.influence < 0.001
+  ) return;
+
+  const gradient = ctx.createRadialGradient(
+    mouse.x, mouse.y, 0,
+    mouse.x, mouse.y, config.mouse.radius
+  );
+
+  gradient.addColorStop(
+    0,
+    rgba(
+      config.appearance.highlightColor,
+      mouse.influence * 0.03
+    )
+  );
+  gradient.addColorStop(
+    1,
+    rgba(config.appearance.highlightColor, 0)
+  );
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+}
+
+function frame(timestamp) {
+  const realDt = previous === null
+    ? 0
+    : Math.min((timestamp - previous) / 1000, 0.05);
+
+  previous = timestamp;
+
+  const still =
+    config.animation.paused ||
+    (
+      config.animation.respectReducedMotion &&
+      reducedMotion.matches
+    );
+
+  const dt = still ? 0 : realDt * config.animation.speed;
+  time += dt;
+
+  const smoothing =
+    1 - Math.exp(-config.mouse.smoothing * realDt);
+
+  mouse.x += (mouse.targetX - mouse.x) * smoothing;
+  mouse.y += (mouse.targetY - mouse.y) * smoothing;
+  mouse.influence +=
+    ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+  for (const pulse of pulses) pulse.age += dt;
+  pulses = pulses.filter(
+    pulse => pulse.age < config.pulse.lifetime
+  );
+
+  view = makeView();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = rgba(config.appearance.backgroundColor);
+  ctx.fillRect(0, 0, width, height);
+
+  drawHalo();
+
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  const segments = [];
+  const notes = [];
+
+  for (let index = 0; index < ribbons.length; index++) {
+    const color = mix(
+      config.appearance.colorA,
+      config.appearance.colorB,
+      ribbons.length <= 1 ? 0.5 : index / (ribbons.length - 1)
+    );
+
+    collectStaffSegments(index, color, segments);
+    collectNotes(index, color, notes);
+  }
+
+  // Render staff segments from far to near.
+  segments.sort((a, b) => b.distance - a.distance);
+  for (const segment of segments) drawStaffSegment(segment);
+
+  // Render notes from far to near over the staff lines.
+  notes.sort((a, b) => b.distance - a.distance);
+  for (const note of notes) drawNote(note);
+
+  requestAnimationFrame(frame);
+}
+
+function updatePointer(event) {
+  if (event.target.closest?.("[data-background-editor]")) {
+    mouse.active = false;
+    return false;
+  }
+
+  if (!mouse.active) {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+  }
+
+  mouse.targetX = event.clientX;
+  mouse.targetY = event.clientY;
+  mouse.active = true;
+  return true;
+}
+
+addEventListener("pointermove", updatePointer);
+
+addEventListener("pointerdown", event => {
+  if (!updatePointer(event) || !config.pulse.enabled) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+
+  if (pulses.length >= 10) pulses.shift();
+
+  pulses.push({
+    x: event.clientX,
+    y: event.clientY,
+    age: 0
+  });
+});
+
+addEventListener("pointerup", event => {
+  if (event.pointerType !== "mouse") mouse.active = false;
+});
+
+addEventListener("pointercancel", () => mouse.active = false);
+addEventListener("blur", () => mouse.active = false);
+
+document.documentElement.addEventListener(
+  "pointerleave",
+  () => mouse.active = false
+);
+
+document.addEventListener("visibilitychange", () => {
+  previous = null;
+  mouse.active = false;
+});
+
+addEventListener("resize", resize);
+
+resize();
+reset();
+requestAnimationFrame(frame);
+
+if (config.panel.enabled) {
+  import("./settings-editor.js")
+    .then(({ createSettingsEditor }) => {
+      createSettingsEditor({
+        config,
+        onChange: refresh,
+        onReset: reset
+      });
+    })
+    .catch(error => console.error("Editor could not load:", error));
+}
+</script>
+</body>
+</html>

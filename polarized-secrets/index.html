@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polarized Secrets</title>
+
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #080e19;
+  }
+
+  #background {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+const config = {
+  patterns: {
+    spacing: 65,
+    layers: 3,
+    size: 22,
+    lineWidth: 0.9,
+    rotationSpeed: 0.08
+  },
+
+  polarization: {
+    angle: 0,
+    layerSeparation: 60,
+    contrast: 2.5,
+    concealedOpacity: 0.025
+  },
+
+  lens: {
+    enabled: true,
+    radius: 190,
+    softness: 0.65,
+    strength: 0.85,
+    smoothing: 8,
+    scrollSensitivity: 0.08,
+    showOutline: true,
+    idlePreview: true
+  },
+
+  appearance: {
+    backgroundColor: [8, 14, 25],
+    colorA: [83, 190, 198],
+    colorB: [171, 121, 215],
+    colorC: [232, 180, 117],
+    glow: 5
+  },
+
+  animation: {
+    speed: 1,
+    paused: false,
+    respectReducedMotion: true
+  },
+
+  panel: {
+    enabled: true
+  }
+};
+
+window.getBackgroundConfig = () =>
+  JSON.parse(JSON.stringify(config));
+
+const canvas = document.querySelector("#background");
+const ctx = canvas.getContext("2d");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+const surfaces = [];
+
+let width = 1;
+let height = 1;
+let dpr = 1;
+let time = 0;
+let previous = null;
+
+const mouse = {
+  x: 0,
+  y: 0,
+  targetX: 0,
+  targetY: 0,
+  active: false,
+  influence: 0
+};
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const radians = degrees => degrees * Math.PI / 180;
+
+const rgba = (color, alpha = 1) =>
+  `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+function mix(a, b, amount) {
+  return a.map((value, index) =>
+    Math.round(value + (b[index] - value) * amount)
+  );
+}
+
+function layerColor(layer, count) {
+  const palette = [
+    config.appearance.colorA,
+    config.appearance.colorB,
+    config.appearance.colorC
+  ];
+
+  const position = count <= 1 ? 0 : layer / (count - 1) * 2;
+  const index = Math.min(1, Math.floor(position));
+
+  return mix(
+    palette[index],
+    palette[index + 1],
+    position - index
+  );
+}
+
+function syncSurfaces() {
+  const count = Math.round(config.patterns.layers);
+
+  while (surfaces.length < count) {
+    const surface = document.createElement("canvas");
+    surfaces.push({
+      canvas: surface,
+      ctx: surface.getContext("2d")
+    });
+  }
+
+  surfaces.length = count;
+
+  for (const surface of surfaces) {
+    if (
+      surface.canvas.width !== canvas.width ||
+      surface.canvas.height !== canvas.height
+    ) {
+      surface.canvas.width = canvas.width;
+      surface.canvas.height = canvas.height;
+    }
+
+    surface.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+}
+
+function resize() {
+  width = innerWidth;
+  height = innerHeight;
+  dpr = Math.min(devicePixelRatio || 1, 2);
+
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  syncSurfaces();
+}
+
+function drawSymbol(context, x, y, layer, rotation) {
+  const size = config.patterns.size;
+
+  context.save();
+  context.translate(x, y);
+  context.rotate(rotation);
+
+  context.beginPath();
+
+  if (layer % 3 === 0) {
+    context.moveTo(0, -size);
+    context.lineTo(size, 0);
+    context.lineTo(0, size);
+    context.lineTo(-size, 0);
+    context.closePath();
+
+    context.moveTo(-size * 0.45, 0);
+    context.lineTo(size * 0.45, 0);
+    context.moveTo(0, -size * 0.45);
+    context.lineTo(0, size * 0.45);
+
+  } else if (layer % 3 === 1) {
+    context.arc(0, 0, size, 0, Math.PI * 2);
+
+    context.moveTo(size * 0.5, 0);
+    context.arc(0, 0, size * 0.5, 0, Math.PI * 2);
+
+    context.moveTo(-size, 0);
+    context.lineTo(size, 0);
+
+  } else {
+    for (let i = 0; i <= 6; i++) {
+      const angle = i / 6 * Math.PI * 2;
+      const px = Math.cos(angle) * size;
+      const py = Math.sin(angle) * size;
+
+      if (!i) context.moveTo(px, py);
+      else context.lineTo(px, py);
+    }
+
+    for (let i = 0; i < 3; i++) {
+      const angle = i / 3 * Math.PI * 2;
+      context.moveTo(0, 0);
+      context.lineTo(
+        Math.cos(angle) * size,
+        Math.sin(angle) * size
+      );
+    }
+  }
+
+  context.stroke();
+  context.restore();
+}
+
+function drawPattern(context, layer, color) {
+  const spacing = config.patterns.spacing;
+  const offset = layer * spacing * 0.23;
+
+  const rotation =
+    time * config.patterns.rotationSpeed *
+    (layer % 2 ? -1 : 1) +
+    layer * Math.PI / 7;
+
+  context.strokeStyle = rgba(color);
+  context.lineWidth = config.patterns.lineWidth;
+  context.lineJoin = "round";
+
+  const columns = Math.ceil(width / spacing) + 2;
+  const rows = Math.ceil(height / spacing) + 2;
+
+  for (let row = -1; row < rows; row++) {
+    for (let column = -1; column < columns; column++) {
+      const x =
+        column * spacing +
+        (row % 2 ? spacing * 0.5 : 0) +
+        offset;
+
+      const y = row * spacing + offset;
+
+      drawSymbol(
+        context,
+        x,
+        y,
+        layer,
+        rotation + (row + column) * 0.04
+      );
+    }
+  }
+}
+
+function polarizationAmount(layer) {
+  const angle = radians(
+    config.polarization.angle -
+    layer * config.polarization.layerSeparation
+  );
+
+  // Inspired by polarization: alignment reveals a layer,
+  // while a perpendicular lens orientation conceals it.
+  return Math.pow(
+    Math.cos(angle) * Math.cos(angle),
+    config.polarization.contrast
+  );
+}
+
+function lensState() {
+  const idleX =
+    width * (0.5 + Math.sin(time * 0.13) * 0.22);
+
+  const idleY =
+    height * (0.5 + Math.cos(time * 0.11) * 0.18);
+
+  const idleStrength = config.lens.idlePreview ? 0.55 : 0;
+  const influence = mouse.influence;
+
+  return {
+    x: idleX + (mouse.x - idleX) * influence,
+    y: idleY + (mouse.y - idleY) * influence,
+    strength: idleStrength + (1 - idleStrength) * influence
+  };
+}
+
+function drawLayer(layer, count, lens) {
+  const color = layerColor(layer, count);
+
+  // A faint full-screen pattern hints at what is concealed.
+  ctx.save();
+  ctx.globalAlpha = config.polarization.concealedOpacity;
+  drawPattern(ctx, layer, color);
+  ctx.restore();
+
+  if (!config.lens.enabled || lens.strength < 0.001) return;
+
+  const surface = surfaces[layer];
+  const context = surface.ctx;
+
+  context.clearRect(0, 0, width, height);
+  context.globalCompositeOperation = "source-over";
+  context.globalAlpha = 1;
+
+  drawPattern(context, layer, color);
+
+  // Mask the revealed pattern with a soft circular lens.
+  const radius = config.lens.radius;
+  const innerRadius = radius * (1 - config.lens.softness);
+
+  const mask = context.createRadialGradient(
+    lens.x,
+    lens.y,
+    innerRadius,
+    lens.x,
+    lens.y,
+    radius
+  );
+
+  mask.addColorStop(0, "rgba(255,255,255,1)");
+  mask.addColorStop(1, "rgba(255,255,255,0)");
+
+  context.globalCompositeOperation = "destination-in";
+  context.fillStyle = mask;
+  context.fillRect(0, 0, width, height);
+  context.globalCompositeOperation = "source-over";
+
+  const opacity =
+    polarizationAmount(layer) *
+    config.lens.strength *
+    lens.strength;
+
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.shadowColor = rgba(color);
+  ctx.shadowBlur = config.appearance.glow;
+  ctx.drawImage(surface.canvas, 0, 0, width, height);
+  ctx.restore();
+}
+
+function drawLensOutline(lens) {
+  if (
+    !config.lens.enabled ||
+    !config.lens.showOutline ||
+    lens.strength < 0.001
+  ) return;
+
+  const angle = radians(config.polarization.angle);
+  const radius = config.lens.radius;
+
+  ctx.strokeStyle = rgba(
+    config.appearance.colorA,
+    lens.strength * 0.13
+  );
+
+  ctx.lineWidth = 0.7;
+  ctx.beginPath();
+  ctx.arc(lens.x, lens.y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Small opposing marks indicate the lens orientation.
+  ctx.strokeStyle = rgba(
+    config.appearance.colorC,
+    lens.strength * 0.4
+  );
+
+  ctx.beginPath();
+
+  for (const direction of [angle, angle + Math.PI]) {
+    ctx.moveTo(
+      lens.x + Math.cos(direction) * (radius - 7),
+      lens.y + Math.sin(direction) * (radius - 7)
+    );
+
+    ctx.lineTo(
+      lens.x + Math.cos(direction) * (radius + 7),
+      lens.y + Math.sin(direction) * (radius + 7)
+    );
+  }
+
+  ctx.stroke();
+}
+
+function frame(timestamp) {
+  const realDt = previous === null
+    ? 0
+    : Math.min((timestamp - previous) / 1000, 0.05);
+
+  previous = timestamp;
+
+  const still =
+    config.animation.paused ||
+    (
+      config.animation.respectReducedMotion &&
+      reducedMotion.matches
+    );
+
+  if (!still) time += realDt * config.animation.speed;
+
+  const smoothing =
+    1 - Math.exp(-config.lens.smoothing * realDt);
+
+  mouse.x += (mouse.targetX - mouse.x) * smoothing;
+  mouse.y += (mouse.targetY - mouse.y) * smoothing;
+  mouse.influence +=
+    ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+  ctx.fillStyle = rgba(config.appearance.backgroundColor);
+  ctx.fillRect(0, 0, width, height);
+
+  const lens = lensState();
+  const count = Math.round(config.patterns.layers);
+
+  for (let layer = 0; layer < count; layer++) {
+    drawLayer(layer, count, lens);
+  }
+
+  drawLensOutline(lens);
+  requestAnimationFrame(frame);
+}
+
+function updatePointer(event) {
+  if (event.target.closest?.("[data-background-editor]")) {
+    mouse.active = false;
+    return;
+  }
+
+  if (!mouse.active) {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+  }
+
+  mouse.targetX = event.clientX;
+  mouse.targetY = event.clientY;
+  mouse.active = true;
+}
+
+addEventListener("pointermove", updatePointer);
+addEventListener("pointerdown", updatePointer);
+
+addEventListener("pointerup", event => {
+  if (event.pointerType !== "mouse") mouse.active = false;
+});
+
+addEventListener("pointercancel", () => mouse.active = false);
+addEventListener("blur", () => mouse.active = false);
+
+document.documentElement.addEventListener(
+  "pointerleave",
+  () => mouse.active = false
+);
+
+let editor = null;
+
+addEventListener("wheel", event => {
+  if (
+    event.ctrlKey ||
+    !config.lens.enabled ||
+    event.target.closest?.("[data-background-editor]")
+  ) return;
+
+  const units = event.deltaMode === 1
+    ? 16
+    : event.deltaMode === 2
+      ? height
+      : 1;
+
+  const change = clamp(event.deltaY * units, -200, 200);
+
+  config.polarization.angle =
+    (
+      config.polarization.angle +
+      change * config.lens.scrollSensitivity +
+      180
+    ) % 180;
+
+  editor?.refresh();
+}, { passive: true });
+
+document.addEventListener("visibilitychange", () => {
+  previous = null;
+  mouse.active = false;
+});
+
+addEventListener("resize", resize);
+
+resize();
+requestAnimationFrame(frame);
+
+if (config.panel.enabled) {
+  import("./settings-editor.js")
+    .then(({ createSettingsEditor }) => {
+      editor = createSettingsEditor({
+        config,
+        onChange: syncSurfaces,
+        onReset: () => {
+          time = 0;
+          config.polarization.angle = 0;
+          editor?.refresh();
+        }
+      });
+    })
+    .catch(error => console.error("Editor could not load:", error));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ember Migration</title>
+
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #100b13;
+  }
+
+  #background {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+const config = {
+  embers: {
+    count: 170,
+    size: 1.8,
+    speed: 55,
+    trailLength: 1.1,
+    opacity: 0.8,
+    glow: 8
+  },
+
+  flock: {
+    neighborRadius: 90,
+    separationDistance: 22,
+    cohesion: 0.6,
+    alignment: 0.9,
+    separation: 1.5,
+    formationStrength: 0.35
+  },
+
+  mouse: {
+    enabled: true,
+    radius: 240,
+    beaconStrength: 100,
+    smoothing: 8,
+    showHalo: true
+  },
+
+  cooling: {
+    enabled: true,
+    scattering: 180,
+    waveSpeed: 260,
+    waveWidth: 70,
+    waveLifetime: 2.5,
+    coolingTime: 4
+  },
+
+  appearance: {
+    backgroundColor: [16, 11, 19],
+    hotColor: [255, 174, 91],
+    warmColor: [228, 99, 117],
+    coolColor: [102, 160, 205]
+  },
+
+  animation: {
+    speed: 1,
+    paused: false,
+    respectReducedMotion: true
+  },
+
+  panel: {
+    enabled: true
+  }
+};
+
+window.getBackgroundConfig = () =>
+  JSON.parse(JSON.stringify(config));
+
+const canvas = document.querySelector("#background");
+const ctx = canvas.getContext("2d");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+let width = 1;
+let height = 1;
+let embers = [];
+let pulses = [];
+let time = 0;
+let previous = null;
+
+const mouse = {
+  x: 0,
+  y: 0,
+  targetX: 0,
+  targetY: 0,
+  active: false,
+  influence: 0
+};
+
+const random = (min, max) => min + Math.random() * (max - min);
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+const rgba = (color, alpha = 1) =>
+  `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+function mix(a, b, amount) {
+  return a.map((value, index) =>
+    Math.round(value + (b[index] - value) * amount)
+  );
+}
+
+function makeEmber() {
+  const angle = random(0, Math.PI * 2);
+
+  return {
+    x: Math.random() * width,
+    y: Math.random() * height,
+    vx: Math.cos(angle) * config.embers.speed,
+    vy: Math.sin(angle) * config.embers.speed,
+    size: random(0.5, 1.2),
+    tint: Math.random(),
+    phase: random(0, Math.PI * 2),
+    cooling: 0,
+    history: [],
+    sampleClock: 0
+  };
+}
+
+function refresh() {
+  const count = Math.round(config.embers.count);
+
+  while (embers.length < count) embers.push(makeEmber());
+  embers.length = count;
+}
+
+function reset() {
+  embers = [];
+  pulses = [];
+  refresh();
+}
+
+function resize() {
+  const oldWidth = width;
+  const oldHeight = height;
+
+  width = innerWidth;
+  height = innerHeight;
+
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  for (const ember of embers) {
+    ember.x *= width / oldWidth;
+    ember.y *= height / oldHeight;
+    ember.history = [];
+  }
+}
+
+function simulate(dt) {
+  if (dt <= 0) return;
+
+  for (const pulse of pulses) pulse.age += dt;
+  pulses = pulses.filter(
+    pulse => pulse.age < config.cooling.waveLifetime
+  );
+
+  const radius = config.flock.neighborRadius;
+
+  // Spatial buckets keep neighbor searches local.
+  const buckets = new Map();
+
+  function key(x, y) {
+    return `${x}:${y}`;
+  }
+
+  for (let index = 0; index < embers.length; index++) {
+    const ember = embers[index];
+    const cellX = Math.floor(ember.x / radius);
+    const cellY = Math.floor(ember.y / radius);
+    const cellKey = key(cellX, cellY);
+
+    if (!buckets.has(cellKey)) buckets.set(cellKey, []);
+    buckets.get(cellKey).push(index);
+  }
+
+  const accelerations = embers.map(ember => {
+    const cellX = Math.floor(ember.x / radius);
+    const cellY = Math.floor(ember.y / radius);
+
+    let neighbors = 0;
+    let centerX = 0;
+    let centerY = 0;
+    let velocityX = 0;
+    let velocityY = 0;
+    let separateX = 0;
+    let separateY = 0;
+
+    const cohesionRadiusSquared = radius * radius;
+    const separationDistance = config.flock.separationDistance;
+
+    for (let cy = cellY - 1; cy <= cellY + 1; cy++) {
+      for (let cx = cellX - 1; cx <= cellX + 1; cx++) {
+        const entries = buckets.get(key(cx, cy));
+        if (!entries) continue;
+
+        for (const index of entries) {
+          const other = embers[index];
+          if (other === ember) continue;
+
+          const dx = other.x - ember.x;
+          const dy = other.y - ember.y;
+          const distanceSquared = dx * dx + dy * dy;
+
+          if (distanceSquared > cohesionRadiusSquared) continue;
+
+          neighbors++;
+          centerX += other.x;
+          centerY += other.y;
+          velocityX += other.vx;
+          velocityY += other.vy;
+
+          const distance = Math.sqrt(distanceSquared);
+
+          if (distance < separationDistance) {
+            const denominator = Math.max(distance, 1);
+            const strength = 1 - distance / separationDistance;
+
+            separateX -= dx / denominator * strength;
+            separateY -= dy / denominator * strength;
+          }
+        }
+      }
+    }
+
+    let ax = 0;
+    let ay = 0;
+
+    const flockResponse = 1 - ember.cooling * 0.7;
+
+    if (neighbors > 0) {
+      ax += (
+        (centerX / neighbors - ember.x) * config.flock.cohesion +
+        (velocityX / neighbors - ember.vx) * config.flock.alignment
+      ) * flockResponse;
+
+      ay += (
+        (centerY / neighbors - ember.y) * config.flock.cohesion +
+        (velocityY / neighbors - ember.vy) * config.flock.alignment
+      ) * flockResponse;
+    }
+
+    ax += separateX * config.flock.separation * 45;
+    ay += separateY * config.flock.separation * 45;
+
+    // A broad moving current encourages temporary shared formations.
+    const flowAngle =
+      Math.sin(ember.y / 240 + time * 0.16) +
+      Math.cos(ember.x / 310 - time * 0.12);
+
+    ax += Math.cos(flowAngle) * config.flock.formationStrength * 35;
+    ay += Math.sin(flowAngle) * config.flock.formationStrength * 35;
+
+    if (config.mouse.enabled) {
+      const dx = mouse.x - ember.x;
+      const dy = mouse.y - ember.y;
+      const distance = Math.hypot(dx, dy);
+      const proximity = clamp(
+        1 - distance / config.mouse.radius,
+        0,
+        1
+      );
+
+      const strength =
+        proximity * proximity *
+        mouse.influence *
+        config.mouse.beaconStrength *
+        (1 - ember.cooling);
+
+      const denominator = Math.max(distance, 20);
+
+      ax += dx / denominator * strength;
+      ay += dy / denominator * strength;
+    }
+
+    for (const pulse of pulses) {
+      const dx = ember.x - pulse.x;
+      const dy = ember.y - pulse.y;
+      const distance = Math.hypot(dx, dy);
+      const waveRadius = pulse.age * config.cooling.waveSpeed;
+
+      const influence = Math.exp(
+        -Math.pow(
+          (distance - waveRadius) / config.cooling.waveWidth,
+          2
+        ) * 2
+      ) * Math.max(
+        0,
+        1 - pulse.age / config.cooling.waveLifetime
+      );
+
+      const denominator = Math.max(distance, 10);
+
+      ax += dx / denominator * config.cooling.scattering * influence;
+      ay += dy / denominator * config.cooling.scattering * influence;
+
+      ember.cooling = Math.max(ember.cooling, influence);
+    }
+
+    return { x: ax, y: ay };
+  });
+
+  for (let index = 0; index < embers.length; index++) {
+    const ember = embers[index];
+    const acceleration = accelerations[index];
+
+    ember.vx += acceleration.x * dt;
+    ember.vy += acceleration.y * dt;
+
+    const speed = Math.hypot(ember.vx, ember.vy);
+    const targetSpeed = config.embers.speed * (1 + ember.cooling * 0.7);
+
+    const relaxedSpeed =
+      speed + (targetSpeed - speed) * (1 - Math.exp(-1.2 * dt));
+
+    if (speed > 0.001) {
+      const boundedSpeed = Math.min(
+        relaxedSpeed,
+        Math.max(60, config.embers.speed * 3)
+      );
+
+      ember.vx *= boundedSpeed / speed;
+      ember.vy *= boundedSpeed / speed;
+    }
+
+    ember.x += ember.vx * dt;
+    ember.y += ember.vy * dt;
+
+    ember.cooling *= Math.exp(
+      -Math.LN2 * dt / config.cooling.coolingTime
+    );
+
+    const margin = 20;
+    let wrapped = false;
+
+    if (ember.x < -margin) {
+      ember.x = width + margin;
+      wrapped = true;
+    }
+    if (ember.x > width + margin) {
+      ember.x = -margin;
+      wrapped = true;
+    }
+    if (ember.y < -margin) {
+      ember.y = height + margin;
+      wrapped = true;
+    }
+    if (ember.y > height + margin) {
+      ember.y = -margin;
+      wrapped = true;
+    }
+
+    if (wrapped) ember.history = [];
+
+    ember.sampleClock += dt;
+
+    if (ember.sampleClock >= 1 / 25) {
+      ember.sampleClock %= 1 / 25;
+      ember.history.push({ x: ember.x, y: ember.y, time });
+    }
+
+    const cutoff = time - config.embers.trailLength;
+
+    while (ember.history.length && ember.history[0].time < cutoff) {
+      ember.history.shift();
+    }
+
+    while (ember.history.length > 150) ember.history.shift();
+  }
+}
+
+function drawEmber(ember) {
+  const warm = mix(
+    config.appearance.hotColor,
+    config.appearance.warmColor,
+    ember.tint
+  );
+
+  const color = mix(
+    warm,
+    config.appearance.coolColor,
+    ember.cooling
+  );
+
+  const shimmer =
+    0.8 + Math.sin(time * 2 + ember.phase) * 0.2;
+
+  const opacity =
+    config.embers.opacity *
+    shimmer *
+    (1 - ember.cooling * 0.35);
+
+  ctx.shadowBlur = 0;
+
+  const history = ember.history;
+
+  if (config.embers.trailLength > 0 && history.length > 1) {
+    const first = history[0];
+
+    if (Math.hypot(ember.x - first.x, ember.y - first.y) > 0.1) {
+      const gradient = ctx.createLinearGradient(
+        first.x, first.y,
+        ember.x, ember.y
+      );
+
+      gradient.addColorStop(0, rgba(color, 0));
+      gradient.addColorStop(1, rgba(color, opacity * 0.4));
+
+      ctx.strokeStyle = gradient;
+      ctx.lineWidth = config.embers.size * ember.size * 0.55;
+      ctx.beginPath();
+      ctx.moveTo(first.x, first.y);
+
+      for (let i = 1; i < history.length; i++) {
+        ctx.lineTo(history[i].x, history[i].y);
+      }
+
+      ctx.lineTo(ember.x, ember.y);
+      ctx.stroke();
+    }
+  }
+
+  ctx.fillStyle = rgba(color, opacity);
+  ctx.shadowColor = rgba(color);
+  ctx.shadowBlur = config.embers.glow;
+
+  ctx.beginPath();
+  ctx.arc(
+    ember.x,
+    ember.y,
+    config.embers.size * ember.size,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+}
+
+function drawInteraction() {
+  ctx.shadowBlur = 0;
+
+  if (
+    config.mouse.enabled &&
+    config.mouse.showHalo &&
+    mouse.influence > 0.001
+  ) {
+    const gradient = ctx.createRadialGradient(
+      mouse.x, mouse.y, 0,
+      mouse.x, mouse.y, config.mouse.radius
+    );
+
+    gradient.addColorStop(
+      0,
+      rgba(config.appearance.hotColor, mouse.influence * 0.04)
+    );
+    gradient.addColorStop(1, rgba(config.appearance.hotColor, 0));
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  for (const pulse of pulses) {
+    ctx.strokeStyle = rgba(
+      config.appearance.coolColor,
+      (1 - pulse.age / config.cooling.waveLifetime) * 0.18
+    );
+
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.arc(
+      pulse.x,
+      pulse.y,
+      pulse.age * config.cooling.waveSpeed,
+      0,
+      Math.PI * 2
+    );
+    ctx.stroke();
+  }
+}
+
+function frame(timestamp) {
+  const realDt = previous === null
+    ? 0
+    : Math.min((timestamp - previous) / 1000, 0.05);
+
+  previous = timestamp;
+
+  const still =
+    config.animation.paused ||
+    (
+      config.animation.respectReducedMotion &&
+      reducedMotion.matches
+    );
+
+  const dt = still ? 0 : realDt * config.animation.speed;
+
+  const smoothing =
+    1 - Math.exp(-config.mouse.smoothing * realDt);
+
+  mouse.x += (mouse.targetX - mouse.x) * smoothing;
+  mouse.y += (mouse.targetY - mouse.y) * smoothing;
+  mouse.influence +=
+    ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+  // Small simulation steps improve stability at higher playback speeds.
+  const steps = Math.max(1, Math.ceil(dt / 0.025));
+
+  for (let step = 0; step < steps; step++) {
+    const stepDt = dt / steps;
+    time += stepDt;
+    simulate(stepDt);
+  }
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = rgba(config.appearance.backgroundColor);
+  ctx.fillRect(0, 0, width, height);
+
+  drawInteraction();
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  for (const ember of embers) drawEmber(ember);
+
+  ctx.restore();
+  requestAnimationFrame(frame);
+}
+
+function updatePointer(event) {
+  if (event.target.closest?.("[data-background-editor]")) {
+    mouse.active = false;
+    return false;
+  }
+
+  if (!mouse.active) {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+  }
+
+  mouse.targetX = event.clientX;
+  mouse.targetY = event.clientY;
+  mouse.active = true;
+  return true;
+}
+
+addEventListener("pointermove", updatePointer);
+
+addEventListener("pointerdown", event => {
+  if (!updatePointer(event) || !config.cooling.enabled) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+
+  if (pulses.length >= 10) pulses.shift();
+
+  pulses.push({
+    x: event.clientX,
+    y: event.clientY,
+    age: 0
+  });
+});
+
+addEventListener("pointerup", event => {
+  if (event.pointerType !== "mouse") mouse.active = false;
+});
+
+addEventListener("pointercancel", () => mouse.active = false);
+addEventListener("blur", () => mouse.active = false);
+
+document.documentElement.addEventListener(
+  "pointerleave",
+  () => mouse.active = false
+);
+
+document.addEventListener("visibilitychange", () => {
+  previous = null;
+  mouse.active = false;
+});
+
+addEventListener("resize", resize);
+
+resize();
+reset();
+requestAnimationFrame(frame);
+
+if (config.panel.enabled) {
+  import("./settings-editor.js")
+    .then(({ createSettingsEditor }) => {
+      createSettingsEditor({
+        config,
+        onChange: refresh,
+        onReset: reset
+      });
+    })
+    .catch(error => console.error("Editor could not load:", error));
+}
+</script>
+</body>
+</html>
