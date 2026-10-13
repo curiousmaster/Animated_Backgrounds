@@ -296,4 +296,11 @@ export const backgrounds = [
 			"Swirling musical staves carry drifting notes and rests. " +
 			"Move your pointer to curl the ribbons around it; click or tap to send a ripple through the music.",
 	},
+	{
+		name: "Chromatic Ribbons",
+		folder: "chromatic-ribbons",
+		description:
+			"Wandering points weave translucent connections into glowing ribbons. " +
+			"Move your pointer to bend their paths; click or tap to start a new composition.",
+	},
 ];

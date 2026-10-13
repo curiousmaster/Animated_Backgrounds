@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chromatic Ribbons</title>
+
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #050810;
+  }
+
+  #background {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+const config = {
+  ribbons: {
+    points: 12,
+    speed: 65,
+    stepsPerSecond: 300,
+    lineWidth: 1,
+    opacity: 0.012,
+    curvature: 0.12
+  },
+
+  colors: {
+    hue: 185,
+    hueSpread: 120,
+    saturation: 85,
+    lightness: 60,
+    hueDrift: 3,
+    randomizeOnReset: true,
+    additive: true
+  },
+
+  canvas: {
+    backgroundColor: [5, 8, 16],
+    trailLifetime: 8,
+    maxSteps: 0,
+    autoRestart: false,
+    restartDelay: 5,
+    pixelRatio: 1
+  },
+
+  mouse: {
+    enabled: true,
+    radius: 230,
+    attraction: 100,
+    swirl: 150,
+    ribbonBend: 110,
+    flowInfluence: 1.5,
+    dragStrength: 0.8,
+    holdMultiplier: 2,
+    smoothing: 8,
+    doubleClickToReset: true
+  },
+
+  animation: {
+    speed: 1,
+    paused: false,
+    respectReducedMotion: true
+  },
+
+  panel: {
+    enabled: true
+  }
+};
+
+window.getBackgroundConfig = () =>
+  JSON.parse(JSON.stringify(config));
+
+const canvas = document.querySelector("#background");
+const ctx = canvas.getContext("2d");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+let width = 1;
+let height = 1;
+let points = [];
+let baseHue = 185;
+let steps = 0;
+let time = 0;
+let accumulator = 0;
+let finishedTime = 0;
+let previous = null;
+let sceneKey = "";
+let resolutionKey = "";
+let lastTap = null;
+
+const mouse = {
+  x: 0,
+  y: 0,
+  targetX: 0,
+  targetY: 0,
+  previousX: 0,
+  previousY: 0,
+  vx: 0,
+  vy: 0,
+  active: false,
+  held: false,
+  influence: 0
+};
+
+const random = (min, max) => min + Math.random() * (max - min);
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+function backgroundColor(alpha = 1) {
+  return `rgba(${config.canvas.backgroundColor.join(",")},${alpha})`;
+}
+
+function clearCanvas() {
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = backgroundColor();
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+function makePoint() {
+  const angle = random(0, Math.PI * 2);
+
+  return {
+    x: random(0, width),
+    y: random(0, height),
+    vx: Math.cos(angle) * config.ribbons.speed,
+    vy: Math.sin(angle) * config.ribbons.speed,
+    hueOffset: random(-0.5, 0.5),
+    phase: random(0, Math.PI * 2),
+    neighbor: 0
+  };
+}
+
+function currentSceneKey() {
+  return JSON.stringify([
+    config.ribbons.points,
+    config.colors.hue,
+    config.colors.randomizeOnReset
+  ]);
+}
+
+function reset() {
+  points = Array.from(
+    { length: Math.max(2, Math.round(config.ribbons.points)) },
+    makePoint
+  );
+
+  points.forEach((point, index) => {
+    const offset =
+      1 + Math.floor(Math.random() * (points.length - 1));
+
+    point.neighbor = (index + offset) % points.length;
+  });
+
+  baseHue = config.colors.randomizeOnReset
+    ? random(0, 360)
+    : config.colors.hue;
+
+  steps = 0;
+  time = 0;
+  accumulator = 0;
+  finishedTime = 0;
+  sceneKey = currentSceneKey();
+  clearCanvas();
+}
+
+function resize() {
+  width = innerWidth;
+  height = innerHeight;
+
+  const ratio = Math.min(
+    devicePixelRatio || 1,
+    config.canvas.pixelRatio
+  );
+
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+  resolutionKey = String(config.canvas.pixelRatio);
+  reset();
+}
+
+function refresh() {
+  if (resolutionKey !== String(config.canvas.pixelRatio)) {
+    resize();
+  } else if (sceneKey !== currentSceneKey()) {
+    reset();
+  }
+}
+
+function pointerStrength() {
+  if (!config.mouse.enabled) return 0;
+
+  return mouse.influence *
+    (mouse.held ? config.mouse.holdMultiplier : 1);
+}
+
+function influenceAt(x, y) {
+  const distance = Math.hypot(x - mouse.x, y - mouse.y);
+  const u = clamp(distance / config.mouse.radius, 0, 1);
+
+  return Math.pow(1 - u * u, 2) * pointerStrength();
+}
+
+function nearestOnSegment(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy;
+
+  const t = lengthSquared > 0.001
+    ? clamp(
+        (
+          (mouse.x - a.x) * dx +
+          (mouse.y - a.y) * dy
+        ) / lengthSquared,
+        0,
+        1
+      )
+    : 0.5;
+
+  return {
+    x: a.x + dx * t,
+    y: a.y + dy * t,
+    t
+  };
+}
+
+function forceAt(x, y, influence) {
+  const dx = mouse.x - x;
+  const dy = mouse.y - y;
+  const distance = Math.hypot(dx, dy);
+  const denominator = Math.max(distance, 25);
+
+  return {
+    x: (
+      dx / denominator * config.mouse.attraction -
+      dy / denominator * config.mouse.swirl +
+      mouse.vx * config.mouse.dragStrength
+    ) * influence,
+
+    y: (
+      dy / denominator * config.mouse.attraction +
+      dx / denominator * config.mouse.swirl +
+      mouse.vy * config.mouse.dragStrength
+    ) * influence
+  };
+}
+
+function updatePoints(dt) {
+  const forces = points.map(point =>
+    forceAt(
+      point.x,
+      point.y,
+      influenceAt(point.x, point.y)
+    )
+  );
+
+  // Pull on nearby connections even when both endpoints are far away.
+  points.forEach((point, index) => {
+    const neighborIndex = point.neighbor;
+    const neighbor = points[neighborIndex];
+    const nearest = nearestOnSegment(point, neighbor);
+
+    const influence =
+      influenceAt(nearest.x, nearest.y) *
+      config.mouse.flowInfluence;
+
+    if (influence <= 0) return;
+
+    const force = forceAt(nearest.x, nearest.y, influence);
+
+    // Share the force between endpoints according to contact position.
+    const aWeight = 0.25 + (1 - nearest.t) * 0.75;
+    const bWeight = 0.25 + nearest.t * 0.75;
+
+    forces[index].x += force.x * aWeight;
+    forces[index].y += force.y * aWeight;
+
+    forces[neighborIndex].x += force.x * bWeight;
+    forces[neighborIndex].y += force.y * bWeight;
+  });
+
+  points.forEach((point, index) => {
+    const turn =
+      Math.sin(time * 0.35 + point.phase) *
+      config.ribbons.curvature;
+
+    const cos = Math.cos(turn * dt);
+    const sin = Math.sin(turn * dt);
+    const vx = point.vx * cos - point.vy * sin;
+    const vy = point.vx * sin + point.vy * cos;
+
+    point.vx = vx + forces[index].x * dt;
+    point.vy = vy + forces[index].y * dt;
+
+    const speed = Math.hypot(point.vx, point.vy);
+
+    if (speed > 0.001) {
+      const relaxedSpeed =
+        speed +
+        (config.ribbons.speed - speed) *
+        (1 - Math.exp(-1.4 * dt));
+
+      const limitedSpeed = Math.min(
+        relaxedSpeed,
+        Math.max(40, config.ribbons.speed * 4)
+      );
+
+      point.vx *= limitedSpeed / speed;
+      point.vy *= limitedSpeed / speed;
+    }
+
+    point.x += point.vx * dt;
+    point.y += point.vy * dt;
+
+    if (point.x < 0) {
+      point.x = -point.x;
+      point.vx = Math.abs(point.vx);
+    } else if (point.x > width) {
+      point.x = width - (point.x - width);
+      point.vx = -Math.abs(point.vx);
+    }
+
+    if (point.y < 0) {
+      point.y = -point.y;
+      point.vy = Math.abs(point.vy);
+    } else if (point.y > height) {
+      point.y = height - (point.y - height);
+      point.vy = -Math.abs(point.vy);
+    }
+
+    point.x = clamp(point.x, 0, width);
+    point.y = clamp(point.y, 0, height);
+  });
+}
+
+function bendPoint(x, y) {
+  const influence = influenceAt(x, y);
+  if (influence <= 0) return { x, y };
+
+  const dx = x - mouse.x;
+  const dy = y - mouse.y;
+  const distance = Math.hypot(dx, dy);
+  const denominator = Math.max(distance, 25);
+
+  // Attraction and swirl also deform the freshly drawn ribbon.
+  const pull = clamp(config.mouse.attraction / 200, -1, 1);
+  const twist = clamp(config.mouse.swirl / 200, -1.5, 1.5);
+  const bend = config.mouse.ribbonBend * influence;
+
+  const dragScale =
+    config.mouse.dragStrength * influence * 0.035;
+
+  return {
+    x:
+      x +
+      (-dx / denominator * pull - dy / denominator * twist) * bend +
+      mouse.vx * dragScale,
+
+    y:
+      y +
+      (-dy / denominator * pull + dx / denominator * twist) * bend +
+      mouse.vy * dragScale
+  };
+}
+
+function drawConnection(point) {
+  const neighbor = points[point.neighbor];
+
+  const hue = (
+    baseHue +
+    point.hueOffset * config.colors.hueSpread +
+    time * config.colors.hueDrift +
+    360
+  ) % 360;
+
+  ctx.strokeStyle =
+    `hsla(${hue},${config.colors.saturation}%,` +
+    `${config.colors.lightness}%,${config.ribbons.opacity})`;
+
+  const nearest = nearestOnSegment(point, neighbor);
+  const affected = influenceAt(nearest.x, nearest.y) > 0.001;
+
+  ctx.beginPath();
+
+  if (!affected) {
+    ctx.moveTo(point.x, point.y);
+    ctx.lineTo(neighbor.x, neighbor.y);
+  } else {
+    const length = Math.hypot(
+      neighbor.x - point.x,
+      neighbor.y - point.y
+    );
+
+    const samples = Math.max(
+      8,
+      Math.ceil(
+        length / Math.max(10, config.mouse.radius / 12)
+      )
+    );
+
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+
+      const sample = bendPoint(
+        point.x + (neighbor.x - point.x) * t,
+        point.y + (neighbor.y - point.y) * t
+      );
+
+      if (!i) ctx.moveTo(sample.x, sample.y);
+      else ctx.lineTo(sample.x, sample.y);
+    }
+  }
+
+  ctx.stroke();
+}
+
+function simulateStep(dt) {
+  time += dt;
+
+  if (config.canvas.trailLifetime > 0) {
+    ctx.globalCompositeOperation = "source-over";
+
+    const alpha =
+      1 - Math.exp(-Math.LN2 * dt / config.canvas.trailLifetime);
+
+    ctx.fillStyle = backgroundColor(alpha);
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  updatePoints(dt);
+
+  ctx.globalCompositeOperation =
+    config.colors.additive ? "lighter" : "source-over";
+
+  ctx.lineWidth = config.ribbons.lineWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  for (const point of points) drawConnection(point);
+
+  steps++;
+}
+
+function isFinished() {
+  return config.canvas.maxSteps > 0 &&
+    steps >= config.canvas.maxSteps;
+}
+
+function frame(timestamp) {
+  const realDt = previous === null
+    ? 0
+    : Math.min((timestamp - previous) / 1000, 0.05);
+
+  previous = timestamp;
+
+  const smoothing =
+    1 - Math.exp(-config.mouse.smoothing * realDt);
+
+  mouse.x += (mouse.targetX - mouse.x) * smoothing;
+  mouse.y += (mouse.targetY - mouse.y) * smoothing;
+
+  mouse.influence +=
+    ((mouse.active ? 1 : 0) - mouse.influence) * smoothing;
+
+  const rawVx = realDt > 0
+    ? (mouse.x - mouse.previousX) / realDt
+    : 0;
+
+  const rawVy = realDt > 0
+    ? (mouse.y - mouse.previousY) / realDt
+    : 0;
+
+  const velocityResponse = 1 - Math.exp(-12 * realDt);
+
+  mouse.vx +=
+    (clamp(rawVx, -600, 600) - mouse.vx) * velocityResponse;
+
+  mouse.vy +=
+    (clamp(rawVy, -600, 600) - mouse.vy) * velocityResponse;
+
+  mouse.previousX = mouse.x;
+  mouse.previousY = mouse.y;
+
+  const still =
+    config.animation.paused ||
+    (
+      config.animation.respectReducedMotion &&
+      reducedMotion.matches
+    );
+
+  const dt = still ? 0 : realDt * config.animation.speed;
+
+  if (isFinished()) {
+    finishedTime += dt;
+    accumulator = 0;
+
+    if (
+      config.canvas.autoRestart &&
+      finishedTime >= config.canvas.restartDelay
+    ) {
+      reset();
+    }
+  } else {
+    finishedTime = 0;
+    accumulator += dt;
+
+    const stepDt = 1 / config.ribbons.stepsPerSecond;
+    let iterations = 0;
+
+    while (
+      accumulator >= stepDt &&
+      !isFinished() &&
+      iterations < 180
+    ) {
+      simulateStep(stepDt);
+      accumulator -= stepDt;
+      iterations++;
+    }
+
+    if (iterations === 180) {
+      accumulator = Math.min(accumulator, stepDt);
+    }
+  }
+
+  requestAnimationFrame(frame);
+}
+
+function updatePointer(event) {
+  if (event.target.closest?.("[data-background-editor]")) {
+    deactivatePointer();
+    return false;
+  }
+
+  if (!mouse.active) {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+    mouse.previousX = event.clientX;
+    mouse.previousY = event.clientY;
+    mouse.vx = 0;
+    mouse.vy = 0;
+  }
+
+  mouse.targetX = event.clientX;
+  mouse.targetY = event.clientY;
+  mouse.active = true;
+  return true;
+}
+
+function deactivatePointer() {
+  mouse.active = false;
+  mouse.held = false;
+  mouse.vx = 0;
+  mouse.vy = 0;
+}
+
+addEventListener("pointermove", updatePointer);
+
+addEventListener("pointerdown", event => {
+  if (!updatePointer(event)) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+
+  mouse.held = true;
+
+  if (
+    event.pointerType !== "mouse" &&
+    config.mouse.doubleClickToReset
+  ) {
+    const now = performance.now();
+
+    if (
+      lastTap &&
+      now - lastTap.time < 350 &&
+      Math.hypot(
+        event.clientX - lastTap.x,
+        event.clientY - lastTap.y
+      ) < 35
+    ) {
+      reset();
+      lastTap = null;
+    } else {
+      lastTap = {
+        time: now,
+        x: event.clientX,
+        y: event.clientY
+      };
+    }
+  }
+});
+
+addEventListener("pointerup", event => {
+  mouse.held = false;
+  if (event.pointerType !== "mouse") mouse.active = false;
+});
+
+addEventListener("dblclick", event => {
+  if (
+    config.mouse.doubleClickToReset &&
+    !event.target.closest?.("[data-background-editor]")
+  ) {
+    reset();
+  }
+});
+
+addEventListener("pointercancel", deactivatePointer);
+addEventListener("blur", deactivatePointer);
+
+document.documentElement.addEventListener(
+  "pointerleave",
+  deactivatePointer
+);
+
+document.addEventListener("visibilitychange", () => {
+  previous = null;
+  accumulator = 0;
+  deactivatePointer();
+});
+
+addEventListener("resize", resize);
+
+resize();
+
+const previewSteps = config.canvas.maxSteps > 0
+  ? Math.min(450, config.canvas.maxSteps)
+  : 450;
+
+for (let i = 0; i < previewSteps; i++) {
+  simulateStep(1 / config.ribbons.stepsPerSecond);
+}
+
+requestAnimationFrame(frame);
+
+if (config.panel.enabled) {
+  import("./settings-editor.js")
+    .then(({ createSettingsEditor }) => {
+      createSettingsEditor({
+        config,
+        onChange: refresh,
+        onReset: reset
+      });
+    })
+    .catch(error => console.error("Editor could not load:", error));
+}
+</script>
+</body>
+</html>
