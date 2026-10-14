@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Stellar Bloom</title>
+
 <style>
   html, body {
     margin: 0;
@@ -39,6 +40,7 @@
   }
 </style>
 </head>
+
 <body>
 <canvas id="background" aria-hidden="true"></canvas>
 <div id="flight-status" hidden></div>
@@ -51,7 +53,8 @@ const config = {
     radius: 2,
     maxCount: 450,
     opacity: 0.9,
-    trails: 0.94
+    trails: 0.94,
+    sizeSlowdown: 0.5
   },
 
   gravity: {
@@ -176,8 +179,10 @@ const flightState = {
 };
 
 const mouse = {
-  x: 0, y: 0,
-  targetX: 0, targetY: 0,
+  x: 0,
+  y: 0,
+  targetX: 0,
+  targetY: 0,
   active: false,
   held: false,
   influence: 0
@@ -244,10 +249,29 @@ function starRadius(mass) {
   return config.stars.radius * Math.cbrt(mass);
 }
 
+function speedLimit(star) {
+  const sizeRatio = Math.max(1, Math.cbrt(star.mass));
+
+  return config.gravity.maxSpeed /
+    Math.pow(sizeRatio, config.stars.sizeSlowdown);
+}
+
+function limitVelocity(star) {
+  const speed = Math.hypot(star.vx, star.vy, star.vz);
+  const maximum = speedLimit(star);
+
+  if (speed > maximum) {
+    const factor = maximum / speed;
+    star.vx *= factor;
+    star.vy *= factor;
+    star.vz *= factor;
+  }
+}
+
 function makeStar(position, mass = 1) {
   const d = direction();
 
-  return {
+  const star = {
     ...position,
     id: nextId++,
     mass,
@@ -260,6 +284,9 @@ function makeStar(position, mass = 1) {
       random(0, config.explosions.delayVariation),
     phase: random(0, Math.PI * 2)
   };
+
+  limitVelocity(star);
+  return star;
 }
 
 function sceneKey() {
@@ -290,6 +317,7 @@ function reset() {
 
     if (config.space.sphereBoundary) {
       const d = direction();
+
       const r = radius * Math.pow(
         Math.random(),
         config.space.threeD ? 1 / 3 : 1 / 2
@@ -341,6 +369,7 @@ function buildNebula() {
   for (let cloud = 0; cloud < config.nebula.clouds; cloud++) {
     const cx = rand() * w;
     const cy = rand() * h;
+
     const radius = Math.max(w, h) * config.nebula.size *
       (0.45 + rand() * 0.55);
 
@@ -353,7 +382,9 @@ function buildNebula() {
       const y = cy + Math.sin(angle) * offset * 0.45;
       const r = radius * (0.12 + rand() * 0.3);
 
-      const gradient = nebulaCtx.createRadialGradient(x, y, 0, x, y, r);
+      const gradient = nebulaCtx.createRadialGradient(
+        x, y, 0, x, y, r
+      );
 
       gradient.addColorStop(0, rgba(color, 0.15));
       gradient.addColorStop(0.45, rgba(color, 0.06));
@@ -377,6 +408,8 @@ function refresh() {
     const removed = stars.pop();
     merge(stars[0], removed);
   }
+
+  for (const star of stars) limitVelocity(star);
 
   if (JSON.stringify([width, height, config.nebula]) !== nebulaKey) {
     buildNebula();
@@ -470,10 +503,13 @@ function updateFlight(dt) {
   }, flightState.forward);
 
   const targetPosition = {
-    x: followedStar.x - targetDirection.x * config.flight.followDistance,
-    y: followedStar.y - targetDirection.y * config.flight.followDistance +
+    x: followedStar.x -
+      targetDirection.x * config.flight.followDistance,
+    y: followedStar.y -
+      targetDirection.y * config.flight.followDistance +
       config.flight.heightOffset,
-    z: followedStar.z - targetDirection.z * config.flight.followDistance
+    z: followedStar.z -
+      targetDirection.z * config.flight.followDistance
   };
 
   if (!flightState.initialized) {
@@ -505,11 +541,14 @@ function updateFlight(dt) {
   );
 
   flightState.forward = normalize(
-    smoothVector(flightState.forward, targetDirection, directionResponse),
+    smoothVector(
+      flightState.forward,
+      targetDirection,
+      directionResponse
+    ),
     targetDirection
   );
 
-  // Carry the up vector forward to reduce abrupt camera roll.
   let right = cross(flightState.forward, flightState.up);
 
   if (length(right) < 0.001) {
@@ -602,7 +641,10 @@ function screenForce(x, y) {
 }
 
 function confine(star) {
-  const radius = Math.max(10, config.space.radius - starRadius(star.mass));
+  const radius = Math.max(
+    10,
+    config.space.radius - starRadius(star.mass)
+  );
 
   if (config.space.sphereBoundary) {
     const distance = Math.hypot(star.x, star.y, star.z);
@@ -616,10 +658,13 @@ function confine(star) {
     star.y = ny * radius;
     star.z = nz * radius;
 
-    const outward = star.vx * nx + star.vy * ny + star.vz * nz;
+    const outward =
+      star.vx * nx + star.vy * ny + star.vz * nz;
 
     if (outward > 0) {
-      const impulse = outward * (1 + config.space.boundaryBounce);
+      const impulse =
+        outward * (1 + config.space.boundaryBounce);
+
       star.vx -= nx * impulse;
       star.vy -= ny * impulse;
       star.vz -= nz * impulse;
@@ -635,15 +680,30 @@ function confine(star) {
 }
 
 function merge(a, b) {
+  const oldMass = Math.max(a.mass, b.mass);
   const total = a.mass + b.mass;
 
   for (const axis of ["x", "y", "z", "vx", "vy", "vz"]) {
     a[axis] = (a[axis] * a.mass + b[axis] * b.mass) / total;
   }
 
+  // Artistic braking: growth slows the merged star immediately.
+  // This is applied once per merge, rather than every frame.
+  const growthRatio = Math.cbrt(total / oldMass);
+  const slowdown = Math.pow(
+    growthRatio,
+    config.stars.sizeSlowdown
+  );
+
+  a.vx /= slowdown;
+  a.vy /= slowdown;
+  a.vz /= slowdown;
+
   a.mass = total;
   a.criticalAge = Math.max(a.criticalAge, b.criticalAge);
   a.wait = Math.max(a.wait, b.wait);
+
+  limitVelocity(a);
 
   if (followedStar === b) followedStar = a;
 }
@@ -676,23 +736,31 @@ function explode(star, available) {
       z: star.z + d.z * radius
     }, star.mass / count);
 
-    fragment.vx = star.vx + (d.x - mean.x) * config.explosions.speed;
-    fragment.vy = star.vy + (d.y - mean.y) * config.explosions.speed;
-    fragment.vz = star.vz + (d.z - mean.z) * config.explosions.speed;
+    fragment.vx =
+      star.vx + (d.x - mean.x) * config.explosions.speed;
+
+    fragment.vy =
+      star.vy + (d.y - mean.y) * config.explosions.speed;
+
+    fragment.vz =
+      star.vz + (d.z - mean.z) * config.explosions.speed;
+
     fragment.cooldown = config.explosions.cooldown;
 
+    limitVelocity(fragment);
     confine(fragment);
     return fragment;
   });
 
   if (followedStar === star) {
-    // Follow the fragment closest to the parent's direction of travel.
     const parentDirection = normalize({
-      x: star.vx, y: star.vy, z: star.vz
+      x: star.vx,
+      y: star.vy,
+      z: star.vz
     }, flightState.forward);
 
-    followedStar = fragments.reduce((best, fragment) => {
-      const score = candidate => dot(
+    function score(candidate) {
+      return dot(
         normalize({
           x: candidate.vx,
           y: candidate.vy,
@@ -700,14 +768,21 @@ function explode(star, available) {
         }),
         parentDirection
       );
+    }
 
-      return score(fragment) > score(best) ? fragment : best;
-    }, fragments[0]);
+    followedStar = fragments.reduce(
+      (best, fragment) =>
+        score(fragment) > score(best) ? fragment : best,
+      fragments[0]
+    );
   }
 
   rings.push({
-    x: star.x, y: star.y, z: star.z,
-    age: 0, type: "explosion"
+    x: star.x,
+    y: star.y,
+    z: star.z,
+    age: 0,
+    type: "explosion"
   });
 
   if (rings.length > 25) rings.shift();
@@ -781,7 +856,8 @@ function simulate(dt) {
 
       const proximity = clamp(
         1 - distance / config.mouse.radius,
-        0, 1
+        0,
+        1
       );
 
       const strength =
@@ -817,8 +893,10 @@ function simulate(dt) {
         ) * Math.max(0, 1 - ring.age / 3);
 
         force = screenForce(
-          dx / Math.max(10, distance) * config.mouse.shockwave * wave,
-          dy / Math.max(10, distance) * config.mouse.shockwave * wave
+          dx / Math.max(10, distance) *
+            config.mouse.shockwave * wave,
+          dy / Math.max(10, distance) *
+            config.mouse.shockwave * wave
         );
       } else {
         const dx = star.x - ring.x;
@@ -846,23 +924,17 @@ function simulate(dt) {
       star.vz += force.z * dt;
     }
 
-    const speed = Math.hypot(star.vx, star.vy, star.vz);
-
-    if (speed > config.gravity.maxSpeed) {
-      const factor = config.gravity.maxSpeed / speed;
-      star.vx *= factor;
-      star.vy *= factor;
-      star.vz *= factor;
-    }
+    limitVelocity(star);
 
     star.x += star.vx * dt;
     star.y += star.vy * dt;
     star.z += star.vz * dt;
     confine(star);
 
-    star.criticalAge = star.mass >= config.explosions.criticalMass
-      ? star.criticalAge + dt
-      : 0;
+    star.criticalAge =
+      star.mass >= config.explosions.criticalMass
+        ? star.criticalAge + dt
+        : 0;
   }
 
   const original = stars;
@@ -903,7 +975,6 @@ function drawBoundary() {
   ctx.strokeStyle = "rgba(160,190,240,.12)";
   ctx.lineWidth = 0.7;
 
-  // Three great circles show the sphere in either camera mode.
   for (let plane = 0; plane < 3; plane++) {
     ctx.beginPath();
     let connected = false;
@@ -938,7 +1009,7 @@ function draw() {
   ctx.fillStyle = rgba(config.appearance.backgroundColor);
   ctx.fillRect(0, 0, width, height);
 
-  // Nebulas remain static screen-space artwork in both camera modes.
+  // Nebulas are static decorative artwork.
   if (config.nebula.enabled) {
     ctx.save();
     ctx.globalAlpha = config.nebula.opacity;
@@ -953,8 +1024,8 @@ function draw() {
     .map(star => ({ star, screen: project(star) }))
     .filter(item => item.screen);
 
-  projected.sort((a, b) =>
-    b.screen.distance - a.screen.distance
+  projected.sort(
+    (a, b) => b.screen.distance - a.screen.distance
   );
 
   for (const { star, screen } of projected) {
@@ -962,9 +1033,11 @@ function draw() {
       (star.mass - config.explosions.glowMass) /
       Math.max(
         1,
-        config.explosions.criticalMass - config.explosions.glowMass
+        config.explosions.criticalMass -
+        config.explosions.glowMass
       ),
-      0, 1
+      0,
+      1
     );
 
     const color = mix(
@@ -974,13 +1047,17 @@ function draw() {
         glowing
       ),
       config.appearance.hotColor,
-      clamp(star.criticalAge / Math.max(1, star.wait), 0, 1)
+      clamp(
+        star.criticalAge / Math.max(1, star.wait),
+        0,
+        1
+      )
     );
 
-    // Bound near-camera rendering cost in flight mode.
     const radius = clamp(
       starRadius(star.mass) * screen.scale,
-      0.45, 70
+      0.45,
+      70
     );
 
     const depthReference = view.flight
@@ -989,7 +1066,8 @@ function draw() {
 
     const depthAlpha = clamp(
       depthReference / screen.distance,
-      0.15, 1
+      0.15,
+      1
     );
 
     const instability = star.criticalAge > 0
@@ -1004,13 +1082,19 @@ function draw() {
     );
 
     if (
-      screen.x < -halo || screen.x > width + halo ||
-      screen.y < -halo || screen.y > height + halo
+      screen.x < -halo ||
+      screen.x > width + halo ||
+      screen.y < -halo ||
+      screen.y > height + halo
     ) continue;
 
     const gradient = ctx.createRadialGradient(
-      screen.x, screen.y, 0,
-      screen.x, screen.y, halo
+      screen.x,
+      screen.y,
+      0,
+      screen.x,
+      screen.y,
+      halo
     );
 
     gradient.addColorStop(
@@ -1036,7 +1120,10 @@ function draw() {
 
       if (
         tail &&
-        Math.hypot(screen.x - tail.x, screen.y - tail.y) > 0.1
+        Math.hypot(
+          screen.x - tail.x,
+          screen.y - tail.y
+        ) > 0.1
       ) {
         const trail = ctx.createLinearGradient(
           tail.x, tail.y, screen.x, screen.y
@@ -1094,12 +1181,20 @@ function draw() {
   }
 
   flightStatus.hidden =
-    !config.flight.enabled || !config.flight.showStatus;
+    !config.flight.enabled ||
+    !config.flight.showStatus;
 
   if (!flightStatus.hidden && followedStar) {
+    const speed = Math.hypot(
+      followedStar.vx,
+      followedStar.vy,
+      followedStar.vz
+    );
+
     flightStatus.textContent =
       `Riding star ${followedStar.id} · ` +
       `Mass ${followedStar.mass.toFixed(1)} · ` +
+      `Speed ${speed.toFixed(1)} · ` +
       `${stars.length} stars`;
   }
 }
@@ -1124,6 +1219,10 @@ function frame(timestamp) {
     flightWasEnabled = config.flight.enabled;
   }
 
+  if (config.flight.enabled && !flightState.initialized) {
+    updateFlight(0);
+  }
+
   const still =
     config.animation.paused ||
     (
@@ -1131,7 +1230,10 @@ function frame(timestamp) {
       reducedMotion.matches
     );
 
-  const dt = still ? 0 : realDt * config.animation.speed;
+  const dt = still
+    ? 0
+    : realDt * config.animation.speed;
+
   const count = Math.max(1, Math.ceil(dt / 0.02));
 
   for (let i = 0; i < count; i++) {
@@ -1145,15 +1247,17 @@ function frame(timestamp) {
     rotation.z =
       (rotation.z + config.camera.rotationSpeedZ * step) % 360;
 
-    if (config.flight.enabled) updateFlight(step);
     view = makeView();
 
-    if (step > 0) simulate(step);
+    if (step > 0) {
+      simulate(step);
+
+      // Apply camera smoothing once per simulation step.
+      if (config.flight.enabled) updateFlight(step);
+    }
   }
 
-  if (config.flight.enabled) updateFlight(dt);
   view = makeView();
-
   draw();
   requestAnimationFrame(frame);
 }
@@ -1187,6 +1291,7 @@ addEventListener("pointerdown", event => {
   if (event.pointerType === "mouse" && event.button !== 0) return;
 
   mouse.held = true;
+
   rings.push({
     x: event.clientX,
     y: event.clientY,
@@ -1237,7 +1342,9 @@ if (config.panel.enabled) {
         }
       });
     })
-    .catch(error => console.error("Editor could not load:", error));
+    .catch(error => {
+      console.error("Editor could not load:", error);
+    });
 }
 </script>
 </body>
