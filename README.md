@@ -59,6 +59,8 @@ You can find the gallery [here](https://curiousmaster.github.io/Interactive_Back
 |Polarized Secrets|Hidden geometric layers become visible beneath a moving lens. Move your pointer to reveal them; scroll to rotate the lens and uncover different patterns.|
 |Ember Migration|Glowing embers travel in loose flocks, gathering into shifting formations. Your pointer attracts them like a warm beacon; click or tap to release a cooling wave.|
 |Melody Currents|Musical staves flow through three-dimensional space, carrying drifting notes and rests that become brighter and thicker nearby. Move your pointer to swirl the music; click or tap to send a ripple.|
+|Chromatic Ribbons|Wandering points weave translucent connections into glowing ribbons. Move your pointer to bend their paths; click or tap to start a new composition.|
+|Stellar Bloom|Drifting stars gather under gravity and merge into glowing giants. Occasional explosions scatter them into new stars against colorful nebulas.|
 
 ## Project layout
 
