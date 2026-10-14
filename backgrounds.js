@@ -318,5 +318,15 @@ export const backgrounds = [
             "pulled together by gravity to form massive stellar giants. " +
             "Spectacular explosions scatter new stars across an interactive 3D universe.",
     },
+	
+	{
+	    name: "Stellar Extreme",
+	    folder: "stellar-extreme",
+	    description:
+	        "Explore a cinematic 3D universe where glowing stars drift, attract, and merge into luminous giants. " +
+	        "Brilliant supernovas scatter stellar fragments through colorful nebulas, enhanced by GPU bloom, " +
+	        "dynamic lighting, and subtle twinkling effects.",
+	},
+
 
 ];
