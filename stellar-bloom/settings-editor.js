@@ -7,7 +7,7 @@ export function createSettingsEditor({
   onResetRotation = () => {}
 }) {
   const limits = {
-    "stars.count": [20, 350, 1],
+    "stars.count": [20, 2000, 1],
     "stars.initialSpeed": [0, 60, 1],
     "stars.radius": [1, 6, 0.1],
     "stars.maxCount": [350, 650, 1],
