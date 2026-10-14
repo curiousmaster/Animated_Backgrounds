@@ -47,101 +47,119 @@
 
 <script type="module">
 const config = {
-  stars: {
-    count: 350,
-    initialSpeed: 10,
-    radius: 2,
-    maxCount: 450,
-    opacity: 0.9,
-    trails: 0.94,
-    sizeSlowdown: 0.5
+  "stars": {
+    "count": 1700,
+    "initialSpeed": 13,
+    "radius": 1.9,
+    "maxCount": 450,
+    "opacity": 0.97,
+    "trails": 1,
+    "sizeSlowdown": 0
   },
-
-  gravity: {
-    strength: 240,
-    range: 280,
-    softening: 22,
-    maxSpeed: 88,
-    mergeDistance: 1.25
+  "gravity": {
+    "strength": 830,
+    "range": 230,
+    "softening": 66,
+    "maxSpeed": 88,
+    "mergeDistance": 1.15
   },
-
-  explosions: {
-    enabled: true,
-    glowMass: 3,
-    criticalMass: 16,
-    delay: 12,
-    delayVariation: 8,
-    fragments: 14,
-    speed: 65,
-    cooldown: 5,
-    shockwaveStrength: 20
+  "explosions": {
+    "enabled": true,
+    "glowMass": 10,
+    "criticalMass": 22,
+    "delay": 12,
+    "delayVariation": 15,
+    "fragments": 30,
+    "speed": 132,
+    "cooldown": 15,
+    "shockwaveStrength": 100
   },
-
-  space: {
-    threeD: true,
-    sphereBoundary: true,
-    radius: 1200,
-    boundaryBounce: 0.85
+  "space": {
+    "threeD": true,
+    "sphereBoundary": true,
+    "radius": 1200,
+    "boundaryBounce": 0.45
   },
-
-  camera: {
-    distance: 1300,
-    zoom: 1.05,
-    rotationX: 13,
-    rotationY: 1,
-    rotationZ: 1,
-    rotationSpeedX: 0,
-    rotationSpeedY: 2,
-    rotationSpeedZ: 0,
-    showBoundary: false
+  "camera": {
+    "distance": 1300,
+    "zoom": 1.55,
+    "rotationX": 9,
+    "rotationY": 1,
+    "rotationZ": 1,
+    "rotationSpeedX": 0,
+    "rotationSpeedY": 0.6,
+    "rotationSpeedZ": 0,
+    "showBoundary": false
   },
-
-  flight: {
-    enabled: false,
-    followDistance: 0,
-    heightOffset: 0,
-    fieldOfView: 75,
-    positionSmoothing: 12,
-    directionSmoothing: 5,
-    nearClip: 2,
-    showStatus: true
+  "flight": {
+    "enabled": false,
+    "followDistance": 0,
+    "heightOffset": 0,
+    "fieldOfView": 75,
+    "positionSmoothing": 12,
+    "directionSmoothing": 5,
+    "nearClip": 2,
+    "showStatus": true
   },
-
-  mouse: {
-    enabled: true,
-    radius: 220,
-    strength: 45,
-    holdMultiplier: 2.5,
-    shockwave: 70,
-    smoothing: 7
+  "mouse": {
+    "enabled": false,
+    "radius": 220,
+    "strength": 45,
+    "holdMultiplier": 2.5,
+    "shockwave": 70,
+    "smoothing": 7
   },
-
-  nebula: {
-    enabled: true,
-    clouds: 10,
-    opacity: 0.54,
-    size: 0.15,
-    colorA: [55, 83, 170],
-    colorB: [150, 49, 143],
-    colorC: [32, 135, 133]
+  "nebula": {
+    "enabled": true,
+    "clouds": 10,
+    "opacity": 0.54,
+    "size": 0.15,
+    "colorA": [
+      55,
+      83,
+      170
+    ],
+    "colorB": [
+      150,
+      49,
+      143
+    ],
+    "colorC": [
+      32,
+      135,
+      133
+    ]
   },
-
-  appearance: {
-    backgroundColor: [4, 7, 17],
-    starColor: [173, 201, 255],
-    giantColor: [255, 192, 112],
-    hotColor: [255, 241, 216],
-    glow: 14
+  "appearance": {
+    "backgroundColor": [
+      4,
+      7,
+      17
+    ],
+    "starColor": [
+      173,
+      201,
+      255
+    ],
+    "giantColor": [
+      255,
+      192,
+      112
+    ],
+    "hotColor": [
+      255,
+      241,
+      216
+    ],
+    "glow": 14
   },
-
-  animation: {
-    speed: 2,
-    paused: false,
-    respectReducedMotion: true
+  "animation": {
+    "speed": 2,
+    "paused": false,
+    "respectReducedMotion": true
   },
-
-  panel: {
-    enabled: true
+  "panel": {
+    "enabled": true
   }
 };
 
