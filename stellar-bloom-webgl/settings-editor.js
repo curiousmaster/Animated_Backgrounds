@@ -1,0 +1,875 @@
+
+export function createSettingsEditor({
+  config,
+  onChange = () => {},
+  onReset = () => {},
+  onNebula = () => {},
+  onNextStar = () => {},
+  onResetRotation = () => {}
+}) {
+  const limits = {
+    "stars.count": [20, 2000, 1],
+    "stars.initialSpeed": [0, 60, 1],
+    "stars.radius": [1, 6, 0.1],
+    "stars.maxCount": [20, 2000, 1],
+    "stars.opacity": [0, 1, 0.01],
+    "stars.trails": [0, 1, 0.01],
+    "stars.sizeSlowdown": [0, 3, 0.05],
+
+    "gravity.strength": [0, 3000, 10],
+    "gravity.range": [50, 800, 10],
+    "gravity.softening": [5, 100, 1],
+    "gravity.maxSpeed": [20, 200, 1],
+    "gravity.mergeDistance": [0.5, 4, 0.05],
+
+    "explosions.glowMass": [1, 30, 1],
+    "explosions.criticalMass": [3, 60, 1],
+    "explosions.delay": [0, 60, 1],
+    "explosions.delayVariation": [0, 30, 1],
+    "explosions.fragments": [2, 30, 1],
+    "explosions.speed": [10, 150, 1],
+    "explosions.cooldown": [0.5, 15, 0.5],
+    "explosions.shockwaveStrength": [0, 100, 1],
+
+    "space.radius": [200, 1200, 10],
+    "space.boundaryBounce": [0.1, 1, 0.05],
+
+    "camera.distance": [1300, 3500, 10],
+    "camera.zoom": [0.3, 3, 0.05],
+    "camera.rotationX": [-180, 180, 1],
+    "camera.rotationY": [-180, 180, 1],
+    "camera.rotationZ": [-180, 180, 1],
+    "camera.rotationSpeedX": [-30, 30, 0.1],
+    "camera.rotationSpeedY": [-30, 30, 0.1],
+    "camera.rotationSpeedZ": [-30, 30, 0.1],
+
+    "flight.followDistance": [0, 200, 1],
+    "flight.heightOffset": [-100, 100, 1],
+    "flight.fieldOfView": [30, 120, 1],
+    "flight.positionSmoothing": [0, 30, 0.5],
+    "flight.directionSmoothing": [0, 20, 0.5],
+    "flight.nearClip": [0.5, 20, 0.5],
+
+    "mouse.radius": [40, 500, 1],
+    "mouse.strength": [0, 150, 1],
+    "mouse.holdMultiplier": [1, 5, 0.1],
+    "mouse.shockwave": [0, 200, 1],
+    "mouse.smoothing": [0.5, 20, 0.1],
+
+    "nebula.clouds": [1, 15, 1],
+    "nebula.opacity": [0, 0.8, 0.01],
+    "nebula.size": [0.1, 1, 0.05],
+
+    "appearance.glow": [0, 40, 1],
+    "animation.speed": [0, 3, 0.05]
+  };
+
+  const labels = {
+    threeD: "3D simulation",
+    sizeSlowdown: "Size-based slowdown",
+    rotationSpeedX: "X rotation speed",
+    rotationSpeedY: "Y rotation speed",
+    rotationSpeedZ: "Z rotation speed",
+    fieldOfView: "Field of view",
+    nearClip: "Near clipping distance",
+    maxCount: "Maximum star count",
+    glowMass: "Glow mass",
+    criticalMass: "Critical mass",
+    showStatus: "Show flight status",
+    showBoundary: "Show boundary",
+    respectReducedMotion: "Respect reduced motion"
+  };
+
+  const descriptions = {
+    "stars.count":
+      "Number of stars created when starting a new field. " +
+      "Changing this setting restarts the simulation.",
+
+    "stars.initialSpeed":
+      "Starting velocity of new stars in simulation units per second.",
+
+    "stars.radius":
+      "Base physical radius. Star radius increases with the cube root of mass.",
+
+    "stars.maxCount":
+      "Maximum number of stars permitted after explosions. " +
+      "Reducing this limit may cause stars to merge.",
+
+    "stars.opacity":
+      "Opacity of star cores before distance fading. " +
+      "Halos and trails have separate opacity.",
+
+    "stars.trails":
+      "Length of velocity trails in seconds. " +
+      "Set to zero to disable trails.",
+
+    "stars.sizeSlowdown":
+      "Slows stars when they grow through merging. " +
+      "Also reduces the maximum speed of larger stars. " +
+      "Zero disables this effect.",
+
+    "gravity.strength":
+      "Strength of gravitational attraction between stars. " +
+      "Higher values produce faster clustering.",
+
+    "gravity.range":
+      "Maximum distance over which two stars exert gravitational attraction.",
+
+    "gravity.softening":
+      "Softens gravity at short distances to prevent extreme acceleration.",
+
+    "gravity.maxSpeed":
+      "Maximum star velocity. Larger stars may have a lower speed limit.",
+
+    "gravity.mergeDistance":
+      "Collision multiplier applied to the combined radii of two stars. " +
+      "Higher values cause merging at greater distances.",
+
+    "explosions.enabled":
+      "Allows stars reaching critical mass to explode after their delay.",
+
+    "explosions.glowMass":
+      "Mass at which a star begins developing a stronger, warmer halo.",
+
+    "explosions.criticalMass":
+      "Mass required before a star starts its explosion countdown.",
+
+    "explosions.delay":
+      "Base waiting time before a critical star explodes, in simulation seconds. " +
+      "New stars receive this setting when created.",
+
+    "explosions.delayVariation":
+      "Random additional waiting time assigned to new stars.",
+
+    "explosions.fragments":
+      "Requested number of fragments created by an explosion. " +
+      "The population limit may reduce this number.",
+
+    "explosions.speed":
+      "Initial outward velocity added to explosion fragments.",
+
+    "explosions.cooldown":
+      "Time after an explosion during which fragments cannot merge.",
+
+    "explosions.shockwaveStrength":
+      "Strength of the expanding explosion shockwave.",
+
+    "space.threeD":
+      "Enable full three-dimensional movement, gravity, and collisions. " +
+      "Changing this restarts the simulation.",
+
+    "space.sphereBoundary":
+      "Keep stars inside a sphere, or a disk in 2D mode. " +
+      "When disabled, stars wrap around the simulation area.",
+
+    "space.radius":
+      "Radius of the simulated star field. " +
+      "Increasing it spreads stars over a larger volume.",
+
+    "space.boundaryBounce":
+      "Amount of velocity retained when a star bounces off the boundary.",
+
+    "camera.distance":
+      "Distance of the external camera from the center of the field.",
+
+    "camera.zoom":
+      "Camera magnification without changing the physical simulation.",
+
+    "camera.rotationX":
+      "Starting camera rotation around the X axis in degrees.",
+
+    "camera.rotationY":
+      "Starting camera rotation around the Y axis in degrees.",
+
+    "camera.rotationZ":
+      "Starting camera rotation around the Z axis in degrees.",
+
+    "camera.rotationSpeedX":
+      "Automatic X-axis rotation in degrees per simulation second.",
+
+    "camera.rotationSpeedY":
+      "Automatic Y-axis rotation in degrees per simulation second.",
+
+    "camera.rotationSpeedZ":
+      "Automatic Z-axis rotation in degrees per simulation second.",
+
+    "camera.showBoundary":
+      "Display faint circles showing the spherical simulation boundary.",
+
+    "flight.enabled":
+      "Follow an individual star with the camera looking in its direction of travel.",
+
+    "flight.followDistance":
+      "Distance behind the followed star. Zero places the camera at the star.",
+
+    "flight.heightOffset":
+      "Vertical offset of the camera relative to the followed star.",
+
+    "flight.fieldOfView":
+      "Vertical field of view in degrees for flight mode.",
+
+    "flight.positionSmoothing":
+      "How quickly the camera catches up with the followed star.",
+
+    "flight.directionSmoothing":
+      "How quickly the camera turns toward the star's direction of movement.",
+
+    "flight.nearClip":
+      "Minimum visible distance from the camera in flight mode.",
+
+    "flight.showStatus":
+      "Display the followed star's ID, mass, speed, and total star count.",
+
+    "mouse.enabled":
+      "Enable mouse attraction and click-generated shockwaves.",
+
+    "mouse.radius":
+      "Radius of pointer attraction measured in screen pixels.",
+
+    "mouse.strength":
+      "Strength of attraction toward the mouse pointer.",
+
+    "mouse.holdMultiplier":
+      "Additional attraction while holding the primary mouse button.",
+
+    "mouse.shockwave":
+      "Strength of the expanding wave generated when clicking.",
+
+    "mouse.smoothing":
+      "How quickly the attraction point follows mouse movement.",
+
+    "nebula.enabled":
+      "Show or hide the decorative nebula background.",
+
+    "nebula.clouds":
+      "Number of nebula cloud groups.",
+
+    "nebula.opacity":
+      "Overall transparency of the nebula background.",
+
+    "nebula.size":
+      "Size of nebula clouds relative to the viewport.",
+
+    "nebula.colorA":
+      "First nebula color.",
+
+    "nebula.colorB":
+      "Second nebula color.",
+
+    "nebula.colorC":
+      "Third nebula color.",
+
+    "appearance.backgroundColor":
+      "Solid background color behind the stars and nebulas.",
+
+    "appearance.starColor":
+      "Base color of small stars.",
+
+    "appearance.giantColor":
+      "Color approached by stars as they increase in mass.",
+
+    "appearance.hotColor":
+      "Color approached during the explosion countdown. " +
+      "Also used for explosion and shockwave rings.",
+
+    "appearance.glow":
+      "Additional size of star halos.",
+
+    "animation.speed":
+      "Global simulation speed. Affects physics, explosions, and camera rotation.",
+
+    "animation.paused":
+      "Pause physics and animation while keeping the settings available.",
+
+    "animation.respectReducedMotion":
+      "Pause animation when the operating system requests reduced motion.",
+
+    "panel.enabled":
+      "Enable or disable the settings editor. " +
+      "Turning this off hides the editor until the page is reloaded " +
+      "with the setting enabled in index.html."
+  };
+
+  const sectionDescriptions = {
+    stars: "Star population, appearance, trails, and size-dependent movement.",
+    gravity: "Gravitational attraction, collision distances, and velocity limits.",
+    explosions: "Critical mass, fragmentation, cooldowns, and shockwaves.",
+    space: "Simulation dimensions, boundaries, and collision behavior.",
+    camera: "External camera position, zoom, and automatic rotation.",
+    flight: "Follow a moving star from a first-person perspective.",
+    mouse: "Pointer attraction and interactive shockwaves.",
+    nebula: "Decorative cloud layers and their colors.",
+    appearance: "Background, star colors, and glow.",
+    animation: "Simulation timing and motion preferences.",
+    panel: "Settings editor visibility."
+  };
+
+  const storageKey = "stellar-bloom-open-sections";
+
+  const defaultOpen = ["stars", "camera", "flight"];
+
+  let savedOpen = defaultOpen;
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey));
+    if (Array.isArray(saved)) savedOpen = saved;
+  } catch (error) {
+    console.warn("Could not restore editor sections:", error);
+  }
+
+  const root = document.createElement("div");
+  root.className = "stellar-editor";
+  root.dataset.backgroundEditor = "";
+
+  root.innerHTML = `
+    <button class="stellar-toggle" type="button">
+      Settings
+    </button>
+
+    <aside class="stellar-panel" aria-label="Stellar Bloom settings" inert>
+      <div class="stellar-heading">
+        <h2>Stellar Bloom</h2>
+        <button class="stellar-close" type="button">Retract</button>
+      </div>
+
+      <p class="stellar-help stellar-introduction">
+        Hover over any setting to see its description.
+        On narrow screens, descriptions appear beneath the setting.
+      </p>
+
+      <div class="stellar-section-actions">
+        <button class="stellar-expand" type="button">Expand all</button>
+        <button class="stellar-collapse" type="button">Collapse all</button>
+      </div>
+
+      <div class="stellar-controls"></div>
+
+      <div class="stellar-actions">
+        <button class="stellar-show" type="button">Show code</button>
+        <button class="stellar-copy" type="button">Copy config</button>
+        <button class="stellar-next" type="button">Next star</button>
+        <button class="stellar-rotation" type="button">Reset rotation</button>
+        <button class="stellar-reset" type="button">New star field</button>
+        <button class="stellar-nebula" type="button">New nebulas</button>
+      </div>
+
+      <textarea class="stellar-code"
+        aria-label="Configuration code"
+        spellcheck="false" readonly hidden></textarea>
+
+      <p class="stellar-status" role="status" aria-live="polite"></p>
+    </aside>
+
+    <div class="stellar-tooltip" role="tooltip" hidden>
+      <strong></strong>
+      <p></p>
+    </div>
+  `;
+
+  document.body.append(root);
+
+  const $ = selector => root.querySelector(selector);
+
+  const toggle = $(".stellar-toggle");
+  const panel = $(".stellar-panel");
+  const close = $(".stellar-close");
+  const controls = $(".stellar-controls");
+  const tooltip = $(".stellar-tooltip");
+  const tooltipTitle = tooltip.querySelector("strong");
+  const tooltipText = tooltip.querySelector("p");
+  const code = $(".stellar-code");
+  const status = $(".stellar-status");
+  const show = $(".stellar-show");
+
+  const sections = [];
+  const bindings = [];
+
+  let activeHelp = null;
+  let pinnedHelp = null;
+  let destroyed = false;
+
+  const title = key =>
+    labels[key] ||
+    key.replace(/([A-Z])/g, " $1")
+       .replace(/^./, character => character.toUpperCase());
+
+  const exportCode = () =>
+    `const config = ${JSON.stringify(config, null, 2)};`;
+
+  const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+  const toHex = rgb =>
+    "#" + rgb.map(channel =>
+      clamp(Math.round(channel), 0, 255)
+        .toString(16)
+        .padStart(2, "0")
+    ).join("");
+
+  function element(tag, className = "") {
+    const node = document.createElement(tag);
+    node.className = className;
+    return node;
+  }
+
+  function saveSections() {
+    try {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify(
+          sections.filter(section => section.open)
+                  .map(section => section.dataset.group)
+        )
+      );
+    } catch (error) {
+      console.warn("Could not save editor sections:", error);
+    }
+  }
+
+  function hideHelp() {
+    activeHelp = null;
+    tooltip.hidden = true;
+
+    root.querySelectorAll(".stellar-inline-help").forEach(node => {
+      node.hidden = true;
+    });
+  }
+
+  function positionHelp(item) {
+    if (destroyed || !panel.classList.contains("open")) {
+      hideHelp();
+      return;
+    }
+
+    if (!item || !item.box.closest("details")?.open) {
+      hideHelp();
+      return;
+    }
+
+    activeHelp = item;
+
+    root.querySelectorAll(".stellar-inline-help").forEach(node => {
+      node.hidden = true;
+    });
+
+    const panelRect = panel.getBoundingClientRect();
+    const itemRect = item.box.getBoundingClientRect();
+
+    if (
+      itemRect.bottom < panelRect.top ||
+      itemRect.top > panelRect.bottom
+    ) {
+      tooltip.hidden = true;
+      return;
+    }
+
+    const gap = 14;
+    const availableWidth = panelRect.left - gap - 12;
+
+    if (availableWidth < 220) {
+      tooltip.hidden = true;
+      item.inline.hidden = false;
+      return;
+    }
+
+    tooltipTitle.textContent = item.name;
+    tooltipText.textContent = item.description;
+
+    tooltip.style.width = `${Math.min(280, availableWidth)}px`;
+    tooltip.hidden = false;
+
+    const tooltipRect = tooltip.getBoundingClientRect();
+
+    const top = itemRect.top +
+      itemRect.height / 2 -
+      tooltipRect.height / 2;
+
+    tooltip.style.left =
+      `${panelRect.left - tooltipRect.width - gap}px`;
+
+    tooltip.style.top =
+      `${clamp(top, 12, Math.max(12, innerHeight - tooltipRect.height - 12))}px`;
+  }
+
+  function addHelp(box, labelWrap, path, name) {
+    const description =
+      descriptions[path] ||
+      `Adjust ${name.toLowerCase()} for this scene.`;
+
+    const inline = element("div", "stellar-inline-help");
+    inline.textContent = description;
+    inline.hidden = true;
+
+    const helpButton = element("button", "stellar-help-button");
+    helpButton.type = "button";
+    helpButton.textContent = "?";
+    helpButton.setAttribute("aria-label", `Help for ${name}`);
+
+    labelWrap.append(helpButton);
+    box.append(inline);
+
+    const item = { box, inline, name, description };
+
+    box.addEventListener("pointerenter", event => {
+      if (event.pointerType !== "touch") positionHelp(item);
+    });
+
+    box.addEventListener("pointerleave", () => {
+      if (pinnedHelp !== item) hideHelp();
+    });
+
+    box.addEventListener("focusin", () => {
+      positionHelp(item);
+    });
+
+    box.addEventListener("focusout", event => {
+      if (!box.contains(event.relatedTarget) && pinnedHelp !== item) {
+        hideHelp();
+      }
+    });
+
+    helpButton.addEventListener("click", () => {
+      if (pinnedHelp === item) {
+        pinnedHelp = null;
+        hideHelp();
+      } else {
+        pinnedHelp = item;
+        positionHelp(item);
+      }
+    });
+
+    return item;
+  }
+
+  function changed() {
+    code.value = exportCode();
+    onChange();
+
+    if (!config.panel.enabled) {
+      open(false);
+      root.hidden = true;
+    }
+  }
+
+  function refreshControls() {
+    bindings.forEach(update => update());
+    code.value = exportCode();
+  }
+
+  function open(value) {
+    if (!value) {
+      pinnedHelp = null;
+      hideHelp();
+    }
+
+    panel.classList.toggle("open", value);
+    panel.inert = !value;
+
+    toggle.hidden = value;
+    toggle.setAttribute("aria-expanded", String(value));
+
+    if (value) {
+      close.focus();
+    } else {
+      toggle.focus();
+    }
+  }
+
+  function setSectionsOpen(value) {
+    hideHelp();
+    pinnedHelp = null;
+
+    sections.forEach(section => {
+      section.open = value;
+    });
+
+    saveSections();
+  }
+
+  for (const [groupName, group] of Object.entries(config)) {
+    const section = element("details", "stellar-section");
+    section.dataset.group = groupName;
+    section.open = savedOpen.includes(groupName);
+
+    const summary = element("summary", "stellar-summary");
+    summary.textContent = title(groupName);
+
+    const content = element("div", "stellar-section-content");
+
+    section.append(summary, content);
+    sections.push(section);
+
+    section.addEventListener("toggle", () => {
+      saveSections();
+      if (!section.open) hideHelp();
+    });
+
+    if (sectionDescriptions[groupName]) {
+      const description = element("p", "stellar-help");
+      description.textContent = sectionDescriptions[groupName];
+      content.append(description);
+    }
+
+    for (const [key, initialValue] of Object.entries(group)) {
+      const path = `${groupName}.${key}`;
+      const id = `stellar-${groupName}-${key}`;
+
+      const box = element("div", "stellar-control");
+      const row = element("div", "stellar-row");
+      const labelWrap = element("div", "stellar-label-wrap");
+      const label = element("label");
+
+      label.textContent = title(key);
+      label.htmlFor = id;
+
+      labelWrap.append(label);
+      row.append(labelWrap);
+      box.append(row);
+
+      addHelp(box, labelWrap, path, title(key));
+
+      if (typeof initialValue === "boolean") {
+        const input = element("input");
+        input.type = "checkbox";
+        input.id = id;
+        input.checked = initialValue;
+
+        input.addEventListener("change", () => {
+          group[key] = input.checked;
+          changed();
+        });
+
+        bindings.push(() => {
+          input.checked = group[key];
+        });
+
+        row.append(input);
+
+      } else if (Array.isArray(initialValue)) {
+        const colors = element("div", "stellar-colors");
+        const picker = element("input");
+
+        picker.id = id;
+        picker.type = "color";
+        picker.value = toHex(initialValue);
+
+        colors.append(picker);
+
+        const channels = initialValue.map((channel, index) => {
+          const input = element("input");
+
+          input.type = "number";
+          input.min = 0;
+          input.max = 255;
+          input.step = 1;
+          input.value = channel;
+
+          input.setAttribute(
+            "aria-label",
+            `${title(key)} ${["red", "green", "blue"][index]}`
+          );
+
+          input.addEventListener("input", () => {
+            if (input.value === "") return;
+
+            const value = Number(input.value);
+            if (!Number.isFinite(value)) return;
+
+            group[key][index] = clamp(Math.round(value), 0, 255);
+            picker.value = toHex(group[key]);
+            changed();
+          });
+
+          input.addEventListener("change", () => {
+            input.value = group[key][index];
+          });
+
+          colors.append(input);
+          return input;
+        });
+
+        picker.addEventListener("input", () => {
+          group[key] = [1, 3, 5].map(offset =>
+            parseInt(picker.value.slice(offset, offset + 2), 16)
+          );
+
+          channels.forEach((input, index) => {
+            input.value = group[key][index];
+          });
+
+          changed();
+        });
+
+        bindings.push(() => {
+          picker.value = toHex(group[key]);
+
+          channels.forEach((input, index) => {
+            input.value = group[key][index];
+          });
+        });
+
+        box.insertBefore(colors, box.lastElementChild);
+
+      } else if (typeof initialValue === "number") {
+        const [min, max, step] = limits[path] || [0, 100, 1];
+
+        const number = element("input");
+        const range = element("input");
+
+        number.id = id;
+        number.type = "number";
+        range.type = "range";
+
+        range.setAttribute("aria-label", title(key));
+
+        function normalize(raw) {
+          const bounded = clamp(raw, min, max);
+          const stepped = min + Math.round((bounded - min) / step) * step;
+
+          return Number(clamp(stepped, min, max).toFixed(6));
+        }
+
+        for (const input of [number, range]) {
+          input.min = min;
+          input.max = max;
+          input.step = step;
+          input.value = initialValue;
+
+          input.addEventListener("input", () => {
+            if (input.value === "") return;
+
+            const parsed = Number(input.value);
+            if (!Number.isFinite(parsed)) return;
+
+            group[key] = normalize(parsed);
+
+            number.value = group[key];
+            range.value = group[key];
+
+            changed();
+          });
+
+          input.addEventListener("change", () => {
+            input.value = group[key];
+          });
+        }
+
+        bindings.push(() => {
+          number.value = group[key];
+          range.value = group[key];
+        });
+
+        row.append(number);
+        box.insertBefore(range, box.lastElementChild);
+      }
+
+      content.append(box);
+    }
+
+    controls.append(section);
+  }
+
+  toggle.addEventListener("click", () => open(true));
+  close.addEventListener("click", () => open(false));
+
+  $(".stellar-expand").addEventListener("click", () => {
+    setSectionsOpen(true);
+  });
+
+  $(".stellar-collapse").addEventListener("click", () => {
+    setSectionsOpen(false);
+  });
+
+  show.addEventListener("click", () => {
+    code.hidden = !code.hidden;
+    code.value = exportCode();
+    show.textContent = code.hidden ? "Show code" : "Hide code";
+  });
+
+  $(".stellar-copy").addEventListener("click", async () => {
+    code.value = exportCode();
+
+    try {
+      await navigator.clipboard.writeText(code.value);
+      status.textContent = "Configuration copied.";
+    } catch {
+      code.hidden = false;
+      show.textContent = "Hide code";
+      code.focus();
+      code.select();
+      status.textContent = "Press Ctrl+C to copy the configuration.";
+    }
+  });
+
+  $(".stellar-next").addEventListener("click", () => {
+    onNextStar();
+    status.textContent = "Selected the next star.";
+  });
+
+  $(".stellar-rotation").addEventListener("click", () => {
+    onResetRotation();
+    status.textContent = "Camera rotation reset.";
+  });
+
+  $(".stellar-reset").addEventListener("click", () => {
+    onReset();
+    status.textContent = "New star field created.";
+  });
+
+  $(".stellar-nebula").addEventListener("click", () => {
+    onNebula();
+    status.textContent = "New nebulas generated.";
+  });
+
+  function onKeydown(event) {
+    if (event.key !== "Escape") return;
+
+    if (activeHelp) {
+      pinnedHelp = null;
+      hideHelp();
+    } else if (panel.classList.contains("open")) {
+      open(false);
+    }
+  }
+
+  function onOutsidePointer(event) {
+    if (
+      pinnedHelp &&
+      !pinnedHelp.box.contains(event.target) &&
+      !tooltip.contains(event.target)
+    ) {
+      pinnedHelp = null;
+      hideHelp();
+    }
+  }
+
+  function onPanelScroll() {
+    if (activeHelp) positionHelp(activeHelp);
+  }
+
+  function onResize() {
+    if (activeHelp) positionHelp(activeHelp);
+  }
+
+  document.addEventListener("keydown", onKeydown);
+  document.addEventListener("pointerdown", onOutsidePointer);
+  panel.addEventListener("scroll", onPanelScroll, { passive: true });
+  window.addEventListener("resize", onResize);
+
+  code.value = exportCode();
+
+  return {
+    refresh: refreshControls,
+
+    destroy() {
+      destroyed = true;
+
+      document.removeEventListener("keydown", onKeydown);
+      document.removeEventListener("pointerdown", onOutsidePointer);
+      panel.removeEventListener("scroll", onPanelScroll);
+      window.removeEventListener("resize", onResize);
+
+      root.remove();
+    }
+  };
+}
