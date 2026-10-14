@@ -172,12 +172,16 @@ const flightStatus = document.querySelector("#flight-status");
 const nebulaCanvas = document.createElement("canvas");
 const nebulaCtx = nebulaCanvas.getContext("2d");
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-
+const physicsStep = 1 / 60;
+const maximumPhysicsSteps = 6;
+  
 let width = 1;
 let height = 1;
 let stars = [];
 let rings = [];
 let previous = null;
+let physicsAccumulator = 0;
+
 let time = 0;
 let nextId = 1;
 let resetKey = "";
@@ -1220,7 +1224,7 @@ function draw() {
 function frame(timestamp) {
   const realDt = previous === null
     ? 0
-    : Math.min((timestamp - previous) / 1000, 0.05);
+    : Math.min((timestamp - previous) / 1000, 0.1);
 
   previous = timestamp;
 
@@ -1229,6 +1233,7 @@ function frame(timestamp) {
 
   mouse.x += (mouse.targetX - mouse.x) * response;
   mouse.y += (mouse.targetY - mouse.y) * response;
+
   mouse.influence +=
     ((mouse.active ? 1 : 0) - mouse.influence) * response;
 
@@ -1248,35 +1253,55 @@ function frame(timestamp) {
       reducedMotion.matches
     );
 
-  const dt = still
-    ? 0
-    : realDt * config.animation.speed;
+  if (still || config.animation.speed === 0) {
+    physicsAccumulator = 0;
+  } else {
+    physicsAccumulator = Math.min(
+      physicsAccumulator + realDt * config.animation.speed,
+      physicsStep * maximumPhysicsSteps
+    );
 
-  const count = Math.max(1, Math.ceil(dt / 0.02));
+    let completedSteps = 0;
 
-  for (let i = 0; i < count; i++) {
-    const step = dt / count;
-    time += step;
+    while (
+      physicsAccumulator >= physicsStep &&
+      completedSteps < maximumPhysicsSteps
+    ) {
+      time += physicsStep;
 
-    rotation.x =
-      (rotation.x + config.camera.rotationSpeedX * step) % 360;
-    rotation.y =
-      (rotation.y + config.camera.rotationSpeedY * step) % 360;
-    rotation.z =
-      (rotation.z + config.camera.rotationSpeedZ * step) % 360;
+      rotation.x =
+        (
+          rotation.x +
+          config.camera.rotationSpeedX * physicsStep
+        ) % 360;
 
-    view = makeView();
+      rotation.y =
+        (
+          rotation.y +
+          config.camera.rotationSpeedY * physicsStep
+        ) % 360;
 
-    if (step > 0) {
-      simulate(step);
+      rotation.z =
+        (
+          rotation.z +
+          config.camera.rotationSpeedZ * physicsStep
+        ) % 360;
 
-      // Apply camera smoothing once per simulation step.
-      if (config.flight.enabled) updateFlight(step);
+      view = makeView();
+      simulate(physicsStep);
+
+      if (config.flight.enabled) {
+        updateFlight(physicsStep);
+      }
+
+      physicsAccumulator -= physicsStep;
+      completedSteps++;
     }
   }
 
   view = makeView();
   draw();
+
   requestAnimationFrame(frame);
 }
 
