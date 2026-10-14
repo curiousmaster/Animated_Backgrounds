@@ -1324,7 +1324,7 @@ reset();
 requestAnimationFrame(frame);
 
 if (config.panel.enabled) {
-  import("./settings-editor.js")
+  import(`./settings-editor.js?v=${Date.now()}`)
     .then(({ createSettingsEditor }) => {
       createSettingsEditor({
         config,
