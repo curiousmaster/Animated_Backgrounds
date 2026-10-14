@@ -303,4 +303,11 @@ export const backgrounds = [
 			"Wandering points weave translucent connections into glowing ribbons. " +
 			"Move your pointer to bend their paths; click or tap to start a new composition.",
 	},
+    {
+        name: "Stellar Bloom",
+		folder: "stellar-bloom",
+		description:
+			"Drifting stars gather under gravity and merge into glowing giants. " +
+			"Occasional explosions scatter them into new stars against colorful nebulas.",
+	},
 ];

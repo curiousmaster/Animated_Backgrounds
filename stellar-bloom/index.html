@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stellar Bloom</title>
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #040711;
+  }
+  canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+
+<script type="module">
+const config = {
+  stars: {
+    count: 180,
+    initialSpeed: 13,
+    radius: 5.3,
+    maxCount: 450,
+    opacity: 0.9,
+    trails: 0.16
+  },
+
+  gravity: {
+    strength: 240,
+    range: 280,
+    softening: 22,
+    maxSpeed: 110,
+    mergeDistance: 1.25
+  },
+
+  explosions: {
+    enabled: true,
+    glowMass: 5,
+    criticalMass: 16,
+    delay: 12,
+    delayVariation: 8,
+    fragments: 14,
+    speed: 65,
+    cooldown: 5,
+    shockwaveStrength: 20
+  },
+
+  space: {
+    threeD: false,
+    sphereBoundary: true,
+    radius: 650,
+    boundaryBounce: 0.85
+  },
+
+  camera: {
+    distance: 1700,
+    zoom: 1,
+    rotationX: 12,
+    rotationY: -15,
+    rotationZ: 0,
+    showBoundary: false
+  },
+
+  mouse: {
+    enabled: true,
+    radius: 220,
+    strength: 45,
+    holdMultiplier: 2.5,
+    shockwave: 70,
+    smoothing: 7
+  },
+
+  nebula: {
+    enabled: true,
+    clouds: 7,
+    opacity: 0.23,
+    size: 0.5,
+    colorA: [55, 83, 170],
+    colorB: [150, 49, 143],
+    colorC: [32, 135, 133]
+  },
+
+  appearance: {
+    backgroundColor: [4, 7, 17],
+    starColor: [173, 201, 255],
+    giantColor: [255, 192, 112],
+    hotColor: [255, 241, 216],
+    glow: 14
+  },
+
+  animation: {
+    speed: 1,
+    paused: false,
+    respectReducedMotion: true
+  },
+
+  panel: {
+    enabled: true
+  }
+};
+
+window.getBackgroundConfig = () =>
+  JSON.parse(JSON.stringify(config));
+
+const canvas = document.querySelector("#background");
+const ctx = canvas.getContext("2d");
+const nebulaCanvas = document.createElement("canvas");
+const nebulaCtx = nebulaCanvas.getContext("2d");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+let width = 1;
+let height = 1;
+let stars = [];
+let rings = [];
+let previous = null;
+let time = 0;
+let resetKey = "";
+let nebulaKey = "";
+let nebulaSeed = 89173;
+let view;
+
+const mouse = {
+  x: 0, y: 0,
+  targetX: 0, targetY: 0,
+  active: false, held: false,
+  influence: 0
+};
+
+const random = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const radians = value => value * Math.PI / 180;
+const rgba = (c, a = 1) => `rgba(${c.join(",")},${clamp(a, 0, 1)})`;
+const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+
+function direction() {
+  if (!config.space.threeD) {
+    const angle = random(0, Math.PI * 2);
+    return { x: Math.cos(angle), y: Math.sin(angle), z: 0 };
+  }
+  const z = random(-1, 1);
+  const angle = random(0, Math.PI * 2);
+  const r = Math.sqrt(1 - z * z);
+  return { x: r * Math.cos(angle), y: r * Math.sin(angle), z };
+}
+
+function starRadius(mass) {
+  return config.stars.radius * Math.cbrt(mass);
+}
+
+function makeStar(position, mass = 1) {
+  const d = direction();
+  return {
+    ...position,
+    mass,
+    vx: d.x * config.stars.initialSpeed,
+    vy: d.y * config.stars.initialSpeed,
+    vz: d.z * config.stars.initialSpeed,
+    cooldown: 0,
+    criticalAge: 0,
+    wait: config.explosions.delay +
+      random(0, config.explosions.delayVariation),
+    phase: random(0, Math.PI * 2)
+  };
+}
+
+function sceneKey() {
+  return JSON.stringify([
+    config.stars.count,
+    config.space.threeD,
+    config.space.sphereBoundary,
+    config.space.radius
+  ]);
+}
+
+function reset() {
+  stars = [];
+  rings = [];
+  const radius = config.space.radius * 0.9;
+
+  for (let i = 0; i < Math.round(config.stars.count); i++) {
+    let position;
+
+    if (config.space.sphereBoundary) {
+      const d = direction();
+      const r = radius * Math.pow(
+        Math.random(),
+        config.space.threeD ? 1 / 3 : 1 / 2
+      );
+      position = { x: d.x * r, y: d.y * r, z: d.z * r };
+    } else {
+      position = {
+        x: random(-radius, radius),
+        y: random(-radius, radius),
+        z: config.space.threeD ? random(-radius, radius) : 0
+      };
+    }
+
+    stars.push(makeStar(position, random(0.7, 1.3)));
+  }
+
+  resetKey = sceneKey();
+}
+
+function seededRandom() {
+  let seed = nebulaSeed >>> 0;
+  return () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+}
+
+function buildNebula() {
+  nebulaCanvas.width = Math.ceil(width / 2);
+  nebulaCanvas.height = Math.ceil(height / 2);
+  const w = nebulaCanvas.width;
+  const h = nebulaCanvas.height;
+
+  nebulaCtx.clearRect(0, 0, w, h);
+  const rand = seededRandom();
+  const palette = [
+    config.nebula.colorA,
+    config.nebula.colorB,
+    config.nebula.colorC
+  ];
+
+  nebulaCtx.globalCompositeOperation = "screen";
+
+  for (let cloud = 0; cloud < config.nebula.clouds; cloud++) {
+    const cx = rand() * w;
+    const cy = rand() * h;
+    const radius = Math.max(w, h) * config.nebula.size *
+      (0.45 + rand() * 0.55);
+    const color = palette[cloud % palette.length];
+
+    for (let puff = 0; puff < 14; puff++) {
+      const angle = rand() * Math.PI * 2;
+      const offset = rand() * radius * 0.7;
+      const x = cx + Math.cos(angle) * offset;
+      const y = cy + Math.sin(angle) * offset * 0.45;
+      const r = radius * (0.12 + rand() * 0.3);
+
+      const gradient = nebulaCtx.createRadialGradient(x, y, 0, x, y, r);
+      gradient.addColorStop(0, rgba(color, 0.15));
+      gradient.addColorStop(0.45, rgba(color, 0.06));
+      gradient.addColorStop(1, rgba(color, 0));
+
+      nebulaCtx.fillStyle = gradient;
+      nebulaCtx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  }
+
+  nebulaCtx.globalCompositeOperation = "source-over";
+  nebulaKey = JSON.stringify([width, height, config.nebula]);
+}
+
+function refresh() {
+  if (sceneKey() !== resetKey) reset();
+
+  const limit = Math.round(config.stars.maxCount);
+
+  // Preserve total mass when lowering the population limit.
+  while (stars.length > limit) {
+    const removed = stars.pop();
+    const target = stars[0];
+    const total = target.mass + removed.mass;
+    target.vx = (target.vx * target.mass + removed.vx * removed.mass) / total;
+    target.vy = (target.vy * target.mass + removed.vy * removed.mass) / total;
+    target.vz = (target.vz * target.mass + removed.vz * removed.mass) / total;
+    target.mass = total;
+  }
+
+  if (JSON.stringify([width, height, config.nebula]) !== nebulaKey) {
+    buildNebula();
+  }
+}
+
+function resize() {
+  width = innerWidth;
+  height = innerHeight;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  buildNebula();
+}
+
+function makeView() {
+  const rx = radians(config.camera.rotationX);
+  const ry = radians(config.camera.rotationY);
+  const rz = radians(config.camera.rotationZ);
+
+  return {
+    cx: Math.cos(rx), sx: Math.sin(rx),
+    cy: Math.cos(ry), sy: Math.sin(ry),
+    cz: Math.cos(rz), sz: Math.sin(rz),
+    fit: Math.min(width, height) /
+      (config.space.radius * 2.2) * config.camera.zoom
+  };
+}
+
+function project(point) {
+  let x = point.x;
+  let y = point.y;
+  let z = point.z;
+
+  let ny = y * view.cx - z * view.sx;
+  let nz = y * view.sx + z * view.cx;
+  y = ny;
+  z = nz;
+
+  const nx = x * view.cy + z * view.sy;
+  nz = -x * view.sy + z * view.cy;
+  x = nx;
+  z = nz;
+
+  const distance = config.camera.distance - z;
+  if (distance < 60) return null;
+
+  const scale = view.fit * config.camera.distance / distance;
+  return {
+    x: width / 2 + (x * view.cz - y * view.sz) * scale,
+    y: height / 2 + (x * view.sz + y * view.cz) * scale,
+    scale,
+    distance
+  };
+}
+
+// A screen-space force is transformed back into simulation coordinates.
+function screenForce(x, y) {
+  let fx = (x * view.cz + y * view.sz) / view.fit;
+  let fy = (-x * view.sz + y * view.cz) / view.fit;
+
+  const nx = fx * view.cy;
+  let fz = fx * view.sy;
+  fx = nx;
+
+  const ny = fy * view.cx + fz * view.sx;
+  fz = -fy * view.sx + fz * view.cx;
+  fy = ny;
+
+  return { x: fx, y: fy, z: config.space.threeD ? fz : 0 };
+}
+
+function confine(star) {
+  const radius = Math.max(10, config.space.radius - starRadius(star.mass));
+
+  if (config.space.sphereBoundary) {
+    const distance = Math.hypot(star.x, star.y, star.z);
+    if (distance <= radius) return;
+
+    const nx = star.x / distance;
+    const ny = star.y / distance;
+    const nz = star.z / distance;
+
+    star.x = nx * radius;
+    star.y = ny * radius;
+    star.z = nz * radius;
+
+    const outward = star.vx * nx + star.vy * ny + star.vz * nz;
+
+    if (outward > 0) {
+      const impulse = outward * (1 + config.space.boundaryBounce);
+      star.vx -= nx * impulse;
+      star.vy -= ny * impulse;
+      star.vz -= nz * impulse;
+    }
+  } else {
+    for (const axis of ["x", "y", "z"]) {
+      if (axis === "z" && !config.space.threeD) continue;
+      if (star[axis] > radius) star[axis] -= radius * 2;
+      if (star[axis] < -radius) star[axis] += radius * 2;
+    }
+  }
+}
+
+function merge(a, b) {
+  const total = a.mass + b.mass;
+  for (const axis of ["x", "y", "z", "vx", "vy", "vz"]) {
+    a[axis] = (a[axis] * a.mass + b[axis] * b.mass) / total;
+  }
+  a.mass = total;
+  a.criticalAge = Math.max(a.criticalAge, b.criticalAge);
+  a.wait = Math.max(a.wait, b.wait);
+}
+
+function explode(star, available) {
+  const count = Math.min(
+    Math.round(config.explosions.fragments),
+    available
+  );
+
+  if (count < 2) return null;
+
+  const directions = Array.from({ length: count }, direction);
+  const mean = directions.reduce(
+    (sum, d) => ({
+      x: sum.x + d.x / count,
+      y: sum.y + d.y / count,
+      z: sum.z + d.z / count
+    }),
+    { x: 0, y: 0, z: 0 }
+  );
+
+  const radius = starRadius(star.mass) * 2 + 8;
+  const fragments = directions.map(d => {
+    const fragment = makeStar({
+      x: star.x + d.x * radius,
+      y: star.y + d.y * radius,
+      z: star.z + d.z * radius
+    }, star.mass / count);
+
+    // Subtract mean ejection velocity to conserve explosion momentum.
+    fragment.vx = star.vx + (d.x - mean.x) * config.explosions.speed;
+    fragment.vy = star.vy + (d.y - mean.y) * config.explosions.speed;
+    fragment.vz = star.vz + (d.z - mean.z) * config.explosions.speed;
+    fragment.cooldown = config.explosions.cooldown;
+    confine(fragment);
+    return fragment;
+  });
+
+  rings.push({
+    x: star.x, y: star.y, z: star.z,
+    age: 0, type: "explosion"
+  });
+  if (rings.length > 25) rings.shift();
+
+  return fragments;
+}
+
+function simulate(dt) {
+  const dead = new Set();
+  const rangeSquared = config.gravity.range ** 2;
+  const softened = config.gravity.softening ** 2;
+
+  // Pairwise forces are symmetric and use real 2D/3D distances.
+  for (let i = 0; i < stars.length; i++) {
+    if (dead.has(i)) continue;
+    const a = stars[i];
+
+    for (let j = i + 1; j < stars.length; j++) {
+      if (dead.has(j)) continue;
+      const b = stars[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dz = b.z - a.z;
+      const squared = dx * dx + dy * dy + dz * dz;
+
+      const mergeRadius =
+        (starRadius(a.mass) + starRadius(b.mass)) *
+        config.gravity.mergeDistance;
+
+      if (
+        a.cooldown <= 0 && b.cooldown <= 0 &&
+        squared < mergeRadius * mergeRadius
+      ) {
+        merge(a, b);
+        dead.add(j);
+        continue;
+      }
+
+      if (squared > rangeSquared) continue;
+
+      const force = config.gravity.strength /
+        Math.pow(squared + softened, 1.5);
+
+      a.vx += dx * force * b.mass * dt;
+      a.vy += dy * force * b.mass * dt;
+      a.vz += dz * force * b.mass * dt;
+
+      b.vx -= dx * force * a.mass * dt;
+      b.vy -= dy * force * a.mass * dt;
+      b.vz -= dz * force * a.mass * dt;
+    }
+  }
+
+  stars = stars.filter((_, index) => !dead.has(index));
+
+  for (const ring of rings) ring.age += dt;
+  rings = rings.filter(ring => ring.age < 3);
+
+  for (const star of stars) {
+    star.cooldown = Math.max(0, star.cooldown - dt);
+    const screen = project(star);
+
+    if (screen && config.mouse.enabled) {
+      const dx = mouse.x - screen.x;
+      const dy = mouse.y - screen.y;
+      const distance = Math.hypot(dx, dy);
+      const proximity = clamp(1 - distance / config.mouse.radius, 0, 1);
+      const strength = proximity * proximity * mouse.influence *
+        config.mouse.strength *
+        (mouse.held ? config.mouse.holdMultiplier : 1);
+
+      const denominator = Math.max(distance, 20);
+      const force = screenForce(
+        dx / denominator * strength,
+        dy / denominator * strength
+      );
+
+      star.vx += force.x * dt;
+      star.vy += force.y * dt;
+      star.vz += force.z * dt;
+    }
+
+    for (const ring of rings) {
+      let dx, dy, dz, distance, force;
+
+      if (ring.type === "pointer") {
+        if (!screen) continue;
+        dx = screen.x - ring.x;
+        dy = screen.y - ring.y;
+        distance = Math.hypot(dx, dy);
+
+        const wave = Math.exp(
+		  -Math.pow((distance - ring.age * 220) / 65, 2)
+		) * Math.max(0, 1 - ring.age / 3);
+
+        force = screenForce(
+          dx / Math.max(10, distance) * config.mouse.shockwave * wave,
+          dy / Math.max(10, distance) * config.mouse.shockwave * wave
+        );
+      } else {
+        dx = star.x - ring.x;
+        dy = star.y - ring.y;
+        dz = star.z - ring.z;
+        distance = Math.hypot(dx, dy, dz);
+        const wave = Math.exp(
+		  -Math.pow((distance - ring.age * 170) / 55, 2)
+		) * Math.max(0, 1 - ring.age / 3);
+
+        const strength = config.explosions.shockwaveStrength * wave /
+          Math.max(10, distance);
+        force = { x: dx * strength, y: dy * strength, z: dz * strength };
+      }
+
+      star.vx += force.x * dt;
+      star.vy += force.y * dt;
+      star.vz += force.z * dt;
+    }
+
+    const speed = Math.hypot(star.vx, star.vy, star.vz);
+    if (speed > config.gravity.maxSpeed) {
+      const factor = config.gravity.maxSpeed / speed;
+      star.vx *= factor;
+      star.vy *= factor;
+      star.vz *= factor;
+    }
+
+    star.x += star.vx * dt;
+    star.y += star.vy * dt;
+    star.z += star.vz * dt;
+    confine(star);
+
+    if (star.mass >= config.explosions.criticalMass) {
+      star.criticalAge += dt;
+    } else {
+      star.criticalAge = 0;
+    }
+  }
+
+  // Bound population while conserving mass. If full, a giant waits.
+  const original = stars;
+  const next = [];
+  let population = original.length;
+
+  for (const star of original) {
+    if (
+      config.explosions.enabled &&
+      star.mass >= config.explosions.criticalMass &&
+      star.cooldown <= 0 &&
+      star.criticalAge >= star.wait
+    ) {
+      const available = Math.round(config.stars.maxCount) - population + 1;
+      const fragments = explode(star, available);
+
+      if (fragments) {
+        next.push(...fragments);
+        population += fragments.length - 1;
+        continue;
+      }
+    }
+    next.push(star);
+  }
+  stars = next;
+}
+
+function draw() {
+  // Nebulas are cached artwork; they do not move or affect physics.
+  ctx.fillStyle = rgba(config.appearance.backgroundColor);
+  ctx.fillRect(0, 0, width, height);
+
+  if (config.nebula.enabled) {
+    ctx.save();
+    ctx.globalAlpha = config.nebula.opacity;
+    ctx.drawImage(nebulaCanvas, 0, 0, width, height);
+    ctx.restore();
+  }
+
+  if (config.camera.showBoundary && config.space.sphereBoundary) {
+    ctx.strokeStyle = "rgba(160,190,240,.12)";
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    const sphereRadius = config.space.radius;
+    const distance = config.camera.distance;
+    const projectedRadius = distance > sphereRadius
+      ? view.fit * sphereRadius * distance /
+        Math.sqrt(distance * distance - sphereRadius * sphereRadius)
+      : view.fit * sphereRadius;
+    ctx.arc(width / 2, height / 2, projectedRadius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  const projected = stars.map(star => ({
+    star,
+    screen: project(star)
+  })).filter(item => item.screen);
+
+  projected.sort((a, b) => b.screen.distance - a.screen.distance);
+
+  for (const { star, screen } of projected) {
+    const glowing = clamp(
+      (star.mass - config.explosions.glowMass) /
+      Math.max(1, config.explosions.criticalMass - config.explosions.glowMass),
+      0, 1
+    );
+    const color = mix(
+      mix(config.appearance.starColor, config.appearance.giantColor, glowing),
+      config.appearance.hotColor,
+      clamp(star.criticalAge / Math.max(1, star.wait), 0, 1)
+    );
+
+    const radius = Math.max(0.45, starRadius(star.mass) * screen.scale);
+    const depthAlpha = clamp(
+      config.camera.distance / screen.distance,
+      0.25, 1
+    );
+
+    const instability = star.criticalAge > 0
+      ? 1 + Math.sin(time * 5 + star.phase) * 0.12
+      : 1;
+
+    const halo = radius * 3 + config.appearance.glow *
+      screen.scale * (0.2 + glowing);
+
+    const gradient = ctx.createRadialGradient(
+      screen.x, screen.y, 0,
+      screen.x, screen.y, halo
+    );
+    gradient.addColorStop(0, rgba(color, (0.2 + glowing * 0.35) * depthAlpha));
+    gradient.addColorStop(1, rgba(color, 0));
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(screen.x - halo, screen.y - halo, halo * 2, halo * 2);
+
+    if (config.stars.trails > 0) {
+      const tail = project({
+        x: star.x - star.vx * config.stars.trails,
+        y: star.y - star.vy * config.stars.trails,
+        z: star.z - star.vz * config.stars.trails
+      });
+      if (tail && Math.hypot(screen.x - tail.x, screen.y - tail.y) > 0.1) {
+        const trail = ctx.createLinearGradient(tail.x, tail.y, screen.x, screen.y);
+        trail.addColorStop(0, rgba(color, 0));
+        trail.addColorStop(1, rgba(color, 0.4 * depthAlpha));
+        ctx.strokeStyle = trail;
+        ctx.lineWidth = Math.max(0.5, radius * 0.5);
+        ctx.beginPath();
+        ctx.moveTo(tail.x, tail.y);
+        ctx.lineTo(screen.x, screen.y);
+        ctx.stroke();
+      }
+    }
+
+    ctx.fillStyle = rgba(color, config.stars.opacity * depthAlpha);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, radius * instability, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  for (const ring of rings) {
+    const screen = ring.type === "pointer" ? ring : project(ring);
+    if (!screen) continue;
+    const radius = ring.age *
+      (ring.type === "pointer" ? 220 : 170 * screen.scale);
+    ctx.strokeStyle = rgba(config.appearance.hotColor, (1 - ring.age / 3) * 0.2);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function frame(timestamp) {
+  const realDt = previous === null
+    ? 0 : Math.min((timestamp - previous) / 1000, 0.05);
+  previous = timestamp;
+  const response = 1 - Math.exp(-config.mouse.smoothing * realDt);
+
+  mouse.x += (mouse.targetX - mouse.x) * response;
+  mouse.y += (mouse.targetY - mouse.y) * response;
+  mouse.influence += ((mouse.active ? 1 : 0) - mouse.influence) * response;
+
+  view = makeView();
+
+  const still = config.animation.paused ||
+    (config.animation.respectReducedMotion && reducedMotion.matches);
+  const dt = still ? 0 : realDt * config.animation.speed;
+  const count = Math.max(1, Math.ceil(dt / 0.02));
+
+  for (let i = 0; i < count; i++) {
+    const step = dt / count;
+    time += step;
+    if (step > 0) simulate(step);
+  }
+
+  draw();
+  requestAnimationFrame(frame);
+}
+
+function pointer(event) {
+  if (event.target.closest?.("[data-background-editor]")) {
+    mouse.active = false;
+    mouse.held = false;
+    return false;
+  }
+  if (!mouse.active) {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+  }
+  mouse.targetX = event.clientX;
+  mouse.targetY = event.clientY;
+  mouse.active = true;
+  return true;
+}
+
+function leave() {
+  mouse.active = false;
+  mouse.held = false;
+}
+
+addEventListener("pointermove", pointer);
+addEventListener("pointerdown", event => {
+  if (!pointer(event) || !config.mouse.enabled) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  mouse.held = true;
+  rings.push({
+    x: event.clientX, y: event.clientY,
+    age: 0, type: "pointer"
+  });
+  if (rings.length > 25) rings.shift();
+});
+addEventListener("pointerup", event => {
+  mouse.held = false;
+  if (event.pointerType !== "mouse") mouse.active = false;
+});
+addEventListener("pointercancel", leave);
+addEventListener("blur", leave);
+document.documentElement.addEventListener("pointerleave", leave);
+document.addEventListener("visibilitychange", () => {
+  previous = null;
+  leave();
+});
+addEventListener("resize", resize);
+
+resize();
+reset();
+requestAnimationFrame(frame);
+
+if (config.panel.enabled) {
+  import("./settings-editor.js")
+    .then(({ createSettingsEditor }) => {
+      createSettingsEditor({
+        config,
+        onChange: refresh,
+        onReset: reset,
+        onNebula: () => {
+          nebulaSeed = Math.floor(Math.random() * 0xffffffff);
+          buildNebula();
+        }
+      });
+    })
+    .catch(error => console.error("Editor could not load:", error));
+}
+</script>
+</body>
+</html>
