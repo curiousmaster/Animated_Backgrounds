@@ -1,0 +1,1776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stellar Bloom</title>
+
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #040711;
+  }
+
+  #background {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  #flight-status {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    max-width: calc(100% - 32px);
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(4, 7, 17, 0.45);
+    color: #bbcce5;
+    font: 12px/1.5 system-ui, sans-serif;
+    pointer-events: none;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+/* Collapsible settings editor and hover help */
+
+    .stellar-editor {
+      position:fixed; inset:0; z-index:10000; pointer-events:none;
+      color:#e6eaf5; font:13px/1.5 system-ui,sans-serif;
+      color-scheme:dark;
+    }
+
+    .stellar-editor * { box-sizing:border-box; }
+
+    .stellar-editor button,
+    .stellar-editor input,
+    .stellar-editor textarea { font:inherit; }
+
+    .stellar-editor button {
+      min-height:44px; padding:8px 11px;
+      border:1px solid #ffffff26; border-radius:7px;
+      background:#293047; color:inherit; cursor:pointer;
+      touch-action:manipulation;
+    }
+
+    .stellar-editor button:hover { background:#3b4560; }
+
+    .stellar-editor :focus-visible {
+      outline:2px solid #b6c9ee; outline-offset:3px;
+    }
+
+    .stellar-toggle {
+      position:absolute;
+      top:max(16px,env(safe-area-inset-top));
+      right:max(16px,env(safe-area-inset-right));
+      pointer-events:auto;
+    }
+
+    .stellar-panel {
+      position:absolute; top:0; right:0;
+      width:min(370px,100vw); height:100%; padding:22px;
+      padding-top:max(22px,env(safe-area-inset-top));
+      padding-bottom:max(22px,env(safe-area-inset-bottom));
+      overflow:auto; overscroll-behavior:contain;
+      border-left:1px solid #ffffff20;
+      background:rgba(10,14,28,.95); backdrop-filter:blur(16px);
+      pointer-events:auto; transform:translateX(100%);
+      transition:transform 220ms ease;
+      scrollbar-width:thin; scrollbar-color:#ffffff30 transparent;
+    }
+
+    .stellar-panel.open { transform:translateX(0); }
+
+    .stellar-heading {
+      display:flex; align-items:center;
+      justify-content:space-between; gap:12px;
+    }
+
+    .stellar-heading h2 { margin:0; font-size:18px; }
+
+    .stellar-help,.stellar-status {
+      color:#acb8ce; font-size:12px; line-height:1.65;
+    }
+
+    .stellar-help { margin:0 0 14px; }
+    .stellar-introduction { margin:12px 0 16px; }
+
+    .stellar-section-actions {
+      display:flex; gap:8px; margin-bottom:14px;
+    }
+
+    .stellar-section-actions button {
+      flex:1; font-size:12px; background:#ffffff06;
+    }
+
+    .stellar-section {
+      margin-top:12px; border:1px solid #ffffff18;
+      border-radius:9px; background:#ffffff03;
+    }
+
+    .stellar-summary {
+      display:flex; align-items:center;
+      justify-content:space-between; gap:12px;
+      min-height:46px; padding:11px 13px;
+      color:#bdceeb; font-weight:600; cursor:pointer;
+      list-style:none; user-select:none;
+      touch-action:manipulation; border-radius:9px;
+    }
+
+    .stellar-summary::-webkit-details-marker { display:none; }
+
+    .stellar-summary::after {
+      content:"+"; color:#92a9cb; font-size:18px; font-weight:400;
+    }
+
+    .stellar-section[open] > .stellar-summary::after { content:"−"; }
+    .stellar-summary:hover { background:#ffffff06; }
+
+    .stellar-section[open] > .stellar-summary {
+      border-bottom:1px solid #ffffff12;
+      border-bottom-left-radius:0;
+      border-bottom-right-radius:0;
+    }
+
+    .stellar-section-content { padding:12px 13px 2px; }
+
+    .stellar-control {
+      margin:0 -5px 9px; padding:5px;
+      border-radius:6px;
+    }
+
+    .stellar-control:hover,
+    .stellar-control:focus-within {
+      background:#ffffff05;
+    }
+
+    .stellar-row {
+      display:flex; align-items:center;
+      justify-content:space-between; gap:8px; margin-bottom:5px;
+    }
+
+    .stellar-label-wrap {
+      display:flex; align-items:center; gap:6px;
+      flex:1; min-width:0;
+    }
+
+    .stellar-label-wrap label { min-width:0; }
+
+    .stellar-editor .stellar-help-button {
+      min-height:28px; height:28px; width:28px;
+      flex:0 0 28px; padding:0;
+      border:1px solid #ffffff20; border-radius:50%;
+      background:transparent; color:#9eb8dc;
+      font-size:12px; line-height:1;
+    }
+
+    .stellar-help-button[aria-expanded="true"] {
+      background:#a9bfe320;
+      border-color:#a9bfe360;
+    }
+
+    .stellar-panel input[type=range] {
+      width:100%; accent-color:#a9bfe3;
+    }
+
+    .stellar-panel input[type=number] {
+      width:78px; padding:5px; color:inherit;
+      background:#ffffff08; border:1px solid #ffffff24;
+      border-radius:5px;
+    }
+
+    .stellar-row input[type=number] { flex:0 0 78px; }
+
+    .stellar-panel input[type=checkbox] {
+      width:18px; height:18px; accent-color:#a9bfe3;
+      flex-shrink:0;
+    }
+
+    .stellar-colors { display:flex; gap:6px; align-items:center; }
+
+    .stellar-panel input[type=color] {
+      width:38px; height:32px; padding:2px;
+      background:transparent; border:1px solid #ffffff24;
+      border-radius:5px; flex-shrink:0;
+    }
+
+    .stellar-colors input[type=number] {
+      width:0; min-width:0; flex:1;
+    }
+
+    .stellar-actions {
+      display:flex; flex-wrap:wrap; gap:8px; margin-top:18px;
+    }
+
+    .stellar-code {
+      width:100%; min-height:260px; margin-top:14px; padding:12px;
+      background:#050a15; color:#cddbf0;
+      border:1px solid #ffffff24; border-radius:7px;
+      resize:vertical;
+      font:11px/1.6 ui-monospace,monospace !important;
+    }
+
+    .stellar-status { min-height:20px; margin-bottom:0; }
+
+    /* Outside the scrollable pane so the popup cannot be clipped. */
+    .stellar-tooltip {
+      position:fixed; z-index:2;
+      width:280px; max-height:calc(100dvh - 24px);
+      padding:16px 18px; overflow:auto;
+      border:1px solid #a9bfe340; border-radius:12px;
+      background:rgba(9,15,30,.97);
+      box-shadow:0 12px 40px #00000050;
+      color:#d0dded; font-size:13px; line-height:1.7;
+      pointer-events:auto;
+    }
+
+    .stellar-tooltip strong {
+      display:block; margin-bottom:7px;
+      color:#eff4fc; font-size:14px;
+    }
+
+    .stellar-tooltip p { margin:0; }
+
+    .stellar-inline-help {
+      margin-top:8px; padding:10px 12px;
+      border-left:2px solid #91afd5;
+      border-radius:0 6px 6px 0;
+      background:#a9bfe30b; color:#c2d0e4;
+      font-size:12px; line-height:1.65;
+    }
+
+    .stellar-editor [hidden] { display:none !important; }
+
+    @media(prefers-reduced-motion:reduce) {
+      .stellar-panel { transition:none; }
+    }
+  
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+<div id="flight-status" hidden></div>
+
+<script type="module">
+const config = {
+  "stars": {
+    "count": 700,
+    "initialSpeed": 13,
+    "radius": 1.9,
+    "maxCount": 450,
+    "opacity": 0.97,
+    "trails": 1,
+    "sizeSlowdown": 0
+  },
+  "gravity": {
+    "strength": 830,
+    "range": 230,
+    "softening": 66,
+    "maxSpeed": 88,
+    "mergeDistance": 1.15
+  },
+  "explosions": {
+    "enabled": true,
+    "glowMass": 10,
+    "criticalMass": 22,
+    "delay": 12,
+    "delayVariation": 15,
+    "fragments": 30,
+    "speed": 132,
+    "cooldown": 15,
+    "shockwaveStrength": 100
+  },
+  "space": {
+    "threeD": true,
+    "sphereBoundary": true,
+    "radius": 1200,
+    "boundaryBounce": 0.45
+  },
+  "camera": {
+    "distance": 1300,
+    "zoom": 1.55,
+    "rotationX": 9,
+    "rotationY": 1,
+    "rotationZ": 1,
+    "rotationSpeedX": 0,
+    "rotationSpeedY": 0.6,
+    "rotationSpeedZ": 0,
+    "showBoundary": false
+  },
+  "flight": {
+    "enabled": false,
+    "followDistance": 0,
+    "heightOffset": 0,
+    "fieldOfView": 75,
+    "positionSmoothing": 12,
+    "directionSmoothing": 5,
+    "nearClip": 2,
+    "showStatus": true
+  },
+  "mouse": {
+    "enabled": false,
+    "radius": 220,
+    "strength": 45,
+    "holdMultiplier": 2.5,
+    "shockwave": 70,
+    "smoothing": 7
+  },
+  "nebula": {
+    "enabled": true,
+    "clouds": 10,
+    "opacity": 0.54,
+    "size": 0.15,
+    "colorA": [
+      55,
+      83,
+      170
+    ],
+    "colorB": [
+      150,
+      49,
+      143
+    ],
+    "colorC": [
+      32,
+      135,
+      133
+    ]
+  },
+  "cinematic": {
+    "enabled": true,
+    "bloomStrength": 1.35,
+    "bloomRadius": 5,
+    "bloomThreshold": 0.18,
+    "exposure": 1.15,
+    "vignette": 0.24,
+    "twinkle": 0.18
+  },
+  "appearance": {
+    "backgroundColor": [
+      4,
+      7,
+      17
+    ],
+    "starColor": [
+      173,
+      201,
+      255
+    ],
+    "giantColor": [
+      255,
+      192,
+      112
+    ],
+    "hotColor": [
+      255,
+      241,
+      216
+    ],
+    "glow": 14
+  },
+  "animation": {
+    "speed": 2,
+    "paused": false,
+    "respectReducedMotion": true
+  },
+  "panel": {
+    "enabled": true
+  }
+};
+
+window.getBackgroundConfig = () =>
+  JSON.parse(JSON.stringify(config));
+
+const canvas = document.querySelector("#background");
+const gl = canvas.getContext("webgl2", {
+  alpha: false, antialias: true, depth: false, stencil: false,
+  powerPreference: "high-performance"
+});
+if (!gl) {
+  document.body.insertAdjacentHTML("beforeend", "<p style='position:fixed;top:40%;width:100%;text-align:center;color:white'>WebGL2 is required.</p>");
+  throw new Error("WebGL2 is not supported in this browser");
+}
+const flightStatus = document.querySelector("#flight-status");
+const nebulaCanvas = document.createElement("canvas");
+const nebulaCtx = nebulaCanvas.getContext("2d");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const physicsStep = 1 / 60;
+const maximumPhysicsSteps = 6;
+
+let width = 1;
+let height = 1;
+let stars = [];
+let rings = [];
+let previous = null;
+let physicsAccumulator = 0;
+
+let time = 0;
+let nextId = 1;
+let resetKey = "";
+let nebulaKey = "";
+let nebulaSeed = 89173;
+let view;
+let followedStar = null;
+let flightWasEnabled = false;
+
+const rotation = { x: 0, y: 0, z: 0 };
+
+const flightState = {
+  initialized: false,
+  position: { x: 0, y: 0, z: 0 },
+  forward: { x: 0, y: 0, z: -1 },
+  up: { x: 0, y: 1, z: 0 }
+};
+
+const mouse = {
+  x: 0,
+  y: 0,
+  targetX: 0,
+  targetY: 0,
+  active: false,
+  held: false,
+  influence: 0
+};
+
+const random = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const radians = value => value * Math.PI / 180;
+
+const rgba = (color, alpha = 1) =>
+  `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+const mix = (a, b, t) =>
+  a.map((value, i) => Math.round(value + (b[i] - value) * t));
+
+function length(v) {
+  return Math.hypot(v.x, v.y, v.z);
+}
+
+function normalize(v, fallback = { x: 0, y: 0, z: -1 }) {
+  const size = length(v);
+  if (size < 0.00001) return { ...fallback };
+  return { x: v.x / size, y: v.y / size, z: v.z / size };
+}
+
+function dot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function cross(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x
+  };
+}
+
+function smoothVector(current, target, amount) {
+  return {
+    x: current.x + (target.x - current.x) * amount,
+    y: current.y + (target.y - current.y) * amount,
+    z: current.z + (target.z - current.z) * amount
+  };
+}
+
+function direction() {
+  if (!config.space.threeD) {
+    const angle = random(0, Math.PI * 2);
+    return { x: Math.cos(angle), y: Math.sin(angle), z: 0 };
+  }
+
+  const z = random(-1, 1);
+  const angle = random(0, Math.PI * 2);
+  const r = Math.sqrt(1 - z * z);
+
+  return {
+    x: r * Math.cos(angle),
+    y: r * Math.sin(angle),
+    z
+  };
+}
+
+function starRadius(mass) {
+  return config.stars.radius * Math.cbrt(mass);
+}
+
+function speedLimit(star) {
+  const sizeRatio = Math.max(1, Math.cbrt(star.mass));
+
+  return config.gravity.maxSpeed /
+    Math.pow(sizeRatio, config.stars.sizeSlowdown);
+}
+
+function limitVelocity(star) {
+  const speed = Math.hypot(star.vx, star.vy, star.vz);
+  const maximum = speedLimit(star);
+
+  if (speed > maximum) {
+    const factor = maximum / speed;
+    star.vx *= factor;
+    star.vy *= factor;
+    star.vz *= factor;
+  }
+}
+
+function makeStar(position, mass = 1) {
+  const d = direction();
+
+  const star = {
+    ...position,
+    id: nextId++,
+    mass,
+    vx: d.x * config.stars.initialSpeed,
+    vy: d.y * config.stars.initialSpeed,
+    vz: d.z * config.stars.initialSpeed,
+    cooldown: 0,
+    criticalAge: 0,
+    wait: config.explosions.delay +
+      random(0, config.explosions.delayVariation),
+    phase: random(0, Math.PI * 2)
+  };
+
+  limitVelocity(star);
+  return star;
+}
+
+function sceneKey() {
+  return JSON.stringify([
+    config.stars.count,
+    config.space.threeD,
+    config.space.sphereBoundary,
+    config.space.radius
+  ]);
+}
+
+function nextStar() {
+  if (!stars.length) return;
+
+  const index = stars.indexOf(followedStar);
+  followedStar = stars[(index + 1) % stars.length];
+  flightState.initialized = false;
+}
+
+function reset() {
+  stars = [];
+  rings = [];
+
+  const radius = config.space.radius * 0.9;
+
+  for (let i = 0; i < Math.round(config.stars.count); i++) {
+    let position;
+
+    if (config.space.sphereBoundary) {
+      const d = direction();
+
+      const r = radius * Math.pow(
+        Math.random(),
+        config.space.threeD ? 1 / 3 : 1 / 2
+      );
+
+      position = { x: d.x * r, y: d.y * r, z: d.z * r };
+    } else {
+      position = {
+        x: random(-radius, radius),
+        y: random(-radius, radius),
+        z: config.space.threeD ? random(-radius, radius) : 0
+      };
+    }
+
+    stars.push(makeStar(position, random(0.7, 1.3)));
+  }
+
+  followedStar = stars[0] || null;
+  flightState.initialized = false;
+  resetKey = sceneKey();
+}
+
+function seededRandom() {
+  let seed = nebulaSeed >>> 0;
+
+  return () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+}
+
+function buildNebula() {
+  nebulaCanvas.width = Math.ceil(width / 2);
+  nebulaCanvas.height = Math.ceil(height / 2);
+
+  const w = nebulaCanvas.width;
+  const h = nebulaCanvas.height;
+  const rand = seededRandom();
+
+  const palette = [
+    config.nebula.colorA,
+    config.nebula.colorB,
+    config.nebula.colorC
+  ];
+
+  nebulaCtx.clearRect(0, 0, w, h);
+  nebulaCtx.globalCompositeOperation = "screen";
+
+  for (let cloud = 0; cloud < config.nebula.clouds; cloud++) {
+    const cx = rand() * w;
+    const cy = rand() * h;
+
+    const radius = Math.max(w, h) * config.nebula.size *
+      (0.45 + rand() * 0.55);
+
+    const color = palette[cloud % palette.length];
+
+    for (let puff = 0; puff < 14; puff++) {
+      const angle = rand() * Math.PI * 2;
+      const offset = rand() * radius * 0.7;
+      const x = cx + Math.cos(angle) * offset;
+      const y = cy + Math.sin(angle) * offset * 0.45;
+      const r = radius * (0.12 + rand() * 0.3);
+
+      const gradient = nebulaCtx.createRadialGradient(
+        x, y, 0, x, y, r
+      );
+
+      gradient.addColorStop(0, rgba(color, 0.15));
+      gradient.addColorStop(0.45, rgba(color, 0.06));
+      gradient.addColorStop(1, rgba(color, 0));
+
+      nebulaCtx.fillStyle = gradient;
+      nebulaCtx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  }
+
+  nebulaCtx.globalCompositeOperation = "source-over";
+  nebulaKey = JSON.stringify([width, height, config.nebula]);
+  GLRenderer.nebulaChanged();
+}
+
+function refresh() {
+  if (sceneKey() !== resetKey) reset();
+
+  const limit = Math.round(config.stars.maxCount);
+
+  while (stars.length > limit) {
+    const removed = stars.pop();
+    merge(stars[0], removed);
+  }
+
+  for (const star of stars) limitVelocity(star);
+
+  if (JSON.stringify([width, height, config.nebula]) !== nebulaKey) {
+    buildNebula();
+  }
+}
+
+
+// WebGL2 renderer. Physics, merging, explosions and camera tracking
+// remain on the CPU; GPU shaders draw all visible stars in batches.
+const GLRenderer = (() => {
+  const vertexSource = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec4 a_geometry; // x, y, core radius, halo radius (CSS px)
+  layout(location=1) in vec4 a_color;    // RGB (0..1), alpha
+  uniform vec2 u_resolution;
+  uniform float u_dpr;
+  uniform float u_maxPointSize;
+  uniform int u_mode;
+  out vec4 v_color;
+  out vec2 v_radii;
+  void main() {
+    vec2 ndc = a_geometry.xy / u_resolution * 2.0 - 1.0;
+    gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
+    float diameter = max(1.0, a_geometry.w * 2.0 * u_dpr);
+    gl_PointSize = min(diameter, u_maxPointSize);
+    v_color = a_color;
+    v_radii = vec2(a_geometry.z / max(a_geometry.w, 0.001),
+                   min(1.0, diameter / max(gl_PointSize, 1.0)));
+  }`;
+  const fragmentSource = `#version 300 es
+  precision highp float;
+  in vec4 v_color;
+  in vec2 v_radii;
+  out vec4 outColor;
+  void main() {
+    float r = length(gl_PointCoord * 2.0 - 1.0);
+    if (r > 1.0) discard;
+    float coreRadius = max(0.001, v_radii.x * v_radii.y);
+    float core = 1.0 - smoothstep(coreRadius * 0.72, coreRadius * 1.08, r);
+    float halo = exp(-r*r*5.0) * (1.0 - smoothstep(0.82, 1.0, r));
+    float intensity = max(core, halo * 0.33);
+    outColor = vec4(v_color.rgb * intensity * v_color.a,
+                    intensity * v_color.a);
+  }`;
+  const lineVertex = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec2 a_pos;
+  layout(location=1) in vec4 a_color;
+  uniform vec2 u_resolution;
+  out vec4 v_color;
+  void main() {
+    vec2 ndc = a_pos / u_resolution * 2.0 - 1.0;
+    gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
+    v_color = a_color;
+  }`;
+  const lineFragment = `#version 300 es
+  precision highp float;
+  in vec4 v_color;
+  out vec4 outColor;
+  void main() { outColor = vec4(v_color.rgb * v_color.a, v_color.a); }`;
+  const quadVertex = `#version 300 es
+  precision highp float;
+  const vec2 corners[6] = vec2[](
+    vec2(-1.,-1.),vec2(1.,-1.),vec2(-1.,1.),
+    vec2(-1.,1.),vec2(1.,-1.),vec2(1.,1.)
+  );
+  out vec2 v_uv;
+  void main() {
+    vec2 p = corners[gl_VertexID];
+    gl_Position = vec4(p,0.,1.);
+    v_uv = vec2(p.x * .5 + .5, .5 - p.y * .5);
+  }`;
+  const quadFragment = `#version 300 es
+  precision highp float;
+  in vec2 v_uv;
+  uniform sampler2D u_texture;
+  uniform float u_opacity;
+  out vec4 outColor;
+  void main() {
+    vec4 c = texture(u_texture, v_uv);
+    outColor = vec4(c.rgb * c.a * u_opacity, c.a * u_opacity);
+  }`;
+  function program(vs,fs) {
+    function compile(type,source) {
+      const shader=gl.createShader(type);
+      gl.shaderSource(shader,source);
+      gl.compileShader(shader);
+      if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))
+        throw new Error(gl.getShaderInfoLog(shader));
+      return shader;
+    }
+    const p=gl.createProgram(),v=compile(gl.VERTEX_SHADER,vs),f=compile(gl.FRAGMENT_SHADER,fs);
+    gl.attachShader(p,v);gl.attachShader(p,f);gl.linkProgram(p);
+    if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    gl.deleteShader(v);gl.deleteShader(f);
+    return p;
+  }
+  const starsProgram=program(vertexSource,fragmentSource);
+  // Cinematic pipeline: render scene to texture, extract and blur highlights
+  // at half resolution, then composite with exposure, vignette and bloom.
+  const extractFragment = `#version 300 es
+  precision highp float;
+  in vec2 v_uv;
+  uniform sampler2D u_texture;
+  uniform float u_threshold;
+  out vec4 outColor;
+  void main(){
+    vec3 c=texture(u_texture,v_uv).rgb;
+    float lum=dot(c,vec3(.2126,.7152,.0722));
+    float weight=smoothstep(u_threshold,u_threshold+.35,lum);
+    outColor=vec4(c*weight,1.);
+  }`;
+  const blurFragment = `#version 300 es
+  precision highp float;
+  in vec2 v_uv;
+  uniform sampler2D u_texture;
+  uniform vec2 u_direction;
+  uniform float u_radius;
+  out vec4 outColor;
+  void main(){
+    vec2 d=u_direction*u_radius;
+    vec3 c=texture(u_texture,v_uv).rgb*.227027;
+    c+=texture(u_texture,v_uv+d*1.384615).rgb*.316216;
+    c+=texture(u_texture,v_uv-d*1.384615).rgb*.316216;
+    c+=texture(u_texture,v_uv+d*3.230769).rgb*.070270;
+    c+=texture(u_texture,v_uv-d*3.230769).rgb*.070270;
+    outColor=vec4(c,1.);
+  }`;
+  const compositeFragment = `#version 300 es
+  precision highp float;
+  in vec2 v_uv;
+  uniform sampler2D u_scene;
+  uniform sampler2D u_bloom;
+  uniform float u_strength;
+  uniform float u_exposure;
+  uniform float u_vignette;
+  out vec4 outColor;
+  void main(){
+    vec3 scene=texture(u_scene,v_uv).rgb;
+    vec3 bloom=texture(u_bloom,v_uv).rgb;
+    vec3 color=scene+bloom*u_strength;
+    color=vec3(1.)-exp(-color*u_exposure);
+    float d=length((v_uv-.5)*vec2(1.0,1.0));
+    color*=1.-u_vignette*smoothstep(.2,.72,d);
+    outColor=vec4(color,1.);
+  }`;
+  const extractProgram=program(quadVertex,extractFragment);
+  const blurProgram=program(quadVertex,blurFragment);
+  const compositeProgram=program(quadVertex,compositeFragment);
+  let sceneTarget=null, brightTarget=null, blurTarget=null;
+  function makeTarget(w,h){
+    const texture=gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D,texture);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+    const fbo=gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,texture,0);
+    if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)
+      throw new Error('Cinematic framebuffer incomplete');
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    return {texture,fbo,w,h};
+  }
+  function disposeTarget(target){
+    if(!target)return;
+    gl.deleteTexture(target.texture);gl.deleteFramebuffer(target.fbo);
+  }
+  function ensureTargets(){
+    const w=canvas.width,h=canvas.height;
+    if(sceneTarget?.w===w&&sceneTarget?.h===h)return;
+    disposeTarget(sceneTarget);disposeTarget(brightTarget);disposeTarget(blurTarget);
+    sceneTarget=makeTarget(w,h);
+    brightTarget=makeTarget(Math.max(1,Math.ceil(w/2)),Math.max(1,Math.ceil(h/2)));
+    blurTarget=makeTarget(brightTarget.w,brightTarget.h);
+  }
+  function quad(program,source,unit=0,uniformName='u_texture'){
+    gl.useProgram(program);
+    gl.activeTexture(gl.TEXTURE0+unit);
+    gl.bindTexture(gl.TEXTURE_2D,source);
+    gl.uniform1i(gl.getUniformLocation(program,uniformName),unit);
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+  }
+  function postprocess(){
+    const fx=config.cinematic;
+    gl.disable(gl.BLEND);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,brightTarget.fbo);
+    gl.viewport(0,0,brightTarget.w,brightTarget.h);
+    gl.useProgram(extractProgram);
+    gl.uniform1f(uniform(extractProgram,'u_threshold'),fx.bloomThreshold);
+    quad(extractProgram,sceneTarget.texture);
+    for(let i=0;i<2;i++){
+      gl.bindFramebuffer(gl.FRAMEBUFFER,blurTarget.fbo);
+      gl.useProgram(blurProgram);
+      gl.uniform2f(uniform(blurProgram,'u_direction'),1/brightTarget.w,0);
+      gl.uniform1f(uniform(blurProgram,'u_radius'),fx.bloomRadius);
+      quad(blurProgram,brightTarget.texture);
+      gl.bindFramebuffer(gl.FRAMEBUFFER,brightTarget.fbo);
+      gl.useProgram(blurProgram);
+      gl.uniform2f(uniform(blurProgram,'u_direction'),0,1/brightTarget.h);
+      gl.uniform1f(uniform(blurProgram,'u_radius'),fx.bloomRadius);
+      quad(blurProgram,blurTarget.texture);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    gl.viewport(0,0,canvas.width,canvas.height);
+    gl.useProgram(compositeProgram);
+    gl.uniform1f(uniform(compositeProgram,'u_strength'),fx.bloomStrength);
+    gl.uniform1f(uniform(compositeProgram,'u_exposure'),fx.exposure);
+    gl.uniform1f(uniform(compositeProgram,'u_vignette'),fx.vignette);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D,sceneTarget.texture);
+    gl.uniform1i(uniform(compositeProgram,'u_scene'),0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D,brightTarget.texture);
+    gl.uniform1i(uniform(compositeProgram,'u_bloom'),1);
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+  }
+  const linesProgram=program(lineVertex,lineFragment);
+  const nebulaProgram=program(quadVertex,quadFragment);
+  const starBuffer=gl.createBuffer(), lineBuffer=gl.createBuffer();
+  const starVAO=gl.createVertexArray(),lineVAO=gl.createVertexArray(),quadVAO=gl.createVertexArray();
+  gl.bindVertexArray(starVAO);gl.bindBuffer(gl.ARRAY_BUFFER,starBuffer);
+  gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,4,gl.FLOAT,false,32,0);
+  gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,4,gl.FLOAT,false,32,16);
+  gl.bindVertexArray(lineVAO);gl.bindBuffer(gl.ARRAY_BUFFER,lineBuffer);
+  gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,24,0);
+  gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,4,gl.FLOAT,false,24,8);
+  gl.bindVertexArray(null);
+  const texture=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,texture);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+  let nebulaDirty=true;
+  const maxPointSize=gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
+  function uniform(program,name) { return gl.getUniformLocation(program,name); }
+  function uploadNebula() {
+    gl.bindTexture(gl.TEXTURE_2D,texture);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,nebulaCanvas);
+    nebulaDirty=false;
+  }
+  function background() {
+    const c=config.appearance.backgroundColor;
+    gl.clearColor(c[0]/255,c[1]/255,c[2]/255,1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    if(!config.nebula.enabled || config.nebula.opacity<=0) return;
+    if(nebulaDirty) uploadNebula();
+    gl.useProgram(nebulaProgram);
+    gl.uniform1f(uniform(nebulaProgram,'u_opacity'),config.nebula.opacity);
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texture);
+    gl.uniform1i(uniform(nebulaProgram,'u_texture'),0);
+    gl.bindVertexArray(quadVAO);
+    gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+  }
+  function drawLines(data) {
+    if(!data.length)return;
+    gl.useProgram(linesProgram);
+    gl.uniform2f(uniform(linesProgram,'u_resolution'),width,height);
+    gl.bindVertexArray(lineVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER,lineBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.DYNAMIC_DRAW);
+    gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.LINES,0,data.length/6);
+  }
+  function drawStars(data) {
+    if(!data.length)return;
+    gl.useProgram(starsProgram);
+    gl.uniform2f(uniform(starsProgram,'u_resolution'),width,height);
+    gl.uniform1f(uniform(starsProgram,'u_dpr'),canvas.width/width);
+    gl.uniform1f(uniform(starsProgram,'u_maxPointSize'),maxPointSize);
+    gl.bindVertexArray(starVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER,starBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.DYNAMIC_DRAW);
+    gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.POINTS,0,data.length/8);
+  }
+  function render(starData,lineData) {
+    if(config.cinematic.enabled){
+      ensureTargets();
+      gl.bindFramebuffer(gl.FRAMEBUFFER,sceneTarget.fbo);
+    } else {
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    }
+    gl.viewport(0,0,canvas.width,canvas.height);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    background();
+    drawLines(lineData);
+    drawStars(starData);
+    gl.bindVertexArray(null);
+    gl.disable(gl.BLEND);
+    if(config.cinematic.enabled)postprocess();
+  }
+  return {render, nebulaChanged(){nebulaDirty=true;}};
+})();
+function pushLine(target,x1,y1,x2,y2,color,alpha1,alpha2=alpha1) {
+  if (![x1,y1,x2,y2].every(Number.isFinite))return;
+  const r=color[0]/255,g=color[1]/255,b=color[2]/255;
+  target.push(x1,y1,r,g,b,alpha1,x2,y2,r,g,b,alpha2);
+}
+
+function resize() {
+  width = innerWidth;
+  height = innerHeight;
+
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  buildNebula();
+}
+
+function rotateWorld(point) {
+  let { x, y, z } = point;
+
+  const rx = radians(config.camera.rotationX + rotation.x);
+  const ry = radians(config.camera.rotationY + rotation.y);
+  const rz = radians(config.camera.rotationZ + rotation.z);
+
+  let cos = Math.cos(rx);
+  let sin = Math.sin(rx);
+  let ny = y * cos - z * sin;
+  let nz = y * sin + z * cos;
+  y = ny;
+  z = nz;
+
+  cos = Math.cos(ry);
+  sin = Math.sin(ry);
+  const nx = x * cos + z * sin;
+  nz = -x * sin + z * cos;
+  x = nx;
+  z = nz;
+
+  cos = Math.cos(rz);
+  sin = Math.sin(rz);
+
+  return {
+    x: x * cos - y * sin,
+    y: x * sin + y * cos,
+    z
+  };
+}
+
+function inverseRotate(vector) {
+  let { x, y, z } = vector;
+
+  const rx = radians(config.camera.rotationX + rotation.x);
+  const ry = radians(config.camera.rotationY + rotation.y);
+  const rz = radians(config.camera.rotationZ + rotation.z);
+
+  let cos = Math.cos(rz);
+  let sin = Math.sin(rz);
+  let nx = x * cos + y * sin;
+  let ny = -x * sin + y * cos;
+  x = nx;
+  y = ny;
+
+  cos = Math.cos(ry);
+  sin = Math.sin(ry);
+  nx = x * cos - z * sin;
+  let nz = x * sin + z * cos;
+  x = nx;
+  z = nz;
+
+  cos = Math.cos(rx);
+  sin = Math.sin(rx);
+  ny = y * cos + z * sin;
+  nz = -y * sin + z * cos;
+
+  return { x, y: ny, z: nz };
+}
+
+function updateFlight(dt) {
+  if (!followedStar || !stars.includes(followedStar)) {
+    followedStar = stars[0] || null;
+    flightState.initialized = false;
+  }
+
+  if (!followedStar) return;
+
+  const targetDirection = normalize({
+    x: followedStar.vx,
+    y: followedStar.vy,
+    z: followedStar.vz
+  }, flightState.forward);
+
+  const targetPosition = {
+    x: followedStar.x -
+      targetDirection.x * config.flight.followDistance,
+    y: followedStar.y -
+      targetDirection.y * config.flight.followDistance +
+      config.flight.heightOffset,
+    z: followedStar.z -
+      targetDirection.z * config.flight.followDistance
+  };
+
+  if (!flightState.initialized) {
+    flightState.position = targetPosition;
+    flightState.forward = targetDirection;
+
+    const preferredUp = Math.abs(targetDirection.y) > 0.95
+      ? { x: 0, y: 0, z: 1 }
+      : { x: 0, y: 1, z: 0 };
+
+    const right = normalize(cross(targetDirection, preferredUp));
+    flightState.up = normalize(cross(right, targetDirection));
+    flightState.initialized = true;
+    return;
+  }
+
+  const positionResponse = config.flight.positionSmoothing === 0
+    ? 1
+    : 1 - Math.exp(-config.flight.positionSmoothing * dt);
+
+  const directionResponse = config.flight.directionSmoothing === 0
+    ? 1
+    : 1 - Math.exp(-config.flight.directionSmoothing * dt);
+
+  flightState.position = smoothVector(
+    flightState.position,
+    targetPosition,
+    positionResponse
+  );
+
+  flightState.forward = normalize(
+    smoothVector(
+      flightState.forward,
+      targetDirection,
+      directionResponse
+    ),
+    targetDirection
+  );
+
+  let right = cross(flightState.forward, flightState.up);
+
+  if (length(right) < 0.001) {
+    right = cross(
+      flightState.forward,
+      Math.abs(flightState.forward.y) > 0.95
+        ? { x: 0, y: 0, z: 1 }
+        : { x: 0, y: 1, z: 0 }
+    );
+  }
+
+  flightState.up = normalize(
+    cross(normalize(right), flightState.forward)
+  );
+}
+
+function makeView() {
+  if (config.flight.enabled && followedStar) {
+    const forward = normalize(rotateWorld(flightState.forward));
+    const up = normalize(rotateWorld(flightState.up));
+    const right = normalize(cross(forward, up));
+
+    return {
+      position: rotateWorld(flightState.position),
+      forward,
+      up: normalize(cross(right, forward)),
+      right,
+      focal:
+        height / 2 /
+        Math.tan(radians(config.flight.fieldOfView) / 2) *
+        config.camera.zoom,
+      near: config.flight.nearClip,
+      flight: true
+    };
+  }
+
+  return {
+    position: { x: 0, y: 0, z: config.camera.distance },
+    forward: { x: 0, y: 0, z: -1 },
+    right: { x: 1, y: 0, z: 0 },
+    up: { x: 0, y: -1, z: 0 },
+    focal:
+      Math.min(width, height) /
+      (config.space.radius * 2.2) *
+      config.camera.zoom *
+      config.camera.distance,
+    near: 60,
+    flight: false
+  };
+}
+
+function project(point) {
+  const world = rotateWorld(point);
+
+  const relative = {
+    x: world.x - view.position.x,
+    y: world.y - view.position.y,
+    z: world.z - view.position.z
+  };
+
+  const distance = dot(relative, view.forward);
+  if (distance < view.near) return null;
+
+  const scale = view.focal / distance;
+
+  return {
+    x: width / 2 + dot(relative, view.right) * scale,
+    y: height / 2 - dot(relative, view.up) * scale,
+    scale,
+    distance
+  };
+}
+
+function screenForce(x, y) {
+  const pixelsPerUnit = view.flight
+    ? view.focal / Math.max(100, config.space.radius * 0.4)
+    : view.focal / config.camera.distance;
+
+  const factor = 1 / Math.max(0.1, pixelsPerUnit);
+
+  const transformed = {
+    x: (view.right.x * x - view.up.x * y) * factor,
+    y: (view.right.y * x - view.up.y * y) * factor,
+    z: (view.right.z * x - view.up.z * y) * factor
+  };
+
+  const force = inverseRotate(transformed);
+  if (!config.space.threeD) force.z = 0;
+  return force;
+}
+
+function confine(star) {
+  const radius = Math.max(
+    10,
+    config.space.radius - starRadius(star.mass)
+  );
+
+  if (config.space.sphereBoundary) {
+    const distance = Math.hypot(star.x, star.y, star.z);
+    if (distance <= radius) return;
+
+    const nx = star.x / distance;
+    const ny = star.y / distance;
+    const nz = star.z / distance;
+
+    star.x = nx * radius;
+    star.y = ny * radius;
+    star.z = nz * radius;
+
+    const outward =
+      star.vx * nx + star.vy * ny + star.vz * nz;
+
+    if (outward > 0) {
+      const impulse =
+        outward * (1 + config.space.boundaryBounce);
+
+      star.vx -= nx * impulse;
+      star.vy -= ny * impulse;
+      star.vz -= nz * impulse;
+    }
+  } else {
+    for (const axis of ["x", "y", "z"]) {
+      if (axis === "z" && !config.space.threeD) continue;
+
+      if (star[axis] > radius) star[axis] -= radius * 2;
+      if (star[axis] < -radius) star[axis] += radius * 2;
+    }
+  }
+}
+
+function merge(a, b) {
+  const oldMass = Math.max(a.mass, b.mass);
+  const total = a.mass + b.mass;
+
+  for (const axis of ["x", "y", "z", "vx", "vy", "vz"]) {
+    a[axis] = (a[axis] * a.mass + b[axis] * b.mass) / total;
+  }
+
+  // Artistic braking: growth slows the merged star immediately.
+  // This is applied once per merge, rather than every frame.
+  const growthRatio = Math.cbrt(total / oldMass);
+  const slowdown = Math.pow(
+    growthRatio,
+    config.stars.sizeSlowdown
+  );
+
+  a.vx /= slowdown;
+  a.vy /= slowdown;
+  a.vz /= slowdown;
+
+  a.mass = total;
+  a.criticalAge = Math.max(a.criticalAge, b.criticalAge);
+  a.wait = Math.max(a.wait, b.wait);
+
+  limitVelocity(a);
+
+  if (followedStar === b) followedStar = a;
+}
+
+function explode(star, available) {
+  const count = Math.min(
+    Math.round(config.explosions.fragments),
+    available
+  );
+
+  if (count < 2) return null;
+
+  const directions = Array.from({ length: count }, direction);
+
+  const mean = directions.reduce(
+    (sum, d) => ({
+      x: sum.x + d.x / count,
+      y: sum.y + d.y / count,
+      z: sum.z + d.z / count
+    }),
+    { x: 0, y: 0, z: 0 }
+  );
+
+  const radius = starRadius(star.mass) * 2 + 8;
+
+  const fragments = directions.map(d => {
+    const fragment = makeStar({
+      x: star.x + d.x * radius,
+      y: star.y + d.y * radius,
+      z: star.z + d.z * radius
+    }, star.mass / count);
+
+    fragment.vx =
+      star.vx + (d.x - mean.x) * config.explosions.speed;
+
+    fragment.vy =
+      star.vy + (d.y - mean.y) * config.explosions.speed;
+
+    fragment.vz =
+      star.vz + (d.z - mean.z) * config.explosions.speed;
+
+    fragment.cooldown = config.explosions.cooldown;
+
+    limitVelocity(fragment);
+    confine(fragment);
+    return fragment;
+  });
+
+  if (followedStar === star) {
+    const parentDirection = normalize({
+      x: star.vx,
+      y: star.vy,
+      z: star.vz
+    }, flightState.forward);
+
+    function score(candidate) {
+      return dot(
+        normalize({
+          x: candidate.vx,
+          y: candidate.vy,
+          z: candidate.vz
+        }),
+        parentDirection
+      );
+    }
+
+    followedStar = fragments.reduce(
+      (best, fragment) =>
+        score(fragment) > score(best) ? fragment : best,
+      fragments[0]
+    );
+  }
+
+  rings.push({
+    x: star.x,
+    y: star.y,
+    z: star.z,
+    age: 0,
+    type: "explosion"
+  });
+
+  if (rings.length > 25) rings.shift();
+  return fragments;
+}
+
+function simulate(dt) {
+  const dead = new Set();
+  const rangeSquared = config.gravity.range ** 2;
+  const softened = config.gravity.softening ** 2;
+
+  for (let i = 0; i < stars.length; i++) {
+    if (dead.has(i)) continue;
+    const a = stars[i];
+
+    for (let j = i + 1; j < stars.length; j++) {
+      if (dead.has(j)) continue;
+      const b = stars[j];
+
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dz = b.z - a.z;
+      const squared = dx * dx + dy * dy + dz * dz;
+
+      const mergeRadius =
+        (starRadius(a.mass) + starRadius(b.mass)) *
+        config.gravity.mergeDistance;
+
+      if (
+        a.cooldown <= 0 &&
+        b.cooldown <= 0 &&
+        squared < mergeRadius * mergeRadius
+      ) {
+        merge(a, b);
+        dead.add(j);
+        continue;
+      }
+
+      if (squared > rangeSquared) continue;
+
+      const force = config.gravity.strength /
+        Math.pow(squared + softened, 1.5);
+
+      a.vx += dx * force * b.mass * dt;
+      a.vy += dy * force * b.mass * dt;
+      a.vz += dz * force * b.mass * dt;
+
+      b.vx -= dx * force * a.mass * dt;
+      b.vy -= dy * force * a.mass * dt;
+      b.vz -= dz * force * a.mass * dt;
+    }
+  }
+
+  stars = stars.filter((_, index) => !dead.has(index));
+
+  for (const ring of rings) ring.age += dt;
+  rings = rings.filter(ring => ring.age < 3);
+
+  for (const star of stars) {
+    star.cooldown = Math.max(0, star.cooldown - dt);
+    const screen = project(star);
+
+    if (
+      screen &&
+      config.mouse.enabled &&
+      !(config.flight.enabled && star === followedStar)
+    ) {
+      const dx = mouse.x - screen.x;
+      const dy = mouse.y - screen.y;
+      const distance = Math.hypot(dx, dy);
+
+      const proximity = clamp(
+        1 - distance / config.mouse.radius,
+        0,
+        1
+      );
+
+      const strength =
+        proximity * proximity *
+        mouse.influence *
+        config.mouse.strength *
+        (mouse.held ? config.mouse.holdMultiplier : 1);
+
+      const denominator = Math.max(distance, 20);
+
+      const force = screenForce(
+        dx / denominator * strength,
+        dy / denominator * strength
+      );
+
+      star.vx += force.x * dt;
+      star.vy += force.y * dt;
+      star.vz += force.z * dt;
+    }
+
+    for (const ring of rings) {
+      let force;
+
+      if (ring.type === "pointer") {
+        if (!screen) continue;
+
+        const dx = screen.x - ring.x;
+        const dy = screen.y - ring.y;
+        const distance = Math.hypot(dx, dy);
+
+        const wave = Math.exp(
+          -Math.pow((distance - ring.age * 220) / 65, 2)
+        ) * Math.max(0, 1 - ring.age / 3);
+
+        force = screenForce(
+          dx / Math.max(10, distance) *
+            config.mouse.shockwave * wave,
+          dy / Math.max(10, distance) *
+            config.mouse.shockwave * wave
+        );
+      } else {
+        const dx = star.x - ring.x;
+        const dy = star.y - ring.y;
+        const dz = star.z - ring.z;
+        const distance = Math.hypot(dx, dy, dz);
+
+        const wave = Math.exp(
+          -Math.pow((distance - ring.age * 170) / 55, 2)
+        ) * Math.max(0, 1 - ring.age / 3);
+
+        const strength =
+          config.explosions.shockwaveStrength * wave /
+          Math.max(10, distance);
+
+        force = {
+          x: dx * strength,
+          y: dy * strength,
+          z: dz * strength
+        };
+      }
+
+      star.vx += force.x * dt;
+      star.vy += force.y * dt;
+      star.vz += force.z * dt;
+    }
+
+    limitVelocity(star);
+
+    star.x += star.vx * dt;
+    star.y += star.vy * dt;
+    star.z += star.vz * dt;
+    confine(star);
+
+    star.criticalAge =
+      star.mass >= config.explosions.criticalMass
+        ? star.criticalAge + dt
+        : 0;
+  }
+
+  const original = stars;
+  const next = [];
+  let population = original.length;
+
+  for (const star of original) {
+    if (
+      config.explosions.enabled &&
+      star.mass >= config.explosions.criticalMass &&
+      star.cooldown <= 0 &&
+      star.criticalAge >= star.wait
+    ) {
+      const available =
+        Math.round(config.stars.maxCount) - population + 1;
+
+      const fragments = explode(star, available);
+
+      if (fragments) {
+        next.push(...fragments);
+        population += fragments.length - 1;
+        continue;
+      }
+    }
+
+    next.push(star);
+  }
+
+  stars = next;
+}
+
+function drawBoundary(lines) {
+  if (!config.camera.showBoundary || !config.space.sphereBoundary) return;
+  for (let plane = 0; plane < 3; plane++) {
+    let previousPoint = null;
+    for (let i = 0; i <= 160; i++) {
+      const angle = i / 160 * Math.PI * 2;
+      const a = Math.cos(angle) * config.space.radius;
+      const b = Math.sin(angle) * config.space.radius;
+      const point = plane === 0 ? {x:a,y:b,z:0} :
+        plane === 1 ? {x:a,y:0,z:b} : {x:0,y:a,z:b};
+      const screen = project(point);
+      if (previousPoint && screen) {
+        pushLine(lines,previousPoint.x,previousPoint.y,screen.x,screen.y,
+          [160,190,240],0.12);
+      }
+      previousPoint = screen;
+    }
+  }
+}
+function draw() {
+  const points = [], lines = [];
+  drawBoundary(lines);
+  const projected = stars
+    .filter(star => !(view.flight && star === followedStar))
+    .map(star => ({star,screen:project(star)}))
+    .filter(item => item.screen);
+  // GPU batching means no per-star canvas gradient or draw call.
+  for (const {star,screen} of projected) {
+    const glowing = clamp(
+      (star.mass-config.explosions.glowMass) /
+      Math.max(1,config.explosions.criticalMass-config.explosions.glowMass),0,1);
+    const color = mix(
+      mix(config.appearance.starColor,config.appearance.giantColor,glowing),
+      config.appearance.hotColor,
+      clamp(star.criticalAge/Math.max(1,star.wait),0,1));
+    const radius = clamp(starRadius(star.mass)*screen.scale,0.45,70);
+    const depthReference = view.flight ? config.space.radius*0.65 : config.camera.distance;
+    const depthAlpha = clamp(depthReference/screen.distance,0.15,1);
+    const instability = star.criticalAge>0 ? 1+Math.sin(time*5+star.phase)*0.12 : 1;
+    const twinkle = config.cinematic.enabled
+      ? 1 + config.cinematic.twinkle*Math.sin(time*(1.5+star.phase%2)+star.phase*3)
+      : 1;
+    const halo = Math.max(radius,Math.min(220,
+      radius*3+config.appearance.glow*screen.scale*(0.2+glowing)));
+    if (screen.x < -halo || screen.x > width+halo ||
+        screen.y < -halo || screen.y > height+halo) continue;
+    points.push(screen.x,screen.y,radius*instability*twinkle,halo,
+      color[0]/255,color[1]/255,color[2]/255,
+      clamp(config.stars.opacity*depthAlpha*twinkle,0,1));
+    if(config.stars.trails>0) {
+      const tail=project({
+        x:star.x-star.vx*config.stars.trails,
+        y:star.y-star.vy*config.stars.trails,
+        z:star.z-star.vz*config.stars.trails
+      });
+      if(tail) pushLine(lines,tail.x,tail.y,screen.x,screen.y,color,
+        0.03*depthAlpha,0.4*depthAlpha);
+    }
+  }
+  for (const ring of rings) {
+    const screen=ring.type==='pointer'?ring:project(ring);
+    if(!screen)continue;
+    const radius=Math.min(3000,ring.age*(ring.type==='pointer'?220:170*screen.scale));
+    const alpha=clamp((1-ring.age/3)*0.2,0,1);
+    const segments=96;
+    for(let i=0;i<segments;i++) {
+      const a=i/segments*Math.PI*2,b=(i+1)/segments*Math.PI*2;
+      pushLine(lines,screen.x+Math.cos(a)*radius,screen.y+Math.sin(a)*radius,
+        screen.x+Math.cos(b)*radius,screen.y+Math.sin(b)*radius,
+        config.appearance.hotColor,alpha);
+    }
+  }
+  GLRenderer.render(points,lines);
+  flightStatus.hidden = !config.flight.enabled || !config.flight.showStatus;
+  if (!flightStatus.hidden && followedStar) {
+    const speed=Math.hypot(followedStar.vx,followedStar.vy,followedStar.vz);
+    flightStatus.textContent = `Riding star ${followedStar.id} · `+
+      `Mass ${followedStar.mass.toFixed(1)} · `+
+      `Speed ${speed.toFixed(1)} · ${stars.length} stars`;
+  }
+}
+
+function frame(timestamp) {
+  const realDt = previous === null
+    ? 0
+    : Math.min((timestamp - previous) / 1000, 0.1);
+
+  previous = timestamp;
+
+  const response =
+    1 - Math.exp(-config.mouse.smoothing * realDt);
+
+  mouse.x += (mouse.targetX - mouse.x) * response;
+  mouse.y += (mouse.targetY - mouse.y) * response;
+
+  mouse.influence +=
+    ((mouse.active ? 1 : 0) - mouse.influence) * response;
+
+  if (flightWasEnabled !== config.flight.enabled) {
+    flightState.initialized = false;
+    flightWasEnabled = config.flight.enabled;
+  }
+
+  if (config.flight.enabled && !flightState.initialized) {
+    updateFlight(0);
+  }
+
+  const still =
+    config.animation.paused ||
+    (
+      config.animation.respectReducedMotion &&
+      reducedMotion.matches
+    );
+
+  if (still || config.animation.speed === 0) {
+    physicsAccumulator = 0;
+  } else {
+    physicsAccumulator = Math.min(
+      physicsAccumulator + realDt * config.animation.speed,
+      physicsStep * maximumPhysicsSteps
+    );
+
+    let completedSteps = 0;
+
+    while (
+      physicsAccumulator >= physicsStep &&
+      completedSteps < maximumPhysicsSteps
+    ) {
+      time += physicsStep;
+
+      rotation.x =
+        (
+          rotation.x +
+          config.camera.rotationSpeedX * physicsStep
+        ) % 360;
+
+      rotation.y =
+        (
+          rotation.y +
+          config.camera.rotationSpeedY * physicsStep
+        ) % 360;
+
+      rotation.z =
+        (
+          rotation.z +
+          config.camera.rotationSpeedZ * physicsStep
+        ) % 360;
+
+      view = makeView();
+      simulate(physicsStep);
+
+      if (config.flight.enabled) {
+        updateFlight(physicsStep);
+      }
+
+      physicsAccumulator -= physicsStep;
+      completedSteps++;
+    }
+  }
+
+  view = makeView();
+  draw();
+
+  requestAnimationFrame(frame);
+}
+
+function pointer(event) {
+  if (event.target.closest?.("[data-background-editor]")) {
+    leave();
+    return false;
+  }
+
+  if (!mouse.active) {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+  }
+
+  mouse.targetX = event.clientX;
+  mouse.targetY = event.clientY;
+  mouse.active = true;
+  return true;
+}
+
+function leave() {
+  mouse.active = false;
+  mouse.held = false;
+}
+
+addEventListener("pointermove", pointer);
+
+addEventListener("pointerdown", event => {
+  if (!pointer(event) || !config.mouse.enabled) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+
+  mouse.held = true;
+
+  rings.push({
+    x: event.clientX,
+    y: event.clientY,
+    age: 0,
+    type: "pointer"
+  });
+
+  if (rings.length > 25) rings.shift();
+});
+
+addEventListener("pointerup", event => {
+  mouse.held = false;
+  if (event.pointerType !== "mouse") mouse.active = false;
+});
+
+addEventListener("pointercancel", leave);
+addEventListener("blur", leave);
+
+document.documentElement.addEventListener("pointerleave", leave);
+
+document.addEventListener("visibilitychange", () => {
+  previous = null;
+  leave();
+});
+
+addEventListener("resize", resize);
+
+resize();
+reset();
+requestAnimationFrame(frame);
+
+if (config.panel.enabled) {
+  import(`./settings-editor.js?v=${Date.now()}`)
+    .then(({ createSettingsEditor }) => {
+      createSettingsEditor({
+        config,
+        onChange: refresh,
+        onReset: reset,
+        onNextStar: nextStar,
+        onResetRotation: () => {
+          rotation.x = 0;
+          rotation.y = 0;
+          rotation.z = 0;
+        },
+        onNebula: () => {
+          nebulaSeed = Math.floor(Math.random() * 0xffffffff);
+          buildNebula();
+        }
+      });
+    })
+    .catch(error => {
+      console.error("Editor could not load:", error);
+    });
+}
+</script>
+</body>
+</html>
