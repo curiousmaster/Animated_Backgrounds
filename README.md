@@ -212,16 +212,6 @@ The supplied example deactivates background cursor effects when the pointer ente
 
 For a purely decorative background, set `pointer-events: none` on the iframe. This disables direct mouse interaction with it.
 
-## Living Atlas interaction
-
-- Move the cursor to raise a terrain hill and emit ripples.
-- Linger or click to plant a crystalline memory.
-- Watch network nodes follow currents derived from the shared terrain field.
-- An aurora scan briefly unfolds nodes into small geometric fragments.
-- Crystals grow, change color, and eventually fade into dust.
-
-Individual layers can be disabled in the editor. Memory is temporary and is cleared when the background reloads.
-
 ## Performance
 
 Rendering cost depends on viewport size and settings. For smoother animation:
