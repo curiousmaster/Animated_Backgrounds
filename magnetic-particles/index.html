@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Magnetic Particles</title>
+<title>Magnetic Particles — WebGL2</title>
 
 <style>
     html, body {
@@ -19,23 +20,257 @@
         width: 100%;
         height: 100%;
     }
+
+    /* Settings editor */
+    .mag-editor,
+    .mag-editor * {
+        box-sizing: border-box;
+    }
+
+    .mag-editor {
+        font-family: system-ui, sans-serif;
+        color: #eee;
+    }
+
+    .mag-editor [hidden] {
+        display: none !important;
+    }
+
+    .mag-panel {
+        position: fixed;
+        inset: 0 0 0 auto;
+        width: min(350px, 100vw);
+        z-index: 1001;
+        display: flex;
+        flex-direction: column;
+        background: rgba(18,20,25,.96);
+        border-left: 1px solid #343840;
+        box-shadow: -8px 0 30px #0006;
+        transform: translateX(100%);
+        transition: transform 220ms ease;
+    }
+
+    .mag-panel.open {
+        transform: translateX(0);
+    }
+
+    .mag-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px;
+        border-bottom: 1px solid #343840;
+    }
+
+    .mag-header strong {
+        font-size: 15px;
+    }
+
+    .mag-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0 16px 20px;
+    }
+
+    .mag-section {
+        margin-top: 14px;
+        border: 1px solid #343840;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .mag-section summary {
+        padding: 12px;
+        color: #aeb8ca;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        user-select: none;
+        background: #20242d;
+    }
+
+    .mag-section summary:hover {
+        background: #2b3240;
+    }
+
+    .mag-section-body {
+        padding: 12px;
+    }
+
+    .mag-control {
+        display: grid;
+        grid-template-columns: 1fr 100px;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 12px;
+        font-size: 12px;
+    }
+
+    .mag-control:last-child {
+        margin-bottom: 0;
+    }
+
+    .mag-editor input[type="range"] {
+        grid-column: 1 / -1;
+        width: 100%;
+        margin: 0;
+        accent-color: #80baff;
+    }
+
+    .mag-editor input[type="number"],
+    .mag-editor select {
+        width: 100px;
+        padding: 5px 7px;
+        color: #fff;
+        background: #090b10;
+        border: 1px solid #454b57;
+        border-radius: 5px;
+    }
+
+    .mag-editor input[type="checkbox"] {
+        justify-self: end;
+        accent-color: #80baff;
+    }
+
+    .mag-colors {
+        grid-column: 1 / -1;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .mag-editor input[type="color"] {
+        width: 42px;
+        height: 30px;
+        padding: 2px;
+        background: transparent;
+        border: 1px solid #454b57;
+        border-radius: 5px;
+    }
+
+    .mag-rgb {
+        display: flex;
+        flex: 1;
+        gap: 6px;
+    }
+
+    .mag-rgb input[type="number"] {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .mag-editor button {
+        padding: 8px 11px;
+        color: #eee;
+        background: #272d38;
+        border: 1px solid #454b57;
+        border-radius: 6px;
+        cursor: pointer;
+        font: 12px system-ui, sans-serif;
+    }
+
+    .mag-editor button:hover {
+        background: #384253;
+    }
+
+    .mag-editor button:focus-visible,
+    .mag-editor input:focus-visible,
+    .mag-editor select:focus-visible,
+    .mag-editor textarea:focus-visible {
+        outline: 2px solid #80baff;
+        outline-offset: 2px;
+    }
+
+    .mag-launcher {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        z-index: 1000;
+    }
+
+    .mag-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+    }
+
+    .mag-editor textarea {
+        width: 100%;
+        height: 320px;
+        margin-top: 12px;
+        padding: 10px;
+        resize: vertical;
+        color: #bce0ff;
+        background: #090b10;
+        border: 1px solid #454b57;
+        border-radius: 6px;
+        font: 11px/1.5 monospace;
+        white-space: pre;
+    }
+
+    .mag-status {
+        min-height: 18px;
+        margin-top: 8px;
+        color: #a8d6ad;
+        font-size: 11px;
+    }
+
+    .mag-hint {
+        color: #aeb8ca;
+        font-size: 11px;
+        line-height: 1.5;
+    }
+
+    .mag-tooltip {
+        position: fixed;
+        z-index: 1100;
+        width: 245px;
+        padding: 12px 14px;
+        background: rgba(25,30,40,.97);
+        border: 1px solid #454f63;
+        border-radius: 8px;
+        box-shadow: 0 8px 30px #0009;
+        color: #dce7f8;
+        font: 12px/1.6 system-ui, sans-serif;
+        pointer-events: none;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 120ms ease;
+    }
+
+    .mag-tooltip.visible {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .mag-panel,
+        .mag-tooltip {
+            transition: none;
+        }
+    }
 </style>
 </head>
 
 <body>
+
 <canvas id="background" aria-hidden="true"></canvas>
 
 <script type="module">
 "use strict";
 
-// Replace this block with configuration copied from the editor.
+// ============================================================
+// CONFIGURATION
+// ============================================================
+
 const config = {
     particleCount: 700,
     particleRadius: 1.2,
     particleColor: [90, 180, 255],
     maxSpeed: 100,
     friction: 0.8,
-    trailLength: 0.8,       // Approximate persistence in seconds
+    trailLength: 0.8,
 
     poles: {
         count: 4,
@@ -48,7 +283,7 @@ const config = {
 
     mouse: {
         enabled: true,
-        mode: "attract",   // "attract" or "repel"
+        mode: "attract",
         strength: 500,
         radius: 240,
         color: [255, 90, 170]
@@ -66,33 +301,442 @@ const config = {
 };
 
 window.getBackgroundConfig = () =>
-      JSON.parse(JSON.stringify(config));
+    JSON.parse(JSON.stringify(config));
+
+// ============================================================
+// CONSTANTS AND HELPERS
+// ============================================================
 
 const canvas = document.getElementById("background");
-const ctx = canvas.getContext("2d");
+
+const gl = canvas.getContext("webgl2", {
+    alpha: false,
+    antialias: false,
+    depth: false,
+    stencil: false,
+    preserveDrawingBuffer: false,
+    powerPreference: "high-performance"
+});
+
+if (!gl) {
+    throw new Error("WebGL2 is not supported by this browser.");
+}
 
 const TAU = Math.PI * 2;
-const clamp = (value, min, max) =>
-    Math.max(min, Math.min(max, value));
 
-function rgb(color) {
-    return `rgb(${color.map(value =>
-        Math.round(clamp(value, 0, 255))
-    ).join(",")})`;
+const clamp = (v, min, max) =>
+    Math.max(min, Math.min(max, v));
+
+const mix = (a, b, t) =>
+    a + (b - a) * clamp(t, 0, 1);
+
+// ============================================================
+// WEBGL SHADER UTILITIES
+// ============================================================
+
+function createShader(type, source) {
+    const shader = gl.createShader(type);
+
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const error = gl.getShaderInfoLog(shader);
+        gl.deleteShader(shader);
+        throw new Error("Shader compilation failed:\n" + error);
+    }
+
+    return shader;
 }
 
-function mixColor(a, b, amount) {
-    const t = clamp(amount, 0, 1);
+function createProgram(vertexSource, fragmentSource) {
+    const vertex = createShader(gl.VERTEX_SHADER, vertexSource);
+    const fragment = createShader(gl.FRAGMENT_SHADER, fragmentSource);
 
-    return a.map((value, index) =>
-        value + (b[index] - value) * t
+    const program = gl.createProgram();
+
+    gl.attachShader(program, vertex);
+    gl.attachShader(program, fragment);
+    gl.linkProgram(program);
+
+    gl.deleteShader(vertex);
+    gl.deleteShader(fragment);
+
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        const error = gl.getProgramInfoLog(program);
+        gl.deleteProgram(program);
+        throw new Error("Program linking failed:\n" + error);
+    }
+
+    return program;
+}
+
+function uniform(program, name) {
+    return gl.getUniformLocation(program, name);
+}
+
+// ============================================================
+// PARTICLE SHADERS
+// ============================================================
+
+const particleVertexShader = `#version 300 es
+precision highp float;
+
+layout(location = 0) in vec2 aPosition;
+layout(location = 1) in float aMouseAmount;
+
+uniform vec2 uResolution;
+uniform float uPixelRatio;
+uniform float uRadius;
+uniform float uGlowBlur;
+uniform float uGlowEnabled;
+
+out float vMouseAmount;
+
+void main() {
+    vec2 clip = aPosition / uResolution * 2.0 - 1.0;
+    clip.y = -clip.y;
+
+    gl_Position = vec4(clip, 0.0, 1.0);
+
+    float radius = max(0.0, uRadius);
+    float blur = max(0.0, uGlowBlur);
+
+    float extent = radius;
+
+    if (uGlowEnabled > 0.5) {
+        extent += blur * 1.6;
+    }
+
+    gl_PointSize = max(
+        1.0,
+        2.0 * extent * uPixelRatio
+    );
+
+    vMouseAmount = aMouseAmount;
+}
+`;
+
+const particleFragmentShader = `#version 300 es
+precision highp float;
+
+in float vMouseAmount;
+
+uniform vec3 uParticleColor;
+uniform vec3 uMouseColor;
+
+uniform float uRadius;
+uniform float uGlowEnabled;
+uniform float uGlowIntensity;
+uniform float uGlowBlur;
+
+out vec4 fragColor;
+
+void main() {
+    vec2 p = gl_PointCoord * 2.0 - 1.0;
+    float d = length(p);
+
+    if (d > 1.0) discard;
+
+    float radius = max(0.001, uRadius);
+    float blur = max(0.0, uGlowBlur);
+
+    float extent = radius;
+
+    if (uGlowEnabled > 0.5) {
+        extent += blur * 1.6;
+    }
+
+    float distancePixels = d * extent;
+
+    // Antialiased solid particle core.
+    float core = 1.0 - smoothstep(
+        max(0.0, radius - 0.8),
+        radius + 0.8,
+        distancePixels
+    );
+
+    float glow = 0.0;
+
+    if (uGlowEnabled > 0.5 && blur > 0.0) {
+        float sigma = max(0.5, blur * 0.55);
+
+        glow = exp(
+            -0.5 *
+            (distancePixels * distancePixels) /
+            (sigma * sigma)
+        );
+
+        glow *= clamp(uGlowIntensity, 0.0, 1.0);
+    }
+
+    vec3 color = mix(
+        uParticleColor,
+        uMouseColor,
+        clamp(vMouseAmount, 0.0, 1.0)
+    );
+
+    float alpha = max(core, glow * 0.7);
+
+    // Additive particle brightness.
+    vec3 light = color * (core + glow * 0.6);
+
+    fragColor = vec4(light, alpha);
+}
+`;
+
+// ============================================================
+// FULLSCREEN SHADERS
+// ============================================================
+
+const fullscreenVertexShader = `#version 300 es
+precision highp float;
+
+out vec2 vUV;
+
+void main() {
+    vec2 position = vec2(
+        (gl_VertexID << 1) & 2,
+        gl_VertexID & 2
+    );
+
+    vUV = position * 0.5;
+
+    gl_Position = vec4(
+        position * 2.0 - 1.0,
+        0.0,
+        1.0
     );
 }
+`;
+
+const feedbackFragmentShader = `#version 300 es
+precision highp float;
+
+in vec2 vUV;
+
+uniform sampler2D uPrevious;
+uniform float uDecay;
+
+out vec4 fragColor;
+
+void main() {
+    vec3 previous = texture(uPrevious, vUV).rgb;
+
+    fragColor = vec4(
+        previous * uDecay,
+        1.0
+    );
+}
+`;
+
+const displayFragmentShader = `#version 300 es
+precision highp float;
+
+in vec2 vUV;
+
+uniform sampler2D uTexture;
+
+out vec4 fragColor;
+
+void main() {
+    vec3 color = texture(uTexture, vUV).rgb;
+
+    // Gentle highlight compression.
+    color = color / (1.0 + color * 0.18);
+
+    fragColor = vec4(color, 1.0);
+}
+`;
+
+// ============================================================
+// PROGRAMS
+// ============================================================
+
+const particleProgram = createProgram(
+    particleVertexShader,
+    particleFragmentShader
+);
+
+const feedbackProgram = createProgram(
+    fullscreenVertexShader,
+    feedbackFragmentShader
+);
+
+const displayProgram = createProgram(
+    fullscreenVertexShader,
+    displayFragmentShader
+);
+
+const particleUniforms = {
+    resolution: uniform(particleProgram, "uResolution"),
+    pixelRatio: uniform(particleProgram, "uPixelRatio"),
+    radius: uniform(particleProgram, "uRadius"),
+    particleColor: uniform(particleProgram, "uParticleColor"),
+    mouseColor: uniform(particleProgram, "uMouseColor"),
+    glowEnabled: uniform(particleProgram, "uGlowEnabled"),
+    glowIntensity: uniform(particleProgram, "uGlowIntensity"),
+    glowBlur: uniform(particleProgram, "uGlowBlur")
+};
+
+const feedbackUniforms = {
+    previous: uniform(feedbackProgram, "uPrevious"),
+    decay: uniform(feedbackProgram, "uDecay")
+};
+
+const displayUniforms = {
+    texture: uniform(displayProgram, "uTexture")
+};
+
+// ============================================================
+// GPU PARTICLE BUFFERS
+// ============================================================
+
+const particleVAO = gl.createVertexArray();
+const particleBuffer = gl.createBuffer();
+
+gl.bindVertexArray(particleVAO);
+gl.bindBuffer(gl.ARRAY_BUFFER, particleBuffer);
+
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(
+    0, 2, gl.FLOAT, false,
+    3 * Float32Array.BYTES_PER_ELEMENT,
+    0
+);
+
+gl.enableVertexAttribArray(1);
+gl.vertexAttribPointer(
+    1, 1, gl.FLOAT, false,
+    3 * Float32Array.BYTES_PER_ELEMENT,
+    2 * Float32Array.BYTES_PER_ELEMENT
+);
+
+gl.bindVertexArray(null);
+
+const fullscreenVAO = gl.createVertexArray();
+
+// ============================================================
+// FRAMEBUFFER MANAGEMENT
+// ============================================================
+
+let textures = [];
+let framebuffers = [];
+let feedbackIndex = 0;
+
+function createRenderTarget(width, height) {
+    const texture = gl.createTexture();
+
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA8,
+        width,
+        height,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        null
+    );
+
+    gl.texParameteri(
+        gl.TEXTURE_2D,
+        gl.TEXTURE_MIN_FILTER,
+        gl.LINEAR
+    );
+
+    gl.texParameteri(
+        gl.TEXTURE_2D,
+        gl.TEXTURE_MAG_FILTER,
+        gl.LINEAR
+    );
+
+    gl.texParameteri(
+        gl.TEXTURE_2D,
+        gl.TEXTURE_WRAP_S,
+        gl.CLAMP_TO_EDGE
+    );
+
+    gl.texParameteri(
+        gl.TEXTURE_2D,
+        gl.TEXTURE_WRAP_T,
+        gl.CLAMP_TO_EDGE
+    );
+
+    const framebuffer = gl.createFramebuffer();
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
+    gl.framebufferTexture2D(
+        gl.FRAMEBUFFER,
+        gl.COLOR_ATTACHMENT0,
+        gl.TEXTURE_2D,
+        texture,
+        0
+    );
+
+    if (
+        gl.checkFramebufferStatus(gl.FRAMEBUFFER) !==
+        gl.FRAMEBUFFER_COMPLETE
+    ) {
+        throw new Error("WebGL framebuffer is incomplete.");
+    }
+
+    return { texture, framebuffer };
+}
+
+function destroyRenderTargets() {
+    for (const texture of textures) {
+        gl.deleteTexture(texture);
+    }
+
+    for (const framebuffer of framebuffers) {
+        gl.deleteFramebuffer(framebuffer);
+    }
+
+    textures = [];
+    framebuffers = [];
+}
+
+function rebuildRenderTargets() {
+    destroyRenderTargets();
+
+    for (let i = 0; i < 2; i++) {
+        const target = createRenderTarget(
+            canvas.width,
+            canvas.height
+        );
+
+        textures.push(target.texture);
+        framebuffers.push(target.framebuffer);
+    }
+
+    feedbackIndex = 0;
+
+    for (const framebuffer of framebuffers) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+// ============================================================
+// PARTICLE SIMULATION
+// ============================================================
 
 let width = 0;
 let height = 0;
+let pixelRatio = 1;
+
 let particles = [];
 let poles = [];
+
+let particleData = new Float32Array(0);
+
 let previousTime = null;
 let poleTime = 0;
 let clearFrame = true;
@@ -104,10 +748,6 @@ const mouse = {
     influence: 0
 };
 
-// --------------------------------------------------
-// Particles
-// --------------------------------------------------
-
 function newParticle() {
     const angle = Math.random() * TAU;
     const speed = 10 + Math.random() * 25;
@@ -116,13 +756,15 @@ function newParticle() {
         x: Math.random() * width,
         y: Math.random() * height,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed
+        vy: Math.sin(angle) * speed,
+        mouseAmount: 0
     };
 }
 
 function syncParticles() {
     const count = Math.max(
-        0, Math.floor(config.particleCount)
+        0,
+        Math.floor(config.particleCount)
     );
 
     while (particles.length < count) {
@@ -130,6 +772,8 @@ function syncParticles() {
     }
 
     particles.length = count;
+
+    particleData = new Float32Array(count * 3);
 }
 
 function resetParticles() {
@@ -140,57 +784,40 @@ function resetParticles() {
 
 function syncPoles() {
     const count = Math.max(
-        0, Math.floor(config.poles.count)
+        0,
+        Math.floor(config.poles.count)
     );
 
-    poles = Array.from({ length: count }, (_, index) => ({
-        phase: index / Math.max(1, count) * TAU,
-        direction: index % 2 === 0 ? 1 : -1
-    }));
+    poles = Array.from(
+        { length: count },
+        (_, index) => ({
+            phase: index / Math.max(1, count) * TAU,
+            direction: index % 2 === 0 ? 1 : -1
+        })
+    );
 }
-
-function resize() {
-    const oldWidth = width;
-    const oldHeight = height;
-
-    width = window.innerWidth;
-    height = window.innerHeight;
-
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    if (oldWidth > 0 && oldHeight > 0) {
-        for (const particle of particles) {
-            particle.x *= width / oldWidth;
-            particle.y *= height / oldHeight;
-        }
-    }
-
-    clearFrame = true;
-}
-
-// --------------------------------------------------
-// Moving force-field poles
-// --------------------------------------------------
 
 function getPoles() {
     return poles.map(pole => ({
         x: width * (
-            0.5 + 0.3 * Math.cos(poleTime + pole.phase)
+            0.5 +
+            0.3 * Math.cos(poleTime + pole.phase)
         ),
 
         y: height * (
-            0.5 + 0.3 *
-            Math.sin(poleTime * 0.73 + pole.phase)
+            0.5 +
+            0.3 * Math.sin(
+                poleTime * 0.73 + pole.phase
+            )
         ),
 
         direction: pole.direction
     }));
 }
+
+// ============================================================
+// PHYSICS
+// ============================================================
 
 function updateParticle(particle, positions, delta) {
     let ax = 0;
@@ -199,10 +826,10 @@ function updateParticle(particle, positions, delta) {
     const poleRadius = Math.max(1, config.poles.radius);
     const poleStrength = Math.max(0, config.poles.strength);
 
-    // Soft radial attraction plus tangential circulation.
     for (const pole of positions) {
         const dx = pole.x - particle.x;
         const dy = pole.y - particle.y;
+
         const distance = Math.hypot(dx, dy);
         const divisor = Math.max(20, distance);
 
@@ -223,11 +850,16 @@ function updateParticle(particle, positions, delta) {
 
     let mouseAmount = 0;
 
-    if (config.mouse.enabled && mouse.influence > 0.001) {
+    if (
+        config.mouse.enabled &&
+        mouse.influence > 0.001
+    ) {
         const dx = mouse.x - particle.x;
         const dy = mouse.y - particle.y;
+
         const distance = Math.hypot(dx, dy);
         const divisor = Math.max(20, distance);
+
         const radius = Math.max(1, config.mouse.radius);
 
         mouseAmount =
@@ -252,7 +884,6 @@ function updateParticle(particle, positions, delta) {
     particle.vx += ax * delta;
     particle.vy += ay * delta;
 
-    // Exponential drag is independent of frame rate.
     const drag = Math.exp(
         -Math.max(0, config.friction) * delta
     );
@@ -260,127 +891,428 @@ function updateParticle(particle, positions, delta) {
     particle.vx *= drag;
     particle.vy *= drag;
 
-    const speed = Math.hypot(particle.vx, particle.vy);
+    const speed = Math.hypot(
+        particle.vx,
+        particle.vy
+    );
+
     const maximum = Math.max(0, config.maxSpeed);
 
     if (speed > maximum && speed > 0) {
-        particle.vx *= maximum / speed;
-        particle.vy *= maximum / speed;
+        const scale = maximum / speed;
+
+        particle.vx *= scale;
+        particle.vy *= scale;
     }
 
     particle.x += particle.vx * delta;
     particle.y += particle.vy * delta;
 
-    // Wrap around screen edges without drawing connecting lines.
-    particle.x = (particle.x % width + width) % width;
-    particle.y = (particle.y % height + height) % height;
+    // Wrap around screen boundaries.
+    particle.x = (
+        (particle.x % width) + width
+    ) % width;
 
-    return mouseAmount;
+    particle.y = (
+        (particle.y % height) + height
+    ) % height;
+
+    particle.mouseAmount = mouseAmount;
 }
 
-// --------------------------------------------------
-// Rendering
-// --------------------------------------------------
+// ============================================================
+// RESIZE
+// ============================================================
 
-function drawParticle(particle, mouseAmount) {
-    const radius = Math.max(0, config.particleRadius);
-    if (radius <= 0) return;
+function resize() {
+    const oldWidth = width;
+    const oldHeight = height;
 
-    const color = rgb(mixColor(
-        config.particleColor,
-        config.mouse.color,
-        mouseAmount
-    ));
+    width = Math.max(1, window.innerWidth);
+    height = Math.max(1, window.innerHeight);
 
-    if (config.glow.enabled && config.glow.intensity > 0) {
-        ctx.save();
+    pixelRatio = Math.min(
+        window.devicePixelRatio || 1,
+        2
+    );
 
-        ctx.globalAlpha = clamp(config.glow.intensity, 0, 1);
-        ctx.shadowColor = color;
-        ctx.shadowBlur = Math.max(0, config.glow.blur);
-        ctx.fillStyle = color;
+    const maxTextureSize = gl.getParameter(
+        gl.MAX_TEXTURE_SIZE
+    );
 
-        ctx.beginPath();
-        ctx.arc(particle.x, particle.y, radius, 0, TAU);
-        ctx.fill();
+    const scale = Math.min(
+        1,
+        maxTextureSize / (width * pixelRatio),
+        maxTextureSize / (height * pixelRatio)
+    );
 
-        ctx.restore();
+    pixelRatio *= scale;
+
+    canvas.width = Math.max(
+        1,
+        Math.round(width * pixelRatio)
+    );
+
+    canvas.height = Math.max(
+        1,
+        Math.round(height * pixelRatio)
+    );
+
+    if (oldWidth > 0 && oldHeight > 0) {
+        for (const particle of particles) {
+            particle.x *= width / oldWidth;
+            particle.y *= height / oldHeight;
+        }
     }
 
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(particle.x, particle.y, radius, 0, TAU);
-    ctx.fill();
+    rebuildRenderTargets();
+    clearFrame = true;
 }
+
+// ============================================================
+// WEBGL RENDERING
+// ============================================================
+
+function bindTexture(texture, unit = 0) {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+}
+
+function drawFullscreen() {
+    gl.bindVertexArray(fullscreenVAO);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+}
+
+function clearTrails() {
+    for (const framebuffer of framebuffers) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+function renderParticles() {
+    if (!particles.length || config.particleRadius <= 0) {
+        return;
+    }
+
+    // Upload particle positions and mouse influence.
+    for (let i = 0; i < particles.length; i++) {
+        const particle = particles[i];
+        const offset = i * 3;
+
+        particleData[offset] = particle.x;
+        particleData[offset + 1] = particle.y;
+        particleData[offset + 2] = particle.mouseAmount;
+    }
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, particleBuffer);
+
+    gl.bufferData(
+        gl.ARRAY_BUFFER,
+        particleData,
+        gl.DYNAMIC_DRAW
+    );
+
+    gl.useProgram(particleProgram);
+
+    gl.uniform2f(
+        particleUniforms.resolution,
+        width,
+        height
+    );
+
+    gl.uniform1f(
+        particleUniforms.pixelRatio,
+        pixelRatio
+    );
+
+    gl.uniform1f(
+        particleUniforms.radius,
+        config.particleRadius
+    );
+
+    gl.uniform3fv(
+        particleUniforms.particleColor,
+        config.particleColor.map(v => v / 255)
+    );
+
+    gl.uniform3fv(
+        particleUniforms.mouseColor,
+        config.mouse.color.map(v => v / 255)
+    );
+
+    gl.uniform1f(
+        particleUniforms.glowEnabled,
+        config.glow.enabled ? 1 : 0
+    );
+
+    gl.uniform1f(
+        particleUniforms.glowIntensity,
+        config.glow.intensity
+    );
+
+    gl.uniform1f(
+        particleUniforms.glowBlur,
+        config.glow.blur
+    );
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+
+    gl.bindVertexArray(particleVAO);
+
+    gl.drawArrays(
+        gl.POINTS,
+        0,
+        particles.length
+    );
+
+    gl.bindVertexArray(null);
+    gl.disable(gl.BLEND);
+}
+
+function renderFeedback(delta) {
+    if (clearFrame) {
+        clearTrails();
+        clearFrame = false;
+    }
+
+    const previous = feedbackIndex;
+    const next = 1 - previous;
+
+    gl.bindFramebuffer(
+        gl.FRAMEBUFFER,
+        framebuffers[next]
+    );
+
+    gl.viewport(
+        0, 0,
+        canvas.width,
+        canvas.height
+    );
+
+    gl.disable(gl.BLEND);
+
+    gl.useProgram(feedbackProgram);
+
+    bindTexture(textures[previous]);
+
+    gl.uniform1i(
+        feedbackUniforms.previous,
+        0
+    );
+
+    const persistence = Math.max(
+        0,
+        config.trailLength
+    );
+
+    const decay = persistence <= 0
+        ? 0
+        : Math.exp(-delta / persistence);
+
+    gl.uniform1f(
+        feedbackUniforms.decay,
+        decay
+    );
+
+    drawFullscreen();
+
+    // Add the current particles to the feedback texture.
+    renderParticles();
+
+    feedbackIndex = next;
+}
+
+function renderDisplay() {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    gl.viewport(
+        0, 0,
+        canvas.width,
+        canvas.height
+    );
+
+    gl.disable(gl.BLEND);
+
+    gl.useProgram(displayProgram);
+
+    bindTexture(textures[feedbackIndex]);
+
+    gl.uniform1i(
+        displayUniforms.texture,
+        0
+    );
+
+    drawFullscreen();
+}
+
+// ============================================================
+// OPTIONAL POLE MARKERS
+// ============================================================
+
+// Pole markers are rendered as GPU particles.
+// Their positions are uploaded separately from the main
+// particle simulation.
+
+const poleVAO = gl.createVertexArray();
+const poleBuffer = gl.createBuffer();
+
+gl.bindVertexArray(poleVAO);
+gl.bindBuffer(gl.ARRAY_BUFFER, poleBuffer);
+
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(
+    0, 2, gl.FLOAT, false,
+    3 * 4, 0
+);
+
+gl.enableVertexAttribArray(1);
+gl.vertexAttribPointer(
+    1, 1, gl.FLOAT, false,
+    3 * 4, 2 * 4
+);
+
+gl.bindVertexArray(null);
 
 function drawPoles(positions) {
-    if (!config.poles.show) return;
-
-    ctx.save();
-    ctx.strokeStyle = "rgba(255,255,255,0.4)";
-    ctx.lineWidth = 1;
-
-    for (const pole of positions) {
-        ctx.beginPath();
-        ctx.arc(pole.x, pole.y, 7, 0, TAU);
-        ctx.moveTo(pole.x - 11, pole.y);
-        ctx.lineTo(pole.x + 11, pole.y);
-        ctx.moveTo(pole.x, pole.y - 11);
-        ctx.lineTo(pole.x, pole.y + 11);
-        ctx.stroke();
+    if (!config.poles.show || !positions.length) {
+        return;
     }
 
-    ctx.restore();
+    const data = new Float32Array(positions.length * 3);
+
+    positions.forEach((pole, index) => {
+        data[index * 3] = pole.x;
+        data[index * 3 + 1] = pole.y;
+        data[index * 3 + 2] = 0;
+    });
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, poleBuffer);
+
+    gl.bufferData(
+        gl.ARRAY_BUFFER,
+        data,
+        gl.DYNAMIC_DRAW
+    );
+
+    gl.useProgram(particleProgram);
+
+    gl.uniform2f(
+        particleUniforms.resolution,
+        width,
+        height
+    );
+
+    gl.uniform1f(
+        particleUniforms.pixelRatio,
+        pixelRatio
+    );
+
+    gl.uniform1f(
+        particleUniforms.radius,
+        4
+    );
+
+    gl.uniform3f(
+        particleUniforms.particleColor,
+        1, 1, 1
+    );
+
+    gl.uniform3f(
+        particleUniforms.mouseColor,
+        1, 1, 1
+    );
+
+    gl.uniform1f(
+        particleUniforms.glowEnabled,
+        1
+    );
+
+    gl.uniform1f(
+        particleUniforms.glowIntensity,
+        0.5
+    );
+
+    gl.uniform1f(
+        particleUniforms.glowBlur,
+        5
+    );
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+
+    gl.bindVertexArray(poleVAO);
+
+    gl.drawArrays(
+        gl.POINTS,
+        0,
+        positions.length
+    );
+
+    gl.bindVertexArray(null);
+    gl.disable(gl.BLEND);
 }
+
+// ============================================================
+// ANIMATION
+// ============================================================
 
 function animate(time) {
     const delta = previousTime === null
         ? 0
-        : Math.min((time - previousTime) / 1000, 0.05);
+        : Math.min(
+            (time - previousTime) / 1000,
+            0.05
+        );
 
     previousTime = time;
+
     poleTime += delta * config.poles.orbitSpeed;
 
-    mouse.influence +=
-        ((mouse.active && config.mouse.enabled ? 1 : 0) -
-            mouse.influence) *
-        (1 - Math.exp(-7 * delta));
-
-    const persistence = Math.max(0, config.trailLength);
-
-    const fade = clearFrame || persistence === 0
-        ? 1
-        : 1 - Math.exp(-delta / persistence);
-
-    ctx.fillStyle = `rgba(0,0,0,${fade})`;
-    ctx.fillRect(0, 0, width, height);
-    clearFrame = false;
+    mouse.influence += (
+        (mouse.active && config.mouse.enabled ? 1 : 0) -
+        mouse.influence
+    ) * (1 - Math.exp(-7 * delta));
 
     const positions = getPoles();
 
-    // Smaller simulation steps improve stability.
-    const steps = Math.max(1, Math.ceil(delta / (1 / 120)));
+    // Substeps improve numerical stability.
+    const steps = Math.max(
+        1,
+        Math.ceil(delta / (1 / 120))
+    );
+
     const stepDelta = delta / steps;
 
     for (const particle of particles) {
-        let mouseAmount = 0;
-
         for (let step = 0; step < steps; step++) {
-            mouseAmount = updateParticle(
-                particle, positions, stepDelta
+            updateParticle(
+                particle,
+                positions,
+                stepDelta
             );
         }
-
-        drawParticle(particle, mouseAmount);
     }
 
-    drawPoles(positions);
+    renderFeedback(delta);
+    renderDisplay();
+
+    // Draw visible poles on top, without trails.
+    if (config.poles.show) {
+        drawPoles(positions);
+    }
+
     requestAnimationFrame(animate);
 }
 
-// --------------------------------------------------
-// Pointer interaction
-// --------------------------------------------------
+// ============================================================
+// POINTER INTERACTION
+// ============================================================
 
 function isEditorTarget(target) {
     return (
@@ -408,14 +1340,17 @@ window.addEventListener("pointermove", updateMouse);
 window.addEventListener("pointerdown", updateMouse);
 
 document.documentElement.addEventListener(
-    "pointerleave", deactivateMouse
+    "pointerleave",
+    deactivateMouse
 );
 
 window.addEventListener("blur", deactivateMouse);
 window.addEventListener("pointercancel", deactivateMouse);
 
 window.addEventListener("pointerup", event => {
-    if (event.pointerType !== "mouse") deactivateMouse();
+    if (event.pointerType !== "mouse") {
+        deactivateMouse();
+    }
 });
 
 document.addEventListener("visibilitychange", () => {
@@ -425,18 +1360,19 @@ document.addEventListener("visibilitychange", () => {
 
 window.addEventListener("resize", resize);
 
-// --------------------------------------------------
-// Initialize
-// --------------------------------------------------
+// ============================================================
+// INITIALIZATION
+// ============================================================
 
 resize();
 syncParticles();
 syncPoles();
+
 requestAnimationFrame(animate);
 
-// --------------------------------------------------
-// Optional editor
-// --------------------------------------------------
+// ============================================================
+// SETTINGS EDITOR
+// ============================================================
 
 if (config.panel.enabled) {
     import("./settings-editor.js")
@@ -453,7 +1389,6 @@ if (config.panel.enabled) {
                         syncPoles();
                     }
 
-                    // Remove old trails when appearance changes.
                     if ([
                         "particleColor",
                         "particleRadius",
@@ -473,9 +1408,13 @@ if (config.panel.enabled) {
             });
         })
         .catch(error => {
-            console.error("Could not load settings editor:", error);
+            console.error(
+                "Could not load settings editor:",
+                error
+            );
         });
 }
+
 </script>
 </body>
 </html>
