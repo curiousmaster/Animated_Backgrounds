@@ -1,5 +1,350 @@
 
-export function createSettingsEditor({
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stellar Bloom</title>
+
+<style>
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #040711;
+  }
+
+  #background {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  #flight-status {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    max-width: calc(100% - 32px);
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(4, 7, 17, 0.45);
+    color: #bbcce5;
+    font: 12px/1.5 system-ui, sans-serif;
+    pointer-events: none;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  /* Collapsible settings editor and hover help */
+
+  .stellar-editor {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    pointer-events: none;
+    color: #e6eaf5;
+    font: 13px/1.5 system-ui, sans-serif;
+    color-scheme: dark;
+  }
+
+  .stellar-editor * { box-sizing: border-box; }
+
+  .stellar-editor button,
+  .stellar-editor input,
+  .stellar-editor textarea { font: inherit; }
+
+  .stellar-editor button {
+    min-height: 44px;
+    padding: 8px 11px;
+    border: 1px solid #ffffff26;
+    border-radius: 7px;
+    background: #293047;
+    color: inherit;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .stellar-editor button:hover { background: #3b4560; }
+
+  .stellar-editor :focus-visible {
+    outline: 2px solid #b6c9ee;
+    outline-offset: 3px;
+  }
+
+  .stellar-toggle {
+    position: absolute;
+    top: max(16px, env(safe-area-inset-top));
+    right: max(16px, env(safe-area-inset-right));
+    pointer-events: auto;
+  }
+
+  .stellar-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: min(370px, 100vw);
+    height: 100%;
+    padding: 22px;
+    padding-top: max(22px, env(safe-area-inset-top));
+    padding-bottom: max(22px, env(safe-area-inset-bottom));
+    overflow: auto;
+    overscroll-behavior: contain;
+    border-left: 1px solid #ffffff20;
+    background: rgba(10,14,28,.95);
+    backdrop-filter: blur(16px);
+    pointer-events: auto;
+    transform: translateX(100%);
+    transition: transform 220ms ease;
+    scrollbar-width: thin;
+    scrollbar-color: #ffffff30 transparent;
+  }
+
+  .stellar-panel.open { transform: translateX(0); }
+
+  .stellar-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .stellar-heading h2 { margin: 0; font-size: 18px; }
+
+  .stellar-help, .stellar-status {
+    color: #acb8ce;
+    font-size: 12px;
+    line-height: 1.65;
+  }
+
+  .stellar-help { margin: 0 0 14px; }
+  .stellar-introduction { margin: 12px 0 16px; }
+
+  .stellar-section-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .stellar-section-actions button {
+    flex: 1;
+    font-size: 12px;
+    background: #ffffff06;
+  }
+
+  .stellar-section {
+    margin-top: 12px;
+    border: 1px solid #ffffff18;
+    border-radius: 9px;
+    background: #ffffff03;
+  }
+
+  .stellar-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 46px;
+    padding: 11px 13px;
+    color: #bdceeb;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    touch-action: manipulation;
+    border-radius: 9px;
+  }
+
+  .stellar-summary::-webkit-details-marker { display: none; }
+
+  .stellar-summary::after {
+    content: "+";
+    color: #92a9cb;
+    font-size: 18px;
+    font-weight: 400;
+  }
+
+  .stellar-section[open] > .stellar-summary::after { content: "−"; }
+  .stellar-summary:hover { background: #ffffff06; }
+
+  .stellar-section[open] > .stellar-summary {
+    border-bottom: 1px solid #ffffff12;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .stellar-section-content { padding: 12px 13px 2px; }
+
+  .stellar-control {
+    margin: 0 -5px 9px;
+    padding: 5px;
+    border-radius: 6px;
+  }
+
+  .stellar-control:hover,
+  .stellar-control:focus-within {
+    background: #ffffff05;
+  }
+
+  .stellar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 5px;
+  }
+
+  .stellar-label-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .stellar-label-wrap label { min-width: 0; }
+
+  .stellar-editor .stellar-help-button {
+    min-height: 28px;
+    height: 28px;
+    width: 28px;
+    flex: 0 0 28px;
+    padding: 0;
+    border: 1px solid #ffffff20;
+    border-radius: 50%;
+    background: transparent;
+    color: #9eb8dc;
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .stellar-help-button[aria-expanded="true"] {
+    background: #a9bfe320;
+    border-color: #a9bfe360;
+  }
+
+  .stellar-panel input[type=range] {
+    width: 100%;
+    accent-color: #a9bfe3;
+  }
+
+  .stellar-panel input[type=number] {
+    width: 78px;
+    padding: 5px;
+    color: inherit;
+    background: #ffffff08;
+    border: 1px solid #ffffff24;
+    border-radius: 5px;
+  }
+
+  .stellar-row input[type=number] { flex: 0 0 78px; }
+
+  .stellar-panel input[type=checkbox] {
+    width: 18px;
+    height: 18px;
+    accent-color: #a9bfe3;
+    flex-shrink: 0;
+  }
+
+  .stellar-colors {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .stellar-panel input[type=color] {
+    width: 38px;
+    height: 32px;
+    padding: 2px;
+    background: transparent;
+    border: 1px solid #ffffff24;
+    border-radius: 5px;
+    flex-shrink: 0;
+  }
+
+  .stellar-colors input[type=number] {
+    width: 0;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .stellar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px;
+  }
+
+  .stellar-code {
+    width: 100%;
+    min-height: 260px;
+    margin-top: 14px;
+    padding: 12px;
+    background: #050a15;
+    color: #cddbf0;
+    border: 1px solid #ffffff24;
+    border-radius: 7px;
+    resize: vertical;
+    font: 11px/1.6 ui-monospace, monospace !important;
+  }
+
+  .stellar-status { min-height: 20px; margin-bottom: 0; }
+
+  .stellar-tooltip {
+    position: fixed;
+    z-index: 2;
+    width: 280px;
+    max-height: calc(100dvh - 24px);
+    padding: 16px 18px;
+    overflow: auto;
+    border: 1px solid #a9bfe340;
+    border-radius: 12px;
+    background: rgba(9,15,30,.97);
+    box-shadow: 0 12px 40px #00000050;
+    color: #d0dded;
+    font-size: 13px;
+    line-height: 1.7;
+    pointer-events: auto;
+  }
+
+  .stellar-tooltip strong {
+    display: block;
+    margin-bottom: 7px;
+    color: #eff4fc;
+    font-size: 14px;
+  }
+
+  .stellar-tooltip p { margin: 0; }
+
+  .stellar-inline-help {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-left: 2px solid #91afd5;
+    border-radius: 0 6px 6px 0;
+    background: #a9bfe30b;
+    color: #c2d0e4;
+    font-size: 12px;
+    line-height: 1.65;
+  }
+
+  .stellar-editor [hidden] { display: none !important; }
+
+  @media(prefers-reduced-motion: reduce) {
+    .stellar-panel { transition: none; }
+  }
+</style>
+</head>
+
+<body>
+<canvas id="background" aria-hidden="true"></canvas>
+<div id="flight-status" hidden></div>
+
+<script>
+window.createSettingsEditor = function createSettingsEditor({
   config,
   onChange = () => {},
   onReset = () => {},
@@ -11,7 +356,7 @@ export function createSettingsEditor({
     "stars.count": [20, 2000, 1],
     "stars.initialSpeed": [0, 60, 1],
     "stars.radius": [1, 6, 0.1],
-    "stars.maxCount": [20, 2000, 1],
+    "stars.maxCount": [350, 650, 1],
     "stars.opacity": [0, 1, 0.01],
     "stars.trails": [0, 1, 0.01],
     "stars.sizeSlowdown": [0, 3, 0.05],
@@ -60,6 +405,12 @@ export function createSettingsEditor({
     "nebula.opacity": [0, 0.8, 0.01],
     "nebula.size": [0.1, 1, 0.05],
 
+    "cinematic.bloomStrength": [0, 3, 0.05],
+    "cinematic.bloomRadius": [0.5, 12, 0.5],
+    "cinematic.bloomThreshold": [0, 1, 0.01],
+    "cinematic.exposure": [0.3, 3, 0.05],
+    "cinematic.vignette": [0, 1, 0.01],
+    "cinematic.twinkle": [0, 0.6, 0.01],
     "appearance.glow": [0, 40, 1],
     "animation.speed": [0, 3, 0.05]
   };
@@ -69,272 +420,336 @@ export function createSettingsEditor({
     sizeSlowdown: "Size-based slowdown",
     rotationSpeedX: "X rotation speed",
     rotationSpeedY: "Y rotation speed",
-    rotationSpeedZ: "Z rotation speed",
-    fieldOfView: "Field of view",
-    nearClip: "Near clipping distance",
-    maxCount: "Maximum star count",
-    glowMass: "Glow mass",
-    criticalMass: "Critical mass",
-    showStatus: "Show flight status",
-    showBoundary: "Show boundary",
-    respectReducedMotion: "Respect reduced motion"
+    rotationSpeedZ: "Z rotation speed"
   };
 
   const descriptions = {
+    "cinematic.enabled": "Enable GPU-based cinematic lighting and post-processing.",
+    "cinematic.bloomStrength": "Amount of soft light bleeding outward from bright stars.",
+    "cinematic.bloomRadius": "Spread of the multi-pass bloom blur in screen pixels.",
+    "cinematic.bloomThreshold": "Brightness threshold for contributing to bloom.",
+    "cinematic.exposure": "Overall cinematic tone-mapping brightness.",
+    "cinematic.vignette": "Darken the edges of the screen to focus attention toward the center.",
+    "cinematic.twinkle": "Subtle variation in star brightness and apparent size.",
     "stars.count":
-      "Number of stars created when starting a new field. " +
-      "Changing this setting restarts the simulation.",
+      "Number of stars created when starting a new field. Changing this " +
+      "restarts the simulation. Merging and explosions change the population afterward.",
 
     "stars.initialSpeed":
-      "Starting velocity of new stars in simulation units per second.",
+      "Starting movement speed of newly created stars, in simulation units " +
+      "per second. Gravity changes their velocity after initialization.",
 
     "stars.radius":
-      "Base physical radius. Star radius increases with the cube root of mass.",
+      "Base physical radius of a mass-1 star. Larger values make stars " +
+      "look bigger and increase their collision size. Radius grows with the cube root of mass.",
 
     "stars.maxCount":
-      "Maximum number of stars permitted after explosions. " +
-      "Reducing this limit may cause stars to merge.",
+      "Maximum population allowed when explosions create fragments. " +
+      "A giant waits if there is insufficient room for at least two fragments. " +
+      "Lowering this limit merges excess stars while preserving mass.",
 
     "stars.opacity":
-      "Opacity of star cores before distance fading. " +
-      "Halos and trails have separate opacity.",
+      "Base visibility of star cores. 0 hides the cores; 1 makes them " +
+      "fully opaque before distance fading. Halos and trails have their own rendering.",
 
     "stars.trails":
-      "Length of velocity trails in seconds. " +
-      "Set to zero to disable trails.",
+      "Length of the velocity trail in seconds of movement. " +
+      "0 disables trails. These are short lines based on current velocity, " +
+      "rather than a stored history of the star's path.",
 
     "stars.sizeSlowdown":
-      "Slows stars when they grow through merging. " +
-      "Also reduces the maximum speed of larger stars. " +
-      "Zero disables this effect.",
+      "Slows stars as they merge and lowers the maximum speed of large stars. " +
+      "0 disables size-based braking. Higher values create slower giants. " +
+      "This is an artistic effect and does not conserve momentum during merges.",
 
     "gravity.strength":
-      "Strength of gravitational attraction between stars. " +
-      "Higher values produce faster clustering.",
+      "Strength of the attraction between stars. Higher values make stars " +
+      "gather faster. Each star's mass increases the gravitational pull it exerts.",
 
     "gravity.range":
-      "Maximum distance over which two stars exert gravitational attraction.",
+      "Maximum simulation-space distance over which two stars attract " +
+      "one another. Shorter ranges favor local clusters; longer ranges connect distant groups.",
 
     "gravity.softening":
-      "Softens gravity at short distances to prevent extreme acceleration.",
+      "Softens gravity at close distances to prevent extreme acceleration. " +
+      "Higher values make encounters gentler and reduce attraction near star centers.",
 
     "gravity.maxSpeed":
-      "Maximum star velocity. Larger stars may have a lower speed limit.",
+      "Base maximum physical speed. Large stars receive a lower limit " +
+      "when Size-based slowdown is enabled. This also limits explosion fragments.",
 
     "gravity.mergeDistance":
-      "Collision multiplier applied to the combined radii of two stars. " +
-      "Higher values cause merging at greater distances.",
+      "Collision multiplier applied to the sum of two stars' radii. " +
+      "Higher values allow merging from farther apart. Stars on cooldown cannot merge.",
 
     "explosions.enabled":
-      "Allows stars reaching critical mass to explode after their delay.",
+      "Allows sufficiently massive stars to explode after their delay. " +
+      "When disabled, stars can continue merging into larger giants.",
 
     "explosions.glowMass":
-      "Mass at which a star begins developing a stronger, warmer halo.",
+      "Mass at which a star begins developing a stronger, warmer halo. " +
+      "This is a visual threshold and does not itself trigger an explosion.",
 
     "explosions.criticalMass":
-      "Mass required before a star starts its explosion countdown.",
+      "Mass a star must reach before its explosion countdown starts. " +
+      "Higher values generally produce fewer explosions and larger giants.",
 
     "explosions.delay":
-      "Base waiting time before a critical star explodes, in simulation seconds. " +
-      "New stars receive this setting when created.",
+      "Base waiting time after reaching critical mass, in simulation seconds. " +
+      "The waiting time is assigned when each star is created; change this before " +
+      "starting a new field to apply it to all stars.",
 
     "explosions.delayVariation":
-      "Random additional waiting time assigned to new stars.",
+      "Maximum extra random waiting time added to the base explosion delay. " +
+      "Assigned when stars are created. Larger values make burst timing less uniform.",
 
     "explosions.fragments":
-      "Requested number of fragments created by an explosion. " +
-      "The population limit may reduce this number.",
+      "Requested number of stars produced by an explosion. The available " +
+      "population budget may reduce this number. The parent's mass is divided equally.",
 
     "explosions.speed":
-      "Initial outward velocity added to explosion fragments.",
+      "Outward ejection speed of fragments, added to the parent's movement. " +
+      "Higher values scatter fragments farther. Maximum speed and size-based limits still apply.",
 
     "explosions.cooldown":
-      "Time after an explosion during which fragments cannot merge.",
+      "Time after an explosion during which fragments cannot merge. " +
+      "This prevents immediate recombination. Gravity continues to act during cooldown.",
 
     "explosions.shockwaveStrength":
-      "Strength of the expanding explosion shockwave.",
+      "Additional push from a giant's expanding explosion wave. " +
+      "0 disables this force without disabling the visual ring or fragmentation.",
 
     "space.threeD":
-      "Enable full three-dimensional movement, gravity, and collisions. " +
-      "Changing this restarts the simulation.",
+      "Simulates depth as well as horizontal and vertical motion. " +
+      "Gravity and collisions use three-dimensional distances. Changing this restarts the field.",
 
     "space.sphereBoundary":
-      "Keep stars inside a sphere, or a disk in 2D mode. " +
-      "When disabled, stars wrap around the simulation area.",
+      "Keeps stars inside a sphere in 3D, or a disk in 2D. " +
+      "When disabled, stars wrap across the edges of a box. Changing this restarts the field.",
 
     "space.radius":
-      "Radius of the simulated star field. " +
-      "Increasing it spreads stars over a larger volume.",
+      "Radius of the simulation boundary. Larger values spread the same " +
+      "number of stars over more space, making encounters less frequent. " +
+      "Changing this restarts the field.",
 
     "space.boundaryBounce":
-      "Amount of velocity retained when a star bounces off the boundary.",
+      "How much outward velocity remains after hitting the spherical boundary. " +
+      "1 is a fully elastic bounce; lower values reduce the normal component of movement.",
 
     "camera.distance":
-      "Distance of the external camera from the center of the field.",
+      "External camera distance from the center of the star field. " +
+      "Smaller distances create stronger perspective. This setting is not used " +
+      "for positioning the camera in Flight mode.",
 
     "camera.zoom":
-      "Camera magnification without changing the physical simulation.",
+      "Magnification of the view. Higher values enlarge the scene " +
+      "without changing physical positions, gravity, or collision distances.",
 
     "camera.rotationX":
-      "Starting camera rotation around the X axis in degrees.",
+      "Starting rotation around the X axis, in degrees. " +
+      "Tilts the external view vertically. Animated X rotation is added to this angle.",
 
     "camera.rotationY":
-      "Starting camera rotation around the Y axis in degrees.",
+      "Starting rotation around the Y axis, in degrees. " +
+      "Turns the external view horizontally. Animated Y rotation is added to this angle.",
 
     "camera.rotationZ":
-      "Starting camera rotation around the Z axis in degrees.",
+      "Starting rotation around the Z axis, in degrees. " +
+      "Rotates the external view in the screen plane.",
 
     "camera.rotationSpeedX":
-      "Automatic X-axis rotation in degrees per simulation second.",
+      "Animated X rotation in degrees per simulation second. " +
+      "0 stops rotation; negative values reverse its direction. " +
+      "Animation speed also scales this motion.",
 
     "camera.rotationSpeedY":
-      "Automatic Y-axis rotation in degrees per simulation second.",
+      "Animated Y rotation in degrees per simulation second. " +
+      "0 stops rotation; negative values reverse its direction. " +
+      "These rotations affect the external view, not the movement-facing flight view.",
 
     "camera.rotationSpeedZ":
-      "Automatic Z-axis rotation in degrees per simulation second.",
+      "Animated Z rotation in degrees per simulation second. " +
+      "0 stops rotation; negative values reverse its direction. " +
+      "Use Reset rotation to return the accumulated angles to zero.",
 
     "camera.showBoundary":
-      "Display faint circles showing the spherical simulation boundary.",
+      "Draws three faint great circles showing the spherical boundary. " +
+      "Useful for inspecting the 3D space. Only shown when Sphere boundary is enabled.",
 
     "flight.enabled":
-      "Follow an individual star with the camera looking in its direction of travel.",
+      "Places the camera on a star and points it along that star's movement. " +
+      "The followed star is hidden. Its successor is followed after a merge or explosion.",
 
     "flight.followDistance":
-      "Distance behind the followed star. Zero places the camera at the star.",
+      "Distance behind the followed star, in simulation units. " +
+      "0 places the camera at its position. Larger values give a trailing viewpoint.",
 
     "flight.heightOffset":
-      "Vertical offset of the camera relative to the followed star.",
+      "Vertical offset from the followed star in simulation-space Y. " +
+      "Positive and negative values place the camera on opposite sides of the star.",
 
     "flight.fieldOfView":
-      "Vertical field of view in degrees for flight mode.",
+      "Vertical viewing angle for Flight mode, in degrees. " +
+      "Higher values show more surroundings; lower values create a tighter view.",
 
     "flight.positionSmoothing":
-      "How quickly the camera catches up with the followed star.",
+      "How quickly the camera catches up with the star's position. " +
+      "Higher values track more tightly. 0 follows immediately without smoothing.",
 
     "flight.directionSmoothing":
-      "How quickly the camera turns toward the star's direction of movement.",
+      "How quickly the camera turns toward the star's movement direction. " +
+      "Higher values react faster. 0 follows its direction immediately.",
 
     "flight.nearClip":
-      "Minimum visible distance from the camera in flight mode.",
+      "Minimum forward distance at which objects are rendered in Flight mode. " +
+      "Higher values hide objects very close to the camera and reduce large foreground shapes.",
 
     "flight.showStatus":
-      "Display the followed star's ID, mass, speed, and total star count.",
+      "Shows the followed star's identifier, mass, speed, and the current " +
+      "population in the lower-left corner.",
 
     "mouse.enabled":
-      "Enable mouse attraction and click-generated shockwaves.",
+      "Enables pointer attraction and click-generated shockwaves. " +
+      "Stars continue their normal gravitational simulation when disabled.",
 
     "mouse.radius":
-      "Radius of pointer attraction measured in screen pixels.",
+      "Pointer attraction radius in screen pixels. It remains a screen-space " +
+      "interaction even when the stars are simulated in 3D.",
 
     "mouse.strength":
-      "Strength of attraction toward the mouse pointer.",
+      "Strength of the pointer's attraction. Higher values bend star paths " +
+      "more strongly toward the cursor. The camera's followed star is excluded " +
+      "from this attraction in Flight mode.",
 
     "mouse.holdMultiplier":
-      "Additional attraction while holding the primary mouse button.",
+      "Multiplier applied to pointer attraction while holding the primary " +
+      "mouse button or touching the background.",
 
     "mouse.shockwave":
-      "Strength of the expanding wave generated when clicking.",
+      "Strength of the expanding scattering wave created by clicking or tapping. " +
+      "0 removes the push while retaining the ring.",
 
     "mouse.smoothing":
-      "How quickly the attraction point follows mouse movement.",
+      "How quickly the attraction point follows your pointer. " +
+      "Higher values feel more immediate; lower values create a softer trailing response.",
 
     "nebula.enabled":
-      "Show or hide the decorative nebula background.",
+      "Shows or hides the cached colorful nebula artwork. " +
+      "Nebulas have no gravity and do not move with the simulation or camera.",
 
     "nebula.clouds":
-      "Number of nebula cloud groups.",
+      "Number of decorative cloud groups. Changing this rebuilds the static " +
+      "nebula image without restarting the stars.",
 
     "nebula.opacity":
-      "Overall transparency of the nebula background.",
+      "Visibility of the entire nebula layer. 0 hides it; higher values " +
+      "make the background clouds more prominent.",
 
     "nebula.size":
-      "Size of nebula clouds relative to the viewport.",
+      "Cloud size relative to the viewport. Larger values create broader, " +
+      "more overlapping clouds. Changing this rebuilds the nebula artwork.",
 
     "nebula.colorA":
-      "First nebula color.",
+      "First color used by alternating nebula cloud groups. " +
+      "Choose a color or edit its red, green, and blue channels.",
 
     "nebula.colorB":
-      "Second nebula color.",
+      "Second color used by alternating nebula cloud groups. " +
+      "The artwork blends overlapping clouds using screen compositing.",
 
     "nebula.colorC":
-      "Third nebula color.",
+      "Third color used by alternating nebula cloud groups. " +
+      "Changing it recolors the static artwork without affecting star physics.",
 
     "appearance.backgroundColor":
-      "Solid background color behind the stars and nebulas.",
+      "Solid color beneath the stars and nebulas. " +
+      "Darker colors make luminous stars and halos stand out more clearly.",
 
     "appearance.starColor":
-      "Base color of small stars.",
+      "Base color of small stars. Their appearance also fades with camera distance.",
 
     "appearance.giantColor":
-      "Color approached by stars as they increase in mass.",
+      "Warmer color approached as a star grows from the glow threshold " +
+      "toward critical mass.",
 
     "appearance.hotColor":
       "Color approached during the explosion countdown. " +
-      "Also used for explosion and shockwave rings.",
+      "Also used for shockwave and explosion rings.",
 
     "appearance.glow":
-      "Additional size of star halos.",
+      "Additional halo size around stars. Larger values create broader glows. " +
+      "Mass and perspective also affect the visible halo.",
 
     "animation.speed":
-      "Global simulation speed. Affects physics, explosions, and camera rotation.",
+      "Global simulation speed. Scales star motion, explosion timers, " +
+      "camera rotation, and flight smoothing. 0 freezes simulation time.",
 
     "animation.paused":
-      "Pause physics and animation while keeping the settings available.",
+      "Freezes physics, explosion timers, and animated rotation. " +
+      "Settings can still be edited while the scene is paused.",
 
     "animation.respectReducedMotion":
-      "Pause animation when the operating system requests reduced motion.",
+      "Pauses the simulation when the operating system or browser requests " +
+      "reduced motion. Disable only if you deliberately want continuous animation.",
 
     "panel.enabled":
-      "Enable or disable the settings editor. " +
-      "Turning this off hides the editor until the page is reloaded " +
-      "with the setting enabled in index.html."
+      "Controls whether the settings editor is enabled. Turning this off " +
+      "hides the editor immediately. Copy your configuration first. " +
+      "Save enabled: false in index.html to prevent the editor from being imported."
   };
 
-  const sectionDescriptions = {
-    stars: "Star population, appearance, trails, and size-dependent movement.",
-    gravity: "Gravitational attraction, collision distances, and velocity limits.",
-    explosions: "Critical mass, fragmentation, cooldowns, and shockwaves.",
-    space: "Simulation dimensions, boundaries, and collision behavior.",
-    camera: "External camera position, zoom, and automatic rotation.",
-    flight: "Follow a moving star from a first-person perspective.",
-    mouse: "Pointer attraction and interactive shockwaves.",
-    nebula: "Decorative cloud layers and their colors.",
-    appearance: "Background, star colors, and glow.",
-    animation: "Simulation timing and motion preferences.",
-    panel: "Settings editor visibility."
+  const sectionHelp = {
+    stars:
+      "Size-based slowdown reduces speed as stars grow. " +
+      "Changing initial count restarts the field.",
+
+    gravity:
+      "Tune how stars attract and merge.",
+
+    explosions:
+      "Higher critical mass and longer delays produce fewer explosions.",
+
+    space:
+      "Space changes restart the field.",
+
+    camera:
+      "Rotation speeds are degrees per simulation second. " +
+      "0 stops an axis; negative values reverse it.",
+
+    flight:
+      "Ride a star while looking along its movement.",
+
+    nebula:
+      "Static decorative clouds, independent of the simulation."
   };
 
-  const storageKey = "stellar-bloom-open-sections";
+  const initiallyOpen = new Set(["stars", "camera", "flight"]);
+  const sections = [];
+  const bindings = [];
 
-  const defaultOpen = ["stars", "camera", "flight"];
 
-  let savedOpen = defaultOpen;
-
-  try {
-    const saved = JSON.parse(localStorage.getItem(storageKey));
-    if (Array.isArray(saved)) savedOpen = saved;
-  } catch (error) {
-    console.warn("Could not restore editor sections:", error);
-  }
 
   const root = document.createElement("div");
   root.className = "stellar-editor";
   root.dataset.backgroundEditor = "";
 
   root.innerHTML = `
-    <button class="stellar-toggle" type="button">
+    <button class="stellar-toggle" type="button"
+      aria-expanded="false" aria-controls="stellar-panel">
       Settings
     </button>
 
-    <aside class="stellar-panel" aria-label="Stellar Bloom settings" inert>
+    <aside id="stellar-panel" class="stellar-panel"
+      aria-label="Stellar Bloom settings" inert>
       <div class="stellar-heading">
         <h2>Stellar Bloom</h2>
         <button class="stellar-close" type="button">Retract</button>
       </div>
 
       <p class="stellar-help stellar-introduction">
-        Hover over any setting to see its description.
-        On narrow screens, descriptions appear beneath the setting.
+        Hover over a setting or focus its control for help.
+        On phones, tap its ? button.
+        Copy your settings before disabling the editor.
       </p>
 
       <div class="stellar-section-actions">
@@ -353,8 +768,7 @@ export function createSettingsEditor({
         <button class="stellar-nebula" type="button">New nebulas</button>
       </div>
 
-      <textarea class="stellar-code"
-        aria-label="Configuration code"
+      <textarea class="stellar-code" aria-label="Configuration code"
         spellcheck="false" readonly hidden></textarea>
 
       <p class="stellar-status" role="status" aria-live="polite"></p>
@@ -368,104 +782,96 @@ export function createSettingsEditor({
 
   document.body.append(root);
 
-  const $ = selector => root.querySelector(selector);
-
-  const toggle = $(".stellar-toggle");
-  const panel = $(".stellar-panel");
-  const close = $(".stellar-close");
-  const controls = $(".stellar-controls");
-  const tooltip = $(".stellar-tooltip");
+  const toggle = root.querySelector(".stellar-toggle");
+  const panel = root.querySelector(".stellar-panel");
+  const close = root.querySelector(".stellar-close");
+  const controls = root.querySelector(".stellar-controls");
+  const code = root.querySelector(".stellar-code");
+  const show = root.querySelector(".stellar-show");
+  const status = root.querySelector(".stellar-status");
+  const tooltip = root.querySelector(".stellar-tooltip");
   const tooltipTitle = tooltip.querySelector("strong");
   const tooltipText = tooltip.querySelector("p");
-  const code = $(".stellar-code");
-  const status = $(".stellar-status");
-  const show = $(".stellar-show");
 
-  const sections = [];
-  const bindings = [];
-
-  let activeHelp = null;
+  let hoveredHelp = null;
+  let focusedHelp = null;
   let pinnedHelp = null;
+  let tooltipHovered = false;
+  let hideTimer = null;
   let destroyed = false;
 
-  const title = key =>
-    labels[key] ||
+  const title = key => labels[key] ||
     key.replace(/([A-Z])/g, " $1")
-       .replace(/^./, character => character.toUpperCase());
+      .replace(/^./, character => character.toUpperCase());
 
   const exportCode = () =>
     `const config = ${JSON.stringify(config, null, 2)};`;
 
-  const clamp = (value, min, max) =>
-    Math.max(min, Math.min(max, value));
+  const toHex = color => "#" + color.map(value =>
+    Math.round(value).toString(16).padStart(2, "0")
+  ).join("");
 
-  const toHex = rgb =>
-    "#" + rgb.map(channel =>
-      clamp(Math.round(channel), 0, 255)
-        .toString(16)
-        .padStart(2, "0")
-    ).join("");
-
-  function element(tag, className = "") {
+  function element(tag, className) {
     const node = document.createElement(tag);
-    node.className = className;
+    if (className) node.className = className;
     return node;
   }
 
-  function saveSections() {
-    try {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify(
-          sections.filter(section => section.open)
-                  .map(section => section.dataset.group)
-        )
-      );
-    } catch (error) {
-      console.warn("Could not save editor sections:", error);
-    }
+  function activeHelp() {
+    return pinnedHelp || hoveredHelp || focusedHelp;
   }
 
-  function hideHelp() {
-    activeHelp = null;
+  function clearHelp() {
+    clearTimeout(hideTimer);
+    hoveredHelp = null;
+    focusedHelp = null;
+    pinnedHelp = null;
+    tooltipHovered = false;
     tooltip.hidden = true;
 
-    root.querySelectorAll(".stellar-inline-help").forEach(node => {
-      node.hidden = true;
-    });
+    for (const item of helpItems) {
+      item.inline.hidden = true;
+      item.button.setAttribute("aria-expanded", "false");
+    }
   }
 
-  function positionHelp(item) {
-    if (destroyed || !panel.classList.contains("open")) {
-      hideHelp();
+  function positionHelp() {
+    if (destroyed) return;
+
+    const item = activeHelp();
+
+    for (const entry of helpItems) {
+      entry.inline.hidden = true;
+      entry.button.setAttribute(
+        "aria-expanded",
+        String(entry === pinnedHelp)
+      );
+    }
+
+    if (
+      !item ||
+      !panel.classList.contains("open") ||
+      !item.box.closest("details").open
+    ) {
+      tooltip.hidden = true;
       return;
     }
 
-    if (!item || !item.box.closest("details")?.open) {
-      hideHelp();
-      return;
-    }
-
-    activeHelp = item;
-
-    root.querySelectorAll(".stellar-inline-help").forEach(node => {
-      node.hidden = true;
-    });
-
-    const panelRect = panel.getBoundingClientRect();
+    const paneRect = panel.getBoundingClientRect();
     const itemRect = item.box.getBoundingClientRect();
 
     if (
-      itemRect.bottom < panelRect.top ||
-      itemRect.top > panelRect.bottom
+      itemRect.bottom <= paneRect.top ||
+      itemRect.top >= paneRect.bottom
     ) {
       tooltip.hidden = true;
       return;
     }
 
     const gap = 14;
-    const availableWidth = panelRect.left - gap - 12;
+    const availableWidth = paneRect.left - gap - 12;
 
+    // Narrow viewport: help expands beneath the setting instead.
     if (availableWidth < 220) {
       tooltip.hidden = true;
       item.inline.hidden = false;
@@ -476,69 +882,117 @@ export function createSettingsEditor({
     tooltipText.textContent = item.description;
 
     tooltip.style.width = `${Math.min(280, availableWidth)}px`;
+    tooltip.style.maxHeight = `${Math.max(80, innerHeight - 24)}px`;
     tooltip.hidden = false;
 
-    const tooltipRect = tooltip.getBoundingClientRect();
-
-    const top = itemRect.top +
-      itemRect.height / 2 -
-      tooltipRect.height / 2;
+    const popupRect = tooltip.getBoundingClientRect();
+    const desiredTop =
+      itemRect.top + itemRect.height / 2 - popupRect.height / 2;
 
     tooltip.style.left =
-      `${panelRect.left - tooltipRect.width - gap}px`;
+      `${paneRect.left - popupRect.width - gap}px`;
 
     tooltip.style.top =
-      `${clamp(top, 12, Math.max(12, innerHeight - tooltipRect.height - 12))}px`;
+      `${Math.max(12, Math.min(
+        desiredTop,
+        innerHeight - popupRect.height - 12
+      ))}px`;
   }
 
+  function scheduleHelpHide() {
+    clearTimeout(hideTimer);
+
+    hideTimer = setTimeout(() => {
+      if (!tooltipHovered) positionHelp();
+    }, 140);
+  }
+
+  const helpItems = [];
+
   function addHelp(box, labelWrap, path, name) {
-    const description =
-      descriptions[path] ||
+    const description = descriptions[path] ||
       `Adjust ${name.toLowerCase()} for this scene.`;
 
     const inline = element("div", "stellar-inline-help");
+    inline.id = `stellar-help-${path.replaceAll(".", "-")}`;
     inline.textContent = description;
     inline.hidden = true;
 
-    const helpButton = element("button", "stellar-help-button");
-    helpButton.type = "button";
-    helpButton.textContent = "?";
-    helpButton.setAttribute("aria-label", `Help for ${name}`);
+    const button = element("button", "stellar-help-button");
+    button.type = "button";
+    button.textContent = "?";
+    button.setAttribute("aria-label", `Help for ${name}`);
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-controls", inline.id);
 
-    labelWrap.append(helpButton);
+    labelWrap.append(button);
     box.append(inline);
 
-    const item = { box, inline, name, description };
+    const item = { box, button, inline, name, description };
+    helpItems.push(item);
 
     box.addEventListener("pointerenter", event => {
-      if (event.pointerType !== "touch") positionHelp(item);
+      if (event.pointerType === "touch") return;
+      clearTimeout(hideTimer);
+      hoveredHelp = item;
+      positionHelp();
     });
 
     box.addEventListener("pointerleave", () => {
-      if (pinnedHelp !== item) hideHelp();
+      if (hoveredHelp === item) hoveredHelp = null;
+      scheduleHelpHide();
     });
 
     box.addEventListener("focusin", () => {
-      positionHelp(item);
+      focusedHelp = item;
+      positionHelp();
     });
 
     box.addEventListener("focusout", event => {
-      if (!box.contains(event.relatedTarget) && pinnedHelp !== item) {
-        hideHelp();
-      }
+      if (box.contains(event.relatedTarget)) return;
+      if (focusedHelp === item) focusedHelp = null;
+      scheduleHelpHide();
     });
 
-    helpButton.addEventListener("click", () => {
-      if (pinnedHelp === item) {
-        pinnedHelp = null;
-        hideHelp();
-      } else {
-        pinnedHelp = item;
-        positionHelp(item);
+    button.addEventListener("click", () => {
+      const wasPinned = pinnedHelp === item;
+      pinnedHelp = wasPinned ? null : item;
+
+      if (wasPinned) {
+        hoveredHelp = null;
+        focusedHelp = null;
       }
+
+      positionHelp();
     });
 
-    return item;
+    return inline.id;
+  }
+
+  tooltip.addEventListener("pointerenter", () => {
+    tooltipHovered = true;
+    clearTimeout(hideTimer);
+  });
+
+  tooltip.addEventListener("pointerleave", () => {
+    tooltipHovered = false;
+    scheduleHelpHide();
+  });
+
+  function open(value) {
+    toggle.hidden = false;
+
+    if (!value) {
+      clearHelp();
+      if (panel.contains(document.activeElement)) toggle.focus();
+    }
+
+    panel.classList.toggle("open", value);
+    panel.inert = !value;
+    toggle.hidden = value;
+    toggle.setAttribute("aria-expanded", String(value));
+
+    if (value) close.focus();
   }
 
   function changed() {
@@ -552,87 +1006,69 @@ export function createSettingsEditor({
   }
 
   function refreshControls() {
-    bindings.forEach(update => update());
+    for (const update of bindings) update();
     code.value = exportCode();
   }
 
-  function open(value) {
-    if (!value) {
-      pinnedHelp = null;
-      hideHelp();
-    }
-
-    panel.classList.toggle("open", value);
-    panel.inert = !value;
-
-    toggle.hidden = value;
-    toggle.setAttribute("aria-expanded", String(value));
-
-    if (value) {
-      close.focus();
-    } else {
-      toggle.focus();
-    }
-  }
-
   function setSectionsOpen(value) {
-    hideHelp();
-    pinnedHelp = null;
-
-    sections.forEach(section => {
-      section.open = value;
-    });
-
-    saveSections();
+    clearHelp();
+    for (const section of sections) section.open = value;
   }
 
   for (const [groupName, group] of Object.entries(config)) {
     const section = element("details", "stellar-section");
-    section.dataset.group = groupName;
-    section.open = savedOpen.includes(groupName);
+    section.open = initiallyOpen.has(groupName);
 
     const summary = element("summary", "stellar-summary");
     summary.textContent = title(groupName);
 
     const content = element("div", "stellar-section-content");
-
     section.append(summary, content);
     sections.push(section);
 
     section.addEventListener("toggle", () => {
-      saveSections();
-      if (!section.open) hideHelp();
+      const item = activeHelp();
+
+      if (item && section.contains(item.box) && !section.open) {
+        clearHelp();
+      } else {
+        positionHelp();
+      }
     });
 
-    if (sectionDescriptions[groupName]) {
-      const description = element("p", "stellar-help");
-      description.textContent = sectionDescriptions[groupName];
-      content.append(description);
+    if (sectionHelp[groupName]) {
+      const paragraph = element("p", "stellar-help");
+      paragraph.textContent = sectionHelp[groupName];
+      content.append(paragraph);
     }
 
-    for (const [key, initialValue] of Object.entries(group)) {
+    for (const [key, value] of Object.entries(group)) {
       const path = `${groupName}.${key}`;
-      const id = `stellar-${groupName}-${key}`;
-
       const box = element("div", "stellar-control");
       const row = element("div", "stellar-row");
       const labelWrap = element("div", "stellar-label-wrap");
       const label = element("label");
+      const id = `stellar-${groupName}-${key}`;
 
       label.textContent = title(key);
       label.htmlFor = id;
-
       labelWrap.append(label);
       row.append(labelWrap);
       box.append(row);
 
-      addHelp(box, labelWrap, path, title(key));
+      const descriptionId = addHelp(
+        box,
+        labelWrap,
+        path,
+        title(key)
+      );
 
-      if (typeof initialValue === "boolean") {
+      if (typeof value === "boolean") {
         const input = element("input");
-        input.type = "checkbox";
         input.id = id;
-        input.checked = initialValue;
+        input.type = "checkbox";
+        input.checked = value;
+        input.setAttribute("aria-describedby", descriptionId);
 
         input.addEventListener("change", () => {
           group[key] = input.checked;
@@ -645,19 +1081,18 @@ export function createSettingsEditor({
 
         row.append(input);
 
-      } else if (Array.isArray(initialValue)) {
+      } else if (Array.isArray(value)) {
         const colors = element("div", "stellar-colors");
         const picker = element("input");
 
         picker.id = id;
         picker.type = "color";
-        picker.value = toHex(initialValue);
-
+        picker.value = toHex(value);
+        picker.setAttribute("aria-describedby", descriptionId);
         colors.append(picker);
 
-        const channels = initialValue.map((channel, index) => {
+        const channels = value.map((channel, index) => {
           const input = element("input");
-
           input.type = "number";
           input.min = 0;
           input.max = 255;
@@ -668,14 +1103,18 @@ export function createSettingsEditor({
             "aria-label",
             `${title(key)} ${["red", "green", "blue"][index]}`
           );
+          input.setAttribute("aria-describedby", descriptionId);
 
           input.addEventListener("input", () => {
             if (input.value === "") return;
 
-            const value = Number(input.value);
-            if (!Number.isFinite(value)) return;
+            const number = Number(input.value);
+            if (!Number.isFinite(number)) return;
 
-            group[key][index] = clamp(Math.round(value), 0, 255);
+            group[key][index] = Math.max(
+              0, Math.min(255, Math.round(number))
+            );
+
             picker.value = toHex(group[key]);
             changed();
           });
@@ -708,32 +1147,35 @@ export function createSettingsEditor({
           });
         });
 
+        // Keep inline help below the actual controls.
         box.insertBefore(colors, box.lastElementChild);
 
-      } else if (typeof initialValue === "number") {
+      } else if (typeof value === "number") {
         const [min, max, step] = limits[path] || [0, 100, 1];
-
         const number = element("input");
         const range = element("input");
 
         number.id = id;
         number.type = "number";
         range.type = "range";
-
         range.setAttribute("aria-label", title(key));
 
         function normalize(raw) {
-          const bounded = clamp(raw, min, max);
-          const stepped = min + Math.round((bounded - min) / step) * step;
+          const bounded = Math.max(min, Math.min(max, raw));
+          const stepped =
+            min + Math.round((bounded - min) / step) * step;
 
-          return Number(clamp(stepped, min, max).toFixed(6));
+          return Number(
+            Math.max(min, Math.min(max, stepped)).toFixed(6)
+          );
         }
 
         for (const input of [number, range]) {
           input.min = min;
           input.max = max;
           input.step = step;
-          input.value = initialValue;
+          input.value = value;
+          input.setAttribute("aria-describedby", descriptionId);
 
           input.addEventListener("input", () => {
             if (input.value === "") return;
@@ -743,8 +1185,8 @@ export function createSettingsEditor({
 
             group[key] = normalize(parsed);
 
-            number.value = group[key];
-            range.value = group[key];
+            if (input === number) range.value = group[key];
+            else number.value = group[key];
 
             changed();
           });
@@ -772,11 +1214,11 @@ export function createSettingsEditor({
   toggle.addEventListener("click", () => open(true));
   close.addEventListener("click", () => open(false));
 
-  $(".stellar-expand").addEventListener("click", () => {
+  root.querySelector(".stellar-expand").addEventListener("click", () => {
     setSectionsOpen(true);
   });
 
-  $(".stellar-collapse").addEventListener("click", () => {
+  root.querySelector(".stellar-collapse").addEventListener("click", () => {
     setSectionsOpen(false);
   });
 
@@ -786,7 +1228,7 @@ export function createSettingsEditor({
     show.textContent = code.hidden ? "Show code" : "Hide code";
   });
 
-  $(".stellar-copy").addEventListener("click", async () => {
+  root.querySelector(".stellar-copy").addEventListener("click", async () => {
     code.value = exportCode();
 
     try {
@@ -797,64 +1239,59 @@ export function createSettingsEditor({
       show.textContent = "Hide code";
       code.focus();
       code.select();
-      status.textContent = "Press Ctrl+C to copy the configuration.";
+      status.textContent = "Press Ctrl+C or ⌘C to copy.";
     }
   });
 
-  $(".stellar-next").addEventListener("click", () => {
+  root.querySelector(".stellar-next").addEventListener("click", () => {
     onNextStar();
-    status.textContent = "Selected the next star.";
+    status.textContent = "Selected the next star for flight mode.";
   });
 
-  $(".stellar-rotation").addEventListener("click", () => {
+  root.querySelector(".stellar-rotation").addEventListener("click", () => {
     onResetRotation();
-    status.textContent = "Camera rotation reset.";
+    status.textContent = "Animated rotation returned to its starting angles.";
   });
 
-  $(".stellar-reset").addEventListener("click", () => {
+  root.querySelector(".stellar-reset").addEventListener("click", () => {
     onReset();
-    status.textContent = "New star field created.";
+    status.textContent = "A new star field has been created.";
   });
 
-  $(".stellar-nebula").addEventListener("click", () => {
+  root.querySelector(".stellar-nebula").addEventListener("click", () => {
     onNebula();
-    status.textContent = "New nebulas generated.";
+    status.textContent = "New static nebulas have been created.";
   });
 
-  function onKeydown(event) {
+  function keydown(event) {
     if (event.key !== "Escape") return;
 
-    if (activeHelp) {
-      pinnedHelp = null;
-      hideHelp();
+    if (activeHelp() || !tooltip.hidden) {
+      clearHelp();
     } else if (panel.classList.contains("open")) {
       open(false);
     }
   }
 
-  function onOutsidePointer(event) {
+  function outsidePointer(event) {
     if (
       pinnedHelp &&
       !pinnedHelp.box.contains(event.target) &&
       !tooltip.contains(event.target)
     ) {
       pinnedHelp = null;
-      hideHelp();
+      positionHelp();
     }
   }
 
   function onPanelScroll() {
-    if (activeHelp) positionHelp(activeHelp);
+    positionHelp();
   }
 
-  function onResize() {
-    if (activeHelp) positionHelp(activeHelp);
-  }
-
-  document.addEventListener("keydown", onKeydown);
-  document.addEventListener("pointerdown", onOutsidePointer);
+  document.addEventListener("keydown", keydown);
+  document.addEventListener("pointerdown", outsidePointer);
   panel.addEventListener("scroll", onPanelScroll, { passive: true });
-  window.addEventListener("resize", onResize);
+  window.addEventListener("resize", positionHelp);
 
   code.value = exportCode();
 
@@ -863,13 +1300,1630 @@ export function createSettingsEditor({
 
     destroy() {
       destroyed = true;
-
-      document.removeEventListener("keydown", onKeydown);
-      document.removeEventListener("pointerdown", onOutsidePointer);
+      clearTimeout(hideTimer);
+      document.removeEventListener("keydown", keydown);
+      document.removeEventListener("pointerdown", outsidePointer);
       panel.removeEventListener("scroll", onPanelScroll);
-      window.removeEventListener("resize", onResize);
-
+      window.removeEventListener("resize", positionHelp);
       root.remove();
+
     }
   };
 }
+
+</script>
+<script>
+const config = {
+  "stars": {
+    "count": 700,
+    "initialSpeed": 13,
+    "radius": 1.9,
+    "maxCount": 850,
+    "opacity": 0.97,
+    "trails": 1,
+    "sizeSlowdown": 0.35,
+    "massiveChance": 0.09,
+    "initialMassMax": 12,
+    "colorVariation": 0.75
+  },
+  "gravity": {
+    "strength": 830,
+    "range": 230,
+    "softening": 66,
+    "maxSpeed": 88,
+    "mergeDistance": 1.15
+  },
+  "explosions": {
+    "enabled": true,
+    "boundaryExplosion": true,
+    "glowMass": 10,
+    "criticalMass": 22,
+    "delay": 12,
+    "delayVariation": 15,
+    "fragments": 30,
+    "speed": 132,
+    "cooldown": 15,
+    "shockwaveStrength": 100,
+    "visualParticles": 160,
+    "flashIntensity": 1.7,
+    "particleLifetime": 2.6
+  },
+  "space": {
+    "threeD": true,
+    "sphereBoundary": true,
+    "radius": 1200,
+    "boundaryBounce": 0.45
+  },
+  "camera": {
+    "distance": 1300,
+    "zoom": 1.55,
+    "rotationX": 9,
+    "rotationY": 1,
+    "rotationZ": 1,
+    "rotationSpeedX": 0,
+    "rotationSpeedY": 0.6,
+    "rotationSpeedZ": 0,
+    "showBoundary": false
+  },
+  "flight": {
+    "enabled": false,
+    "followDistance": 0,
+    "heightOffset": 0,
+    "fieldOfView": 75,
+    "positionSmoothing": 12,
+    "directionSmoothing": 5,
+    "nearClip": 2,
+    "showStatus": true
+  },
+  "mouse": {
+    "enabled": false,
+    "radius": 220,
+    "strength": 45,
+    "holdMultiplier": 2.5,
+    "shockwave": 70,
+    "smoothing": 7
+  },
+  "nebula": {
+    "enabled": true,
+    "clouds": 10,
+    "opacity": 0.54,
+    "size": 0.15,
+    "living": true,
+    "driftSpeed": 0.055,
+    "distortion": 0.035,
+    "stellarLighting": 0.65,
+    "colorA": [55, 83, 170],
+    "colorB": [150, 49, 143],
+    "colorC": [32, 135, 133]
+  },
+  "cinematic": {
+    "enabled": true,
+    "bloomStrength": 1.35,
+    "bloomRadius": 5,
+    "bloomThreshold": 0.18,
+    "exposure": 1.15,
+    "vignette": 0.24,
+    "twinkle": 0.18
+  },
+  "appearance": {
+    "backgroundColor": [4, 7, 17],
+    "starColor": [173, 201, 255],
+    "giantColor": [255, 192, 112],
+    "hotColor": [255, 241, 216],
+    "glow": 14
+  },
+  "animation": {
+    "speed": 2,
+    "paused": false,
+    "respectReducedMotion": true
+  },
+  "panel": {
+    "enabled": true
+  }
+};
+
+
+window.getBackgroundConfig = () =>
+  JSON.parse(JSON.stringify(config));
+
+const canvas = document.querySelector("#background");
+const gl = canvas.getContext("webgl2", {
+  alpha: false, antialias: true, depth: false, stencil: false,
+  powerPreference: "high-performance"
+});
+if (!gl) {
+  document.body.insertAdjacentHTML("beforeend", "<p style='position:fixed;top:40%;width:100%;text-align:center;color:white'>WebGL2 is required.</p>");
+  throw new Error("WebGL2 is not supported in this browser");
+}
+const flightStatus = document.querySelector("#flight-status");
+const nebulaCanvas = document.createElement("canvas");
+const nebulaCtx = nebulaCanvas.getContext("2d");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const physicsStep = 1 / 60;
+const maximumPhysicsSteps = 6;
+
+let width = 1;
+let height = 1;
+let stars = [];
+let rings = [];
+let sparks = [];
+let previous = null;
+let physicsAccumulator = 0;
+
+let time = 0;
+let nextId = 1;
+let resetKey = "";
+let nebulaKey = "";
+let nebulaSeed = 89173;
+let view;
+let followedStar = null;
+let flightWasEnabled = false;
+
+const radians = value => value * Math.PI / 180;
+
+const rotation = { x: radians(config.camera.rotationX), y: radians(config.camera.rotationY), z: radians(config.camera.rotationZ) };
+
+const flightState = {
+  initialized: false,
+  position: { x: 0, y: 0, z: 0 },
+  forward: { x: 0, y: 0, z: -1 },
+  up: { x: 0, y: 1, z: 0 }
+};
+
+const mouse = {
+  x: 0,
+  y: 0,
+  targetX: 0,
+  targetY: 0,
+  active: false,
+  held: false,
+  influence: 0
+};
+
+const random = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+const rgba = (color, alpha = 1) =>
+  `rgba(${color.join(",")},${clamp(alpha, 0, 1)})`;
+
+const mix = (a, b, t) =>
+  a.map((value, i) => Math.round(value + (b[i] - value) * t));
+
+function length(v) {
+  return Math.hypot(v.x, v.y, v.z);
+}
+
+function normalize(v, fallback = { x: 0, y: 0, z: -1 }) {
+  const size = length(v);
+  if (size < 0.00001) return { ...fallback };
+  return { x: v.x / size, y: v.y / size, z: v.z / size };
+}
+
+function dot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function cross(a, b) {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x
+  };
+}
+
+function smoothVector(current, target, amount) {
+  return {
+    x: current.x + (target.x - current.x) * amount,
+    y: current.y + (target.y - current.y) * amount,
+    z: current.z + (target.z - current.z) * amount
+  };
+}
+
+function direction() {
+  if (!config.space.threeD) {
+    const angle = random(0, Math.PI * 2);
+    return { x: Math.cos(angle), y: Math.sin(angle), z: 0 };
+  }
+
+  const z = random(-1, 1);
+  const angle = random(0, Math.PI * 2);
+  const r = Math.sqrt(1 - z * z);
+
+  return {
+    x: r * Math.cos(angle),
+    y: r * Math.sin(angle),
+    z
+  };
+}
+
+function starRadius(mass) {
+  return config.stars.radius * Math.cbrt(mass);
+}
+
+function speedLimit(star) {
+  const sizeRatio = Math.max(1, Math.cbrt(star.mass));
+
+  return config.gravity.maxSpeed /
+    Math.pow(sizeRatio, config.stars.sizeSlowdown);
+}
+
+function limitVelocity(star) {
+  const speed = Math.hypot(star.vx, star.vy, star.vz);
+  const maximum = speedLimit(star);
+
+  if (speed > maximum) {
+    const factor = maximum / speed;
+    star.vx *= factor;
+    star.vy *= factor;
+    star.vz *= factor;
+  }
+}
+
+function makeStar(position, mass = 1) {
+  const d = direction();
+
+  const star = {
+    ...position,
+    id: nextId++,
+    mass,
+    vx: d.x * config.stars.initialSpeed,
+    vy: d.y * config.stars.initialSpeed,
+    vz: d.z * config.stars.initialSpeed,
+    cooldown: 0,
+    criticalAge: 0,
+    wait: config.explosions.delay +
+      random(0, config.explosions.delayVariation),
+    phase: random(0, Math.PI * 2)
+  };
+
+  limitVelocity(star);
+  return star;
+}
+
+function sceneKey() {
+  return JSON.stringify([
+    config.stars.count,
+    config.stars.massiveChance,
+    config.stars.initialMassMax,
+    config.space.threeD,
+    config.space.sphereBoundary,
+    config.space.radius
+  ]);
+}
+
+function nextStar() {
+  if (!stars.length) return;
+
+  const index = stars.indexOf(followedStar);
+  followedStar = stars[(index + 1) % stars.length];
+  flightState.initialized = false;
+}
+
+function reset() {
+  stars = [];
+  rings = [];
+  sparks = [];
+
+  const radius = config.space.radius * 0.9;
+
+  for (let i = 0; i < Math.round(config.stars.count); i++) {
+    let position;
+
+    if (config.space.sphereBoundary) {
+      const d = direction();
+
+      const r = radius * Math.pow(
+        Math.random(),
+        config.space.threeD ? 1 / 3 : 1 / 2
+      );
+
+      position = { x: d.x * r, y: d.y * r, z: d.z * r };
+    } else {
+      position = {
+        x: random(-radius, radius),
+        y: random(-radius, radius),
+        z: config.space.threeD ? random(-radius, radius) : 0
+      };
+    }
+
+    // Most stars begin small; a configurable minority begin much heavier.
+    const heavy = Math.random() < config.stars.massiveChance;
+    const mass = heavy
+      ? 1.5 + Math.pow(Math.random(), 1.7) * (config.stars.initialMassMax - 1.5)
+      : random(0.7, 1.35);
+    stars.push(makeStar(position, mass));
+  }
+
+  followedStar = stars[0] || null;
+  flightState.initialized = false;
+  resetKey = sceneKey();
+}
+
+function seededRandom() {
+  let seed = nebulaSeed >>> 0;
+
+  return () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+}
+
+function buildNebula() {
+  nebulaCanvas.width = Math.ceil(width / 2);
+  nebulaCanvas.height = Math.ceil(height / 2);
+
+  const w = nebulaCanvas.width;
+  const h = nebulaCanvas.height;
+  const rand = seededRandom();
+
+  const palette = [
+    config.nebula.colorA,
+    config.nebula.colorB,
+    config.nebula.colorC
+  ];
+
+  nebulaCtx.clearRect(0, 0, w, h);
+  nebulaCtx.globalCompositeOperation = "screen";
+
+  for (let cloud = 0; cloud < config.nebula.clouds; cloud++) {
+    const cx = rand() * w;
+    const cy = rand() * h;
+
+    const radius = Math.max(w, h) * config.nebula.size *
+      (0.45 + rand() * 0.55);
+
+    const color = palette[cloud % palette.length];
+
+    for (let puff = 0; puff < 14; puff++) {
+      const angle = rand() * Math.PI * 2;
+      const offset = rand() * radius * 0.7;
+      const x = cx + Math.cos(angle) * offset;
+      const y = cy + Math.sin(angle) * offset * 0.45;
+      const r = radius * (0.12 + rand() * 0.3);
+
+      const gradient = nebulaCtx.createRadialGradient(
+        x, y, 0, x, y, r
+      );
+
+      gradient.addColorStop(0, rgba(color, 0.15));
+      gradient.addColorStop(0.45, rgba(color, 0.06));
+      gradient.addColorStop(1, rgba(color, 0));
+
+      nebulaCtx.fillStyle = gradient;
+      nebulaCtx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  }
+
+  nebulaCtx.globalCompositeOperation = "source-over";
+  nebulaKey = JSON.stringify([width, height, config.nebula]);
+  GLRenderer.nebulaChanged();
+}
+
+function refresh() {
+  if (sceneKey() !== resetKey) reset();
+
+  const limit = Math.round(config.stars.maxCount);
+
+  while (stars.length > limit) {
+    const removed = stars.pop();
+    merge(stars[0], removed);
+  }
+
+  for (const star of stars) limitVelocity(star);
+
+  if (JSON.stringify([width, height, config.nebula]) !== nebulaKey) {
+    buildNebula();
+  }
+}
+
+
+// WebGL2 renderer. Physics, merging, explosions and camera tracking
+// remain on the CPU; GPU shaders draw all visible stars in batches.
+const GLRenderer = (() => {
+  const vertexSource = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec4 a_geometry; // x, y, core radius, halo radius (CSS px)
+  layout(location=1) in vec4 a_color;    // RGB (0..1), alpha
+  uniform vec2 u_resolution;
+  uniform float u_dpr;
+  uniform float u_maxPointSize;
+  uniform int u_mode;
+  out vec4 v_color;
+  out vec2 v_radii;
+  void main() {
+    vec2 ndc = a_geometry.xy / u_resolution * 2.0 - 1.0;
+    gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
+    float diameter = max(1.0, a_geometry.w * 2.0 * u_dpr);
+    gl_PointSize = min(diameter, u_maxPointSize);
+    v_color = a_color;
+    v_radii = vec2(a_geometry.z / max(a_geometry.w, 0.001),
+                   min(1.0, diameter / max(gl_PointSize, 1.0)));
+  }`;
+  const fragmentSource = `#version 300 es
+  precision highp float;
+  in vec4 v_color;
+  in vec2 v_radii;
+  out vec4 outColor;
+  void main() {
+    float r = length(gl_PointCoord * 2.0 - 1.0);
+    if (r > 1.0) discard;
+    float coreRadius = max(0.001, v_radii.x * v_radii.y);
+    float core = 1.0 - smoothstep(coreRadius * 0.72, coreRadius * 1.08, r);
+    float halo = exp(-r*r*5.0) * (1.0 - smoothstep(0.82, 1.0, r));
+    float intensity = max(core, halo * 0.33);
+    outColor = vec4(v_color.rgb * intensity * v_color.a,
+                    intensity * v_color.a);
+  }`;
+  const lineVertex = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec2 a_pos;
+  layout(location=1) in vec4 a_color;
+  uniform vec2 u_resolution;
+  out vec4 v_color;
+  void main() {
+    vec2 ndc = a_pos / u_resolution * 2.0 - 1.0;
+    gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
+    v_color = a_color;
+  }`;
+  const lineFragment = `#version 300 es
+  precision highp float;
+  in vec4 v_color;
+  out vec4 outColor;
+  void main() { outColor = vec4(v_color.rgb * v_color.a, v_color.a); }`;
+  const quadVertex = `#version 300 es
+  precision highp float;
+  const vec2 corners[6] = vec2[](
+    vec2(-1.,-1.),vec2(1.,-1.),vec2(-1.,1.),
+    vec2(-1.,1.),vec2(1.,-1.),vec2(1.,1.)
+  );
+  out vec2 v_uv;
+  void main() {
+    vec2 p = corners[gl_VertexID];
+    gl_Position = vec4(p,0.,1.);
+    v_uv = p * 0.5 + 0.5;
+  }`;
+
+
+  const quadFragment = `#version 300 es
+  precision highp float;
+  in vec2 v_uv;
+  uniform sampler2D u_texture;
+  uniform float u_opacity;
+  uniform float u_time;
+  uniform float u_drift;
+  uniform float u_distortion;
+  uniform float u_lighting;
+  uniform vec3 u_lights[3]; // screen UV x/y and intensity
+  out vec4 outColor;
+  void main() {
+    vec2 uv = v_uv;
+    float t = u_time * u_drift;
+    float a = sin(uv.y * 9.0 + t * 1.4) * cos(uv.x * 6.0 - t);
+    float b = sin(uv.x * 13.0 - t * .8) * sin(uv.y * 8.0 + t * 1.1);
+    uv += u_distortion * vec2(a, b);
+    uv += u_drift * 0.015 * vec2(t, -t * .4);
+    vec4 c = texture(u_texture, uv);
+    float light = 0.0;
+    for (int i=0; i<3; i++) {
+      vec2 delta = v_uv - u_lights[i].xy;
+      delta.x *= 1.6;
+      light += u_lights[i].z * exp(-dot(delta,delta)*36.0);
+    }
+    float breathe = 0.94 + 0.06 * sin(u_time * .23 + v_uv.x * 5.0);
+    vec3 rgb = c.rgb * breathe * (1.0 + u_lighting * light);
+    outColor = vec4(rgb * c.a * u_opacity, c.a * u_opacity);
+  }`;
+
+  function program(vs,fs) {
+    function compile(type,source) {
+      const shader=gl.createShader(type);
+      gl.shaderSource(shader,source);
+      gl.compileShader(shader);
+      if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))
+        throw new Error(gl.getShaderInfoLog(shader));
+      return shader;
+    }
+    const p=gl.createProgram(),v=compile(gl.VERTEX_SHADER,vs),f=compile(gl.FRAGMENT_SHADER,fs);
+    gl.attachShader(p,v);gl.attachShader(p,f);gl.linkProgram(p);
+    if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    gl.deleteShader(v);gl.deleteShader(f);
+    return p;
+  }
+
+  const starsProgram=program(vertexSource,fragmentSource);
+
+  // Cinematic pipeline: render scene to texture, extract and blur highlights
+  // at half resolution, then composite with exposure, vignette and bloom.
+  const extractFragment = `#version 300 es
+  precision highp float;
+  in vec2 v_uv;
+  uniform sampler2D u_texture;
+  uniform float u_threshold;
+  out vec4 outColor;
+  void main(){
+    vec3 c=texture(u_texture,v_uv).rgb;
+    float lum=dot(c,vec3(.2126,.7152,.0722));
+    float weight=smoothstep(u_threshold,u_threshold+.35,lum);
+    outColor=vec4(c*weight,1.);
+  }`;
+
+  const blurFragment = `#version 300 es
+  precision highp float;
+  in vec2 v_uv;
+  uniform sampler2D u_texture;
+  uniform vec2 u_direction;
+  uniform float u_radius;
+  out vec4 outColor;
+  void main(){
+    vec2 d=u_direction*u_radius;
+    vec3 c=texture(u_texture,v_uv).rgb*.227027;
+    c+=texture(u_texture,v_uv+d*1.384615).rgb*.316216;
+    c+=texture(u_texture,v_uv-d*1.384615).rgb*.316216;
+    c+=texture(u_texture,v_uv+d*3.230769).rgb*.070270;
+    c+=texture(u_texture,v_uv-d*3.230769).rgb*.070270;
+    outColor=vec4(c,1.);
+  }`;
+
+  const compositeFragment = `#version 300 es
+  precision highp float;
+  in vec2 v_uv;
+  uniform sampler2D u_scene;
+  uniform sampler2D u_bloom;
+  uniform float u_strength;
+  uniform float u_exposure;
+  uniform float u_vignette;
+  out vec4 outColor;
+  void main(){
+    vec3 scene=texture(u_scene,v_uv).rgb;
+    vec3 bloom=texture(u_bloom,v_uv).rgb;
+    vec3 color=scene+bloom*u_strength;
+    color=vec3(1.)-exp(-color*u_exposure);
+    float d=length((v_uv-.5)*vec2(1.0,1.0));
+    color*=1.-u_vignette*smoothstep(.2,.72,d);
+    outColor=vec4(color,1.);
+  }`;
+
+  const extractProgram=program(quadVertex,extractFragment);
+  const blurProgram=program(quadVertex,blurFragment);
+  const compositeProgram=program(quadVertex,compositeFragment);
+  let sceneTarget=null, brightTarget=null, blurTarget=null;
+
+  function makeTarget(w,h){
+    const texture=gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D,texture);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+    const fbo=gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,texture,0);
+    if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)
+      throw new Error('Cinematic framebuffer incomplete');
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    return {texture,fbo,w,h};
+  }
+
+  function disposeTarget(target){
+    if(!target)return;
+    gl.deleteTexture(target.texture);gl.deleteFramebuffer(target.fbo);
+  }
+
+  function ensureTargets(){
+    const w=canvas.width,h=canvas.height;
+    if(sceneTarget?.w===w&&sceneTarget?.h===h)return;
+    disposeTarget(sceneTarget);disposeTarget(brightTarget);disposeTarget(blurTarget);
+    sceneTarget=makeTarget(w,h);
+    brightTarget = makeTarget(w, h);
+    blurTarget=makeTarget(brightTarget.w,brightTarget.h);
+  }
+
+  function quad(program,source,unit=0,uniformName='u_texture'){
+    gl.useProgram(program);
+    gl.activeTexture(gl.TEXTURE0+unit);
+    gl.bindTexture(gl.TEXTURE_2D,source);
+    gl.uniform1i(gl.getUniformLocation(program,uniformName),unit);
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+  }
+
+  function postprocess(){
+    const fx=config.cinematic;
+    gl.disable(gl.BLEND);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,brightTarget.fbo);
+    gl.viewport(0,0,brightTarget.w,brightTarget.h);
+    gl.useProgram(extractProgram);
+    gl.uniform1f(uniform(extractProgram,'u_threshold'),fx.bloomThreshold);
+    quad(extractProgram,sceneTarget.texture);
+
+    for(let i=0;i<2;i++){
+      gl.bindFramebuffer(gl.FRAMEBUFFER,blurTarget.fbo);
+      gl.useProgram(blurProgram);
+      gl.uniform2f(uniform(blurProgram,'u_direction'),1/brightTarget.w,0);
+      gl.uniform1f(uniform(blurProgram,'u_radius'),fx.bloomRadius);
+      quad(blurProgram,brightTarget.texture);
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER,brightTarget.fbo);
+      gl.useProgram(blurProgram);
+      gl.uniform2f(uniform(blurProgram,'u_direction'),0,1/brightTarget.h);
+      gl.uniform1f(uniform(blurProgram,'u_radius'),fx.bloomRadius);
+      quad(blurProgram,blurTarget.texture);
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    gl.viewport(0,0,canvas.width,canvas.height);
+    gl.useProgram(compositeProgram);
+    gl.uniform1f(uniform(compositeProgram,'u_strength'),fx.bloomStrength);
+    gl.uniform1f(uniform(compositeProgram,'u_exposure'),fx.exposure);
+    gl.uniform1f(uniform(compositeProgram,'u_vignette'),fx.vignette);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D,sceneTarget.texture);
+    gl.uniform1i(uniform(compositeProgram,'u_scene'),0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D,brightTarget.texture);
+    gl.uniform1i(uniform(compositeProgram,'u_bloom'),1);
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+  }
+
+  const linesProgram=program(lineVertex,lineFragment);
+  const nebulaProgram=program(quadVertex,quadFragment);
+  const starBuffer=gl.createBuffer(), lineBuffer=gl.createBuffer();
+  const starVAO=gl.createVertexArray(),lineVAO=gl.createVertexArray(),quadVAO=gl.createVertexArray();
+
+  gl.bindVertexArray(starVAO);gl.bindBuffer(gl.ARRAY_BUFFER,starBuffer);
+  gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,4,gl.FLOAT,false,32,0);
+  gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,4,gl.FLOAT,false,32,16);
+  gl.bindVertexArray(lineVAO);gl.bindBuffer(gl.ARRAY_BUFFER,lineBuffer);
+  gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,24,0);
+  gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,4,gl.FLOAT,false,24,8);
+  gl.bindVertexArray(null);
+
+  const texture=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,texture);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+  let nebulaDirty=true;
+  const maxPointSize=gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
+
+  function uniform(program,name) { return gl.getUniformLocation(program,name); }
+
+  function uploadNebula() {
+    gl.bindTexture(gl.TEXTURE_2D,texture);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,nebulaCanvas);
+    nebulaDirty=false;
+  }
+
+  function background(lights) {
+    const c=config.appearance.backgroundColor;
+    gl.clearColor(c[0]/255,c[1]/255,c[2]/255,1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    if(!config.nebula.enabled || config.nebula.opacity<=0) return;
+    if(nebulaDirty) uploadNebula();
+    gl.useProgram(nebulaProgram);
+    gl.uniform1f(uniform(nebulaProgram,'u_opacity'),config.nebula.opacity);
+    gl.uniform1f(uniform(nebulaProgram,'u_time'),config.nebula.living ? time : 0);
+    gl.uniform1f(uniform(nebulaProgram,'u_drift'),config.nebula.living ? config.nebula.driftSpeed : 0);
+    gl.uniform1f(uniform(nebulaProgram,'u_distortion'),config.nebula.living ? config.nebula.distortion : 0);
+    gl.uniform1f(uniform(nebulaProgram,'u_lighting'),config.nebula.stellarLighting);
+    gl.uniform3fv(uniform(nebulaProgram,'u_lights[0]'),lights);
+    gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texture);
+    gl.uniform1i(uniform(nebulaProgram,'u_texture'),0);
+    gl.bindVertexArray(quadVAO);
+    gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+  }
+
+  function drawLines(data) {
+    if(!data.length)return;
+    gl.useProgram(linesProgram);
+    gl.uniform2f(uniform(linesProgram,'u_resolution'),width,height);
+    gl.bindVertexArray(lineVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER,lineBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.DYNAMIC_DRAW);
+    gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.LINES,0,data.length/6);
+  }
+
+  function drawStars(data) {
+    if(!data.length)return;
+    gl.useProgram(starsProgram);
+    gl.uniform2f(uniform(starsProgram,'u_resolution'),width,height);
+    gl.uniform1f(uniform(starsProgram,'u_dpr'),canvas.width/width);
+    gl.uniform1f(uniform(starsProgram,'u_maxPointSize'),maxPointSize);
+    gl.bindVertexArray(starVAO);
+    gl.bindBuffer(gl.ARRAY_BUFFER,starBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.DYNAMIC_DRAW);
+    gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.POINTS,0,data.length/8);
+  }
+
+  function render(starData,lineData,lights) {
+    if(config.cinematic.enabled){
+      ensureTargets();
+      gl.bindFramebuffer(gl.FRAMEBUFFER,sceneTarget.fbo);
+    } else {
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    }
+    gl.viewport(0,0,canvas.width,canvas.height);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    background(lights);
+    drawLines(lineData);
+    drawStars(starData);
+    gl.bindVertexArray(null);
+    gl.disable(gl.BLEND);
+    if(config.cinematic.enabled)postprocess();
+  }
+
+  return {render, nebulaChanged(){nebulaDirty=true;}};
+})();
+
+function pushLine(target,x1,y1,x2,y2,color,alpha1,alpha2=alpha1) {
+  if (![x1,y1,x2,y2].every(Number.isFinite))return;
+  const r=color[0]/255,g=color[1]/255,b=color[2]/255;
+  target.push(x1,y1,r,g,b,alpha1,x2,y2,r,g,b,alpha2);
+}
+
+function resize() {
+  width = innerWidth;
+  height = innerHeight;
+
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  buildNebula();
+}
+
+
+function rotateWorld(point) {
+  const cx = Math.cos(rotation.x), sx = Math.sin(rotation.x);
+  const cy = Math.cos(rotation.y), sy = Math.sin(rotation.y);
+  const cz = Math.cos(rotation.z), sz = Math.sin(rotation.z);
+
+  let x = point.x, y = point.y, z = point.z;
+
+  let yy = y * cx - z * sx;
+  let zz = y * sx + z * cx;
+  y = yy; z = zz;
+
+  let xx = x * cy + z * sy;
+  zz = -x * sy + z * cy;
+  x = xx; z = zz;
+
+  xx = x * cz - y * sz;
+  yy = x * sz + y * cz;
+  x = xx; y = yy;
+
+  return { x, y, z };
+}
+
+function inverseRotate(vector) {
+  const cx = Math.cos(-rotation.x), sx = Math.sin(-rotation.x);
+  const cy = Math.cos(-rotation.y), sy = Math.sin(-rotation.y);
+  const cz = Math.cos(-rotation.z), sz = Math.sin(-rotation.z);
+
+  let x = vector.x, y = vector.y, z = vector.z;
+
+  let xx = x * cz - y * sz;
+  let yy = x * sz + y * cz;
+  x = xx; y = yy;
+
+  xx = x * cy + z * sy;
+  let zz = -x * sy + z * cy;
+  x = xx; z = zz;
+
+  yy = y * cx - z * sx;
+  zz = y * sx + z * cx;
+  y = yy; z = zz;
+
+  return { x, y, z };
+}
+
+function updateFlight(dt) {
+  if (!config.flight.enabled) {
+    flightWasEnabled = false;
+    flightState.initialized = false;
+    return;
+  }
+
+  if (!stars.length) return;
+
+  if (!followedStar || !stars.includes(followedStar)) {
+    followedStar = stars[0];
+    flightState.initialized = false;
+  }
+
+  const star = followedStar;
+  const velocity = normalize(
+    { x: star.vx, y: star.vy, z: star.vz },
+    flightState.forward
+  );
+
+  const targetPosition = {
+    x: star.x - velocity.x * config.flight.followDistance,
+    y: star.y - velocity.y * config.flight.followDistance +
+       config.flight.heightOffset,
+    z: star.z - velocity.z * config.flight.followDistance
+  };
+
+  const targetForward = velocity;
+
+  let targetRight = normalize(
+    cross(targetForward, { x: 0, y: 1, z: 0 }),
+    { x: 1, y: 0, z: 0 }
+  );
+
+  const targetUp = normalize(
+    cross(targetRight, targetForward),
+    { x: 0, y: 1, z: 0 }
+  );
+
+  if (!flightState.initialized || !flightWasEnabled) {
+    flightState.position = targetPosition;
+    flightState.forward = targetForward;
+    flightState.up = targetUp;
+    flightState.initialized = true;
+  } else {
+    const positionAmount =
+      1 - Math.exp(-config.flight.positionSmoothing * dt);
+
+    const directionAmount =
+      1 - Math.exp(-config.flight.directionSmoothing * dt);
+
+    flightState.position = smoothVector(
+      flightState.position,
+      targetPosition,
+      positionAmount
+    );
+
+    flightState.forward = normalize(
+      smoothVector(
+        flightState.forward,
+        targetForward,
+        directionAmount
+      ),
+      targetForward
+    );
+
+    flightState.up = normalize(
+      smoothVector(
+        flightState.up,
+        targetUp,
+        directionAmount
+      ),
+      targetUp
+    );
+  }
+
+  flightWasEnabled = true;
+}
+
+function makeView() {
+  if (config.flight.enabled && flightState.initialized) {
+    const forward = normalize(flightState.forward);
+    let right = normalize(
+      cross(forward, flightState.up),
+      { x: 1, y: 0, z: 0 }
+    );
+    const up = normalize(cross(right, forward));
+
+    return {
+      flight: true,
+      position: flightState.position,
+      forward,
+      right,
+      up,
+      focal: height /
+        (2 * Math.tan(radians(config.flight.fieldOfView) / 2)),
+      near: config.flight.nearClip
+    };
+  }
+
+  return {
+    flight: false,
+    focal: Math.min(width, height) * config.camera.zoom,
+    distance: config.camera.distance,
+    near: 1
+  };
+}
+
+function project(point) {
+  if (view.flight) {
+    const relative = {
+      x: point.x - view.position.x,
+      y: point.y - view.position.y,
+      z: point.z - view.position.z
+    };
+
+    const depth = dot(relative, view.forward);
+
+    if (depth <= view.near) return null;
+
+    const scale = view.focal / depth;
+
+    return {
+      x: width / 2 + dot(relative, view.right) * scale,
+      y: height / 2 - dot(relative, view.up) * scale,
+      scale,
+      depth
+    };
+  }
+
+  const p = rotateWorld(point);
+  const depth = view.distance - p.z;
+
+  if (depth <= view.near) return null;
+
+  const scale = view.focal / depth;
+
+  return {
+    x: width / 2 + p.x * scale,
+    y: height / 2 - p.y * scale,
+    scale,
+    depth
+  };
+}
+
+function screenForce(x, y) {
+  const dx = mouse.x - x;
+  const dy = mouse.y - y;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance >= config.mouse.radius || distance < 0.001) {
+    return null;
+  }
+
+  const falloff = Math.pow(
+    1 - distance / config.mouse.radius,
+    2
+  );
+
+  return {
+    x: dx / distance,
+    y: dy / distance,
+    falloff
+  };
+}
+
+function confine(star, allowExplosion = false) {
+  const radius = Math.max(
+    10,
+    config.space.radius - starRadius(star.mass)
+  );
+
+  if (config.space.sphereBoundary) {
+    const distance = Math.hypot(star.x, star.y, star.z);
+
+    if (distance <= radius) return false;
+
+    const nx = star.x / distance;
+    const ny = star.y / distance;
+    const nz = star.z / distance;
+
+    star.x = nx * radius;
+    star.y = ny * radius;
+    star.z = nz * radius;
+
+    const outward =
+      star.vx * nx +
+      star.vy * ny +
+      star.vz * nz;
+
+    if (outward > 0) {
+      if (
+        allowExplosion &&
+        config.explosions.enabled &&
+        config.explosions.boundaryExplosion &&
+        star.cooldown <= 0
+      ) {
+        return true;
+      }
+
+      const impulse =
+        outward * (1 + config.space.boundaryBounce);
+
+      star.vx -= nx * impulse;
+      star.vy -= ny * impulse;
+      star.vz -= nz * impulse;
+    }
+  } else {
+    for (const axis of ["x", "y", "z"]) {
+      if (axis === "z" && !config.space.threeD) continue;
+
+      if (star[axis] > radius) {
+        star[axis] -= radius * 2;
+      }
+
+      if (star[axis] < -radius) {
+        star[axis] += radius * 2;
+      }
+    }
+  }
+
+  return false;
+}
+
+function confineBoundaryBounce(star) {
+  // Confine newly created fragments without triggering
+  // another boundary explosion.
+  return confine(star, false);
+}
+
+function merge(a, b) {
+  if (!a || !b || a === b) return;
+
+  const mass = a.mass + b.mass;
+
+  a.vx = (a.vx * a.mass + b.vx * b.mass) / mass;
+  a.vy = (a.vy * a.mass + b.vy * b.mass) / mass;
+  a.vz = (a.vz * a.mass + b.vz * b.mass) / mass;
+
+  a.x = (a.x * a.mass + b.x * b.mass) / mass;
+  a.y = (a.y * a.mass + b.y * b.mass) / mass;
+  a.z = (a.z * a.mass + b.z * b.mass) / mass;
+
+  a.mass = mass;
+  a.cooldown = Math.max(a.cooldown, b.cooldown);
+  a.criticalAge = 0;
+  a.wait = config.explosions.delay +
+    random(0, config.explosions.delayVariation);
+
+  limitVelocity(a);
+}
+
+function emitNovaVisuals(star) {
+  const count = Math.round(config.explosions.visualParticles);
+
+  for (let i = 0; i < count; i++) {
+    const d = direction();
+    const speed = random(25, 145);
+
+    sparks.push({
+      x: star.x, y: star.y, z: star.z,
+      vx: d.x * speed, vy: d.y * speed, vz: d.z * speed,
+      life: config.explosions.particleLifetime * random(0.5, 1.25),
+      maxLife: config.explosions.particleLifetime * 1.25,
+      size: random(0.5, 2.5),
+      phase: random(0, Math.PI * 2),
+      color: mix(config.appearance.hotColor, config.appearance.giantColor, Math.random())
+    });
+  }
+}
+
+function explode(star, available) {
+  const count = Math.min(
+    Math.round(config.explosions.fragments),
+    Math.max(0, available)
+  );
+
+  if (count < 2) return null;
+
+  emitNovaVisuals(star);
+
+  const fragments = [];
+  const mass = star.mass / count;
+
+  for (let i = 0; i < count; i++) {
+    const d = direction();
+
+    const fragment = makeStar(
+      {
+        x: star.x + d.x * starRadius(star.mass),
+        y: star.y + d.y * starRadius(star.mass),
+        z: star.z + d.z * starRadius(star.mass)
+      },
+      mass
+    );
+
+    fragment.vx =
+      star.vx + d.x * config.explosions.speed;
+
+    fragment.vy =
+      star.vy + d.y * config.explosions.speed;
+
+    fragment.vz =
+      star.vz + d.z * config.explosions.speed;
+
+    fragment.cooldown = config.explosions.cooldown;
+
+    confineBoundaryBounce(fragment);
+    limitVelocity(fragment);
+
+    fragments.push(fragment);
+  }
+
+  rings.push({
+    x: star.x,
+    y: star.y,
+    z: star.z,
+    radius: starRadius(star.mass),
+    life: 0,
+    maxLife: 1.4,
+    strength: config.explosions.shockwaveStrength,
+    flash: config.explosions.flashIntensity
+  });
+
+  return fragments;
+}
+
+function simulate(dt) {
+  if (!stars.length) return;
+
+  const range = config.gravity.range;
+  const rangeSquared = range * range;
+  const softeningSquared =
+    config.gravity.softening * config.gravity.softening;
+
+  const acceleration = stars.map(() => ({
+    x: 0, y: 0, z: 0
+  }));
+
+  // Pairwise gravitational attraction.
+  for (let i = 0; i < stars.length; i++) {
+    const a = stars[i];
+
+    for (let j = i + 1; j < stars.length; j++) {
+      const b = stars[j];
+
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dz = config.space.threeD ? b.z - a.z : 0;
+
+      const distanceSquared =
+        dx * dx + dy * dy + dz * dz;
+
+      if (distanceSquared > rangeSquared) continue;
+
+      const softened =
+        distanceSquared + softeningSquared;
+
+      const inverseDistance =
+        1 / Math.sqrt(softened);
+
+      const force =
+        config.gravity.strength /
+        softened * inverseDistance;
+
+      acceleration[i].x += dx * force * b.mass;
+      acceleration[i].y += dy * force * b.mass;
+      acceleration[i].z += dz * force * b.mass;
+
+      acceleration[j].x -= dx * force * a.mass;
+      acceleration[j].y -= dy * force * a.mass;
+      acceleration[j].z -= dz * force * a.mass;
+    }
+  }
+
+  // Update velocities and positions.
+  const boundaryExplosions = new Set();
+
+  for (let i = 0; i < stars.length; i++) {
+    const star = stars[i];
+    const a = acceleration[i];
+
+    star.vx += a.x * dt;
+    star.vy += a.y * dt;
+    star.vz += a.z * dt;
+
+    limitVelocity(star);
+
+    star.x += star.vx * dt;
+    star.y += star.vy * dt;
+    star.z += star.vz * dt;
+
+    star.cooldown = Math.max(0, star.cooldown - dt);
+
+    if (confine(star, true)) {
+      boundaryExplosions.add(star);
+    }
+
+    if (
+      config.explosions.enabled &&
+      star.mass >= config.explosions.criticalMass
+    ) {
+      star.criticalAge += dt;
+    } else {
+      star.criticalAge = 0;
+    }
+  }
+
+  // Detect merging stars.
+  const removed = new Set();
+
+  for (let i = 0; i < stars.length; i++) {
+    const a = stars[i];
+
+    if (removed.has(a) || boundaryExplosions.has(a)) {
+      continue;
+    }
+
+    for (let j = i + 1; j < stars.length; j++) {
+      const b = stars[j];
+
+      if (
+        removed.has(b) ||
+        boundaryExplosions.has(b) ||
+        a.cooldown > 0 ||
+        b.cooldown > 0
+      ) {
+        continue;
+      }
+
+      const distance = Math.hypot(
+        b.x - a.x,
+        b.y - a.y,
+        config.space.threeD ? b.z - a.z : 0
+      );
+
+      const collisionDistance =
+        (starRadius(a.mass) + starRadius(b.mass)) *
+        config.gravity.mergeDistance;
+
+      if (distance < collisionDistance) {
+        merge(a, b);
+        removed.add(b);
+      }
+    }
+  }
+
+  if (removed.size) {
+    stars = stars.filter(star => !removed.has(star));
+  }
+
+  // Advance expanding nova shockwaves.
+  for (const ring of rings) {
+    if (ring.type === "pointer") { ring.age += dt; continue; }
+    ring.life += dt;
+    ring.radius += 200 * dt;
+
+    for (const star of stars) {
+      const dx = star.x - ring.x;
+      const dy = star.y - ring.y;
+      const dz = star.z - ring.z;
+
+      const distance = Math.hypot(dx, dy, dz);
+
+      if (
+        distance > 0.001 &&
+        Math.abs(distance - ring.radius) < 30
+      ) {
+        const impulse =
+          ring.strength * dt /
+          Math.max(1, distance);
+
+        star.vx += dx * impulse;
+        star.vy += dy * impulse;
+        star.vz += dz * impulse;
+
+        limitVelocity(star);
+      }
+    }
+  }
+
+  rings = rings.filter(ring => ring.type === "pointer" ? ring.age < 1.4 : ring.life < ring.maxLife);
+
+  // Update visual-only nova debris.
+  for (const spark of sparks) {
+    spark.life -= dt;
+
+    spark.x += spark.vx * dt;
+    spark.y += spark.vy * dt;
+    spark.z += spark.vz * dt;
+
+    const drag = Math.exp(-0.8 * dt);
+
+    spark.vx *= drag;
+    spark.vy *= drag;
+    spark.vz *= drag;
+  }
+
+  sparks = sparks.filter(spark => spark.life > 0);
+
+  // Replace exploding stars with nova fragments.
+  const original = stars;
+  const next = [];
+
+  let population = original.length;
+
+  for (const star of original) {
+    const boundaryHit = boundaryExplosions.has(star);
+
+    const normalNova =
+      config.explosions.enabled &&
+      star.mass >= config.explosions.criticalMass &&
+      star.cooldown <= 0 &&
+      star.criticalAge >= star.wait;
+
+    if (boundaryHit || normalNova) {
+      const available =
+        Math.round(config.stars.maxCount) -
+        population + 1;
+
+      const fragments = explode(star, available);
+
+      if (fragments) {
+        next.push(...fragments);
+        population += fragments.length - 1;
+        continue;
+      }
+    }
+
+    next.push(star);
+  }
+
+  stars = next;
+}
+
+
+function drawBoundary(lines) {
+  if (!config.camera.showBoundary || !config.space.sphereBoundary) return;
+  for (let plane = 0; plane < 3; plane++) {
+    let previousPoint = null;
+    for (let i = 0; i <= 160; i++) {
+      const angle = i / 160 * Math.PI * 2;
+      const a = Math.cos(angle) * config.space.radius;
+      const b = Math.sin(angle) * config.space.radius;
+      const point = plane === 0 ? {x:a,y:b,z:0} :
+        plane === 1 ? {x:a,y:0,z:b} : {x:0,y:a,z:b};
+      const screen = project(point);
+      if (previousPoint && screen) {
+        pushLine(lines,previousPoint.x,previousPoint.y,screen.x,screen.y,
+          [160,190,240],0.12);
+      }
+      previousPoint = screen;
+    }
+  }
+}
+function draw() {
+  const points = [], lines = [];
+  const brightest = [];
+  drawBoundary(lines);
+  const projected = stars
+    .filter(star => !(view.flight && star === followedStar))
+    .map(star => ({star,screen:project(star)}))
+    .filter(item => item.screen);
+  // GPU batching means no per-star canvas gradient or draw call.
+  for (const {star,screen} of projected) {
+    const glowing = clamp(
+      (star.mass-config.explosions.glowMass) /
+      Math.max(1,config.explosions.criticalMass-config.explosions.glowMass),0,1);
+    // Stellar personality: hot blue/white dwarfs, golden mid-mass stars,
+    // warm giants, and pulsating unstable supergiants.
+    const heat = Math.min(1, star.mass / Math.max(2, config.explosions.criticalMass));
+    const stellarPalette = mix(
+      mix([135,185,255], [255,240,202], clamp(star.mass / 5,0,1)),
+      [255,122,66], clamp((star.mass-5)/15,0,1));
+    const color = mix(
+      mix(config.appearance.starColor, stellarPalette, config.stars.colorVariation),
+      config.appearance.hotColor,
+      clamp(star.criticalAge/Math.max(1,star.wait),0,1));
+    const radius = clamp(starRadius(star.mass)*screen.scale,0.45,70);
+    const depthReference = view.flight ? config.space.radius*0.65 : config.camera.distance;
+    const depthAlpha = clamp(depthReference/screen.depth,0.15,1);
+    const instability = star.criticalAge>0 ? 1+Math.sin(time*5+star.phase)*0.12 : 1;
+    const twinkle = config.cinematic.enabled
+      ? 1 + config.cinematic.twinkle*Math.sin(time*(1.5+star.phase%2)+star.phase*3)
+      : 1;
+    const halo = Math.max(radius,Math.min(220,
+      radius*3+config.appearance.glow*screen.scale*(0.2+glowing)));
+    if (screen.x < -halo || screen.x > width+halo ||
+        screen.y < -halo || screen.y > height+halo) continue;
+    if (star.mass > 3) {
+      brightest.push({x:screen.x/width,y:1-screen.y/height,
+        intensity:Math.min(1.7, star.mass/16)});
+    }
+    points.push(screen.x,screen.y,radius*instability*twinkle,halo,
+      color[0]/255,color[1]/255,color[2]/255,
+      clamp(config.stars.opacity*depthAlpha*twinkle,0,1));
+    if(config.stars.trails>0) {
+      const tail=project({
+        x:star.x-star.vx*config.stars.trails,
+        y:star.y-star.vy*config.stars.trails,
+        z:star.z-star.vz*config.stars.trails
+      });
+      if(tail) pushLine(lines,tail.x,tail.y,screen.x,screen.y,color,
+        0.03*depthAlpha,0.4*depthAlpha);
+    }
+  }
+  for (const spark of sparks) {
+    const screen = project(spark);
+    if (!screen) continue;
+    const fade = Math.pow(clamp(spark.life / spark.maxLife, 0, 1), 1.5);
+    const r = Math.max(.4, spark.size * screen.scale);
+    points.push(screen.x,screen.y,r,Math.max(r*3,3),
+      spark.color[0]/255,spark.color[1]/255,spark.color[2]/255,fade*.85);
+  }
+  for (const ring of rings) {
+    const screen=ring.type==='pointer'?ring:project(ring);
+    if(!screen)continue;
+    const elapsed = ring.type === 'pointer' ? ring.age : ring.life;
+    const radius=Math.min(3000,ring.type==='pointer' ? elapsed*220 : ring.radius*screen.scale);
+    const flash = config.explosions.flashIntensity;
+    const alpha=clamp((1-elapsed/(ring.type==='pointer'?1.4:ring.maxLife))*0.2*flash,0,1);
+    const segments=96;
+    for(let i=0;i<segments;i++) {
+      const a=i/segments*Math.PI*2,b=(i+1)/segments*Math.PI*2;
+      pushLine(lines,screen.x+Math.cos(a)*radius,screen.y+Math.sin(a)*radius,
+        screen.x+Math.cos(b)*radius,screen.y+Math.sin(b)*radius,
+        config.appearance.hotColor,alpha);
+    }
+  }
+  brightest.sort((a,b)=>b.intensity-a.intensity);
+  const lights = new Float32Array(9);
+  brightest.slice(0,3).forEach((light,i)=>{
+    lights[i*3]=light.x;
+    lights[i*3+1]=light.y;
+    lights[i*3+2]=light.intensity;
+  });
+  GLRenderer.render(points,lines,lights);
+  flightStatus.hidden = !config.flight.enabled || !config.flight.showStatus;
+  if (!flightStatus.hidden && followedStar) {
+    const speed=Math.hypot(followedStar.vx,followedStar.vy,followedStar.vz);
+    flightStatus.textContent = `Riding star ${followedStar.id} · `+
+      `Mass ${followedStar.mass.toFixed(1)} · `+
+      `Speed ${speed.toFixed(1)} · ${stars.length} stars`;
+  }
+}
+
+function frame(timestamp) {
+  const realDt = previous === null
+    ? 0
+    : Math.min((timestamp - previous) / 1000, 0.1);
+
+  previous = timestamp;
+
+  const response =
+    1 - Math.exp(-config.mouse.smoothing * realDt);
+
+  mouse.x += (mouse.targetX - mouse.x) * response;
+  mouse.y += (mouse.targetY - mouse.y) * response;
+
+  mouse.influence +=
+    ((mouse.active ? 1 : 0) - mouse.influence) * response;
+
+  if (flightWasEnabled !== config.flight.enabled) {
+    flightState.initialized = false;
+    flightWasEnabled = config.flight.enabled;
+  }
+
+  if (config.flight.enabled && !flightState.initialized) {
+    updateFlight(0);
+  }
+
+  const still =
+    config.animation.paused ||
+    (
+      config.animation.respectReducedMotion &&
+      reducedMotion.matches
+    );
+
+  if (still || config.animation.speed === 0) {
+    physicsAccumulator = 0;
+  } else {
+    physicsAccumulator = Math.min(
+      physicsAccumulator + realDt * config.animation.speed,
+      physicsStep * maximumPhysicsSteps
+    );
+
+    let completedSteps = 0;
+
+    while (
+      physicsAccumulator >= physicsStep &&
+      completedSteps < maximumPhysicsSteps
+    ) {
+      time += physicsStep;
+
+      rotation.x += radians(config.camera.rotationSpeedX) * physicsStep;
+      rotation.y += radians(config.camera.rotationSpeedY) * physicsStep;
+      rotation.z += radians(config.camera.rotationSpeedZ) * physicsStep;
+
+      view = makeView();
+      simulate(physicsStep);
+
+      if (config.flight.enabled) {
+        updateFlight(physicsStep);
+      }
+
+      physicsAccumulator -= physicsStep;
+      completedSteps++;
+    }
+  }
+
+  view = makeView();
+  draw();
+
+  requestAnimationFrame(frame);
+}
+
+function pointer(event) {
+  if (event.target.closest?.("[data-background-editor]")) {
+    leave();
+    return false;
+  }
+
+  if (!mouse.active) {
+    mouse.x = event.clientX;
+    mouse.y = event.clientY;
+  }
+
+  mouse.targetX = event.clientX;
+  mouse.targetY = event.clientY;
+  mouse.active = true;
+  return true;
+}
+
+function leave() {
+  mouse.active = false;
+  mouse.held = false;
+}
+
+addEventListener("pointermove", pointer);
+
+addEventListener("pointerdown", event => {
+  if (!pointer(event) || !config.mouse.enabled) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+
+  mouse.held = true;
+
+  rings.push({
+    x: event.clientX,
+    y: event.clientY,
+    age: 0,
+    type: "pointer"
+  });
+
+  if (rings.length > 25) rings.shift();
+});
+
+addEventListener("pointerup", event => {
+  mouse.held = false;
+  if (event.pointerType !== "mouse") mouse.active = false;
+});
+
+addEventListener("pointercancel", leave);
+addEventListener("blur", leave);
+
+document.documentElement.addEventListener("pointerleave", leave);
+
+document.addEventListener("visibilitychange", () => {
+  previous = null;
+  leave();
+});
+
+addEventListener("resize", resize);
+
+resize();
+reset();
+requestAnimationFrame(frame);
+
+if (config.panel.enabled) {
+  if (typeof window.createSettingsEditor === "function") {
+    window.createSettingsEditor({
+      config,
+      onChange: refresh,
+      onReset: reset,
+      onNextStar: nextStar,
+      onResetRotation: () => {
+        rotation.x = 0;
+        rotation.y = 0;
+        rotation.z = 0;
+      },
+      onNebula: () => {
+        nebulaSeed = Math.floor(Math.random() * 0xffffffff);
+        buildNebula();
+      }
+    });
+  } else {
+    console.error("Settings editor is not available.");
+  }
+}
+</script>
+</body>
+</html>
