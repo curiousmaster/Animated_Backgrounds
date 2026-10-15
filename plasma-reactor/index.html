@@ -131,7 +131,7 @@ vec3 render(vec2 uv){
   if(float(j)>=u_arcs)break;
   float id=float(j);float phase=theta*(3.+mod(id,4.))+u_time*(2.2+id*.13);
   float path=.60+id*.018+sin(phase+id*4.)*.018*u_instability;
-  float mask=smoothstep(.4,.9,sin(theta*2.3+id*2.7+u_time));
+  float mask = smoothstep(.4, .9, sin(theta * 2.0 + id * 2.7 + u_time));
   discharge+=exp(-pow((ruv-path)*340.,2.))*mask;
  }
  color+=u_electric*discharge*u_arcPower*.16;
