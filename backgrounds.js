@@ -2,13 +2,6 @@
 // Each directory should contain its own index.html.
 
 export const backgrounds = [
-    {
-        name: "Blob Grid",
-        folder: "blob-grid",
-        description:
-            "A field of luminous dots swells into soft, shifting blobs, " +
-            "turning a simple grid into a living surface.",
-    },
 	{
         name: "Blob Grid Evolved",
         folder: "blob-grid-evolved",
