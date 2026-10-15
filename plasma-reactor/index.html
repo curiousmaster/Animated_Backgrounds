@@ -13,7 +13,51 @@
 <script src="./settings-editor.js?v=1"></script>
 <script>
 'use strict';
-const defaults={reactor:{radius:1.15,energy:1.35,spin:0.25,pulse:0.42,instability:0.35,fieldLines:13,arcs:7,arcIntensity:1.3},plasma:{turbulence:1.25,detail:5,filaments:9,glow:1.5,coreBrightness:1.15},camera:{zoom:3.9,orbitSpeed:0.13,tilt:0.24,mouseOrbit:true,mouseStrength:0.55},colors:{core:'#77f4ff',outer:'#477aff',electric:'#c879ff',background:'#03040c'},cinematic:{exposure:1.05,vignette:0.45,grain:0.025,quality:1},animation:{speed:1,paused:false},panel:{enabled:true}};
+const defaults={{
+  "reactor": {
+    "radius": 1.15,
+    "energy": 1.35,
+    "spin": 0.25,
+    "pulse": 0.42,
+    "instability": 0.35,
+    "fieldLines": 13,
+    "arcs": 7,
+    "arcIntensity": 1.3
+  },
+  "plasma": {
+    "turbulence": 1.5,
+    "detail": 3,
+    "filaments": 9,
+    "glow": 1.5,
+    "coreBrightness": 0.55
+  },
+  "camera": {
+    "zoom": 3.9,
+    "orbitSpeed": 0.13,
+    "tilt": 0.24,
+    "mouseOrbit": true,
+    "mouseStrength": 0.55
+  },
+  "colors": {
+    "core": "#77f4ff",
+    "outer": "#477aff",
+    "electric": "#c879ff",
+    "background": "#03040c"
+  },
+  "cinematic": {
+    "exposure": 1.05,
+    "vignette": 0.45,
+    "grain": 0.025,
+    "quality": 0.6
+  },
+  "animation": {
+    "speed": 1,
+    "paused": false
+  },
+  "panel": {
+    "enabled": true
+  }
+}};
 const config=structuredClone(defaults);window.getBackgroundConfig=()=>structuredClone(config);
 const canvas=document.getElementById('scene');const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,powerPreference:'high-performance'});
 if(!gl){document.getElementById('status').textContent='WebGL2 is unavailable';throw Error('WebGL2 required');}
