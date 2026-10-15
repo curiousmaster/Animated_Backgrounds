@@ -207,90 +207,103 @@ html, body {
 // ==================================================
 
 const config = {
-    spacing: 27,
-    minRadius: 0.65,
-    maxRadius: 4.2,
-
-    blobRadius: 190,
-    blobCount: 5,
-    speed: 0.38,
-    blobColor: [80,160,255],
-
-    mouseStrength: 1,
-    mouseRadius: 110,
-    mouseColor: [255,80,160],
-
-    glow: {
-        enabled: true,
-        intensity: 0.7,
-        blur: 12,
-        radius: 1
+    "spacing": 27,
+    "minRadius": 0.65,
+    "maxRadius": 4.2,
+    "blobRadius": 158,
+    "blobCount": 1,
+    "speed": 0.38,
+    "blobColor": [
+        80,
+        160,
+        255
+    ],
+    "mouseStrength": 1,
+    "mouseRadius": 110,
+    "mouseColor": [
+        255,
+        80,
+        160
+    ],
+    "glow": {
+        "enabled": true,
+        "intensity": 0.18,
+        "blur": 12,
+        "radius": 0.65
     },
-
-    gridTilt: 15,
-    perspectiveTiltX: 25,
-    perspectiveTiltY: 0,
-    perspective: 1000,
-
-    electricity: {
-        enabled: true,
-        frequency: 0.35,
-        maxArcs: 18,
-        maxBranches: 3,
-        arcLength: 180,
-        speed: 1.2,
-        lifetime: 0.8,
-        width: 1.6,
-        glowIntensity: 0.8,
-        color: [80,200,255]
+    "gridTilt": 10,
+    "perspectiveTiltX": -28,
+    "perspectiveTiltY": 0,
+    "perspective": 1000,
+    "electricity": {
+        "enabled": true,
+        "frequency": 1.31,
+        "maxArcs": 60,
+        "maxBranches": 4,
+        "arcLength": 600,
+        "speed": 0.2,
+        "lifetime": 3,
+        "width": 0.7,
+        "glowIntensity": 1.5,
+        "color": [
+            80,
+            200,
+            255
+        ]
     },
-
-    pulses: {
-        enabled: true,
-        count: 14,
-        speed: 130,
-        length: 6,
-        brightness: 1.3,
-        color: [160,240,255]
+    "pulses": {
+        "enabled": false,
+        "count": 14,
+        "speed": 130,
+        "length": 6,
+        "brightness": 1.3,
+        "color": [
+            160,
+            240,
+            255
+        ]
     },
-
-    charge: {
-        enabled: true,
-        blobCharge: 0.75,
-        mouseCharge: 1,
-        connectionChance: 0.55
+    "charge": {
+        "enabled": true,
+        "blobCharge": 0.75,
+        "mouseCharge": 1,
+        "connectionChance": 0.55
     },
-
-    shockwaves: {
-        enabled: true,
-        automatic: true,
-        interval: 5,
-        speed: 230,
-        width: 35,
-        strength: 0.85,
-        clickEnabled: true,
-        color: [100,200,255]
+    "shockwaves": {
+        "enabled": true,
+        "automatic": true,
+        "interval": 5,
+        "speed": 260,
+        "width": 46,
+        "strength": 2.4,
+        "clickEnabled": true,
+        "color": [
+            100,
+            200,
+            255
+        ]
     },
-
-    distortion: {
-        enabled: true,
-        strength: 8,
-        frequency: 0.012,
-        speed: 0.6,
-        energyResponse: 1
+    "distortion": {
+        "enabled": false,
+        "strength": 8,
+        "frequency": 0.012,
+        "speed": 0.6,
+        "energyResponse": 1
     },
-
-    sparks: {
-        enabled: true,
-        count: 12,
-        speed: 90,
-        lifetime: 0.65,
-        size: 2,
-        color: [180,230,255]
+    "sparks": {
+        "enabled": false,
+        "count": 60,
+        "speed": 90,
+        "lifetime": 0.6,
+        "size": 2,
+        "color": [
+            180,
+            230,
+            255
+        ]
     },
-
-    panel: {
-        enabled: true
+    "panel": {
+        "enabled": true
     }
 };
 
