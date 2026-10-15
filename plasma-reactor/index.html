@@ -13,7 +13,7 @@
 <script src="./settings-editor.js?v=1"></script>
 <script>
 'use strict';
-const defaults={{
+const defaults={
   "reactor": {
     "radius": 1.15,
     "energy": 1.35,
@@ -57,7 +57,7 @@ const defaults={{
   "panel": {
     "enabled": true
   }
-}};
+};
 const config=structuredClone(defaults);window.getBackgroundConfig=()=>structuredClone(config);
 const canvas=document.getElementById('scene');const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,powerPreference:'high-performance'});
 if(!gl){document.getElementById('status').textContent='WebGL2 is unavailable';throw Error('WebGL2 required');}
