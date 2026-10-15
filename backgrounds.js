@@ -9,6 +9,13 @@ export const backgrounds = [
             "A field of luminous dots swells into soft, shifting blobs, " +
             "turning a simple grid into a living surface.",
     },
+	{
+        name: "Blob Grid Evolved",
+        folder: "blob-grid-evolved",
+        description:
+            "A field of luminous dots swells into soft, shifting blobs, " +
+            "turning a simple grid into a living surface.",
+    },
     {
         name: "Wave Field",
         folder: "wave-field",
