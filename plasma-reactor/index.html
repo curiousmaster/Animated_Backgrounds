@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plasma Reactor — WebGL2</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#03040c;font-family:system-ui,sans-serif}#scene{position:fixed;inset:0;width:100%;height:100%;display:block}#status{position:fixed;bottom:14px;left:16px;color:#91a7c2;font-size:11px;letter-spacing:.1em;pointer-events:none}#status strong{color:#c7e8ff}.editor{position:fixed;inset:0;pointer-events:none;z-index:10;color:#dceaff;font:12px/1.5 system-ui,sans-serif}.editor *{box-sizing:border-box}.editor-toggle{position:absolute;top:16px;right:16px;pointer-events:auto;background:#101b31;border:1px solid #4e7593;color:#dff5ff;border-radius:9px;padding:11px 15px;cursor:pointer}.editor-panel{position:absolute;right:0;top:0;width:min(370px,100vw);height:100%;overflow:auto;background:rgba(8,14,28,.96);border-left:1px solid #304a68;box-shadow:-20px 0 50px #0007;padding:20px;pointer-events:auto;transform:translateX(101%);transition:transform .2s ease;scrollbar-width:thin}.editor-panel.open{transform:translateX(0)}.editor-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.editor-head h2{font-size:18px;margin:0}.editor button{font:inherit;cursor:pointer;border:1px solid #42617d;border-radius:7px;background:#182a43;color:#e1f3ff;padding:8px 10px}.editor button:hover{background:#26425e}.editor-intro{color:#92a9c2;font-size:12px}.editor-section{margin:12px 0;border:1px solid #2a3d56;border-radius:8px;background:#101b2a}.editor-section summary{padding:11px 12px;font-weight:650;cursor:pointer;list-style:none}.editor-section summary::-webkit-details-marker{display:none}.editor-section summary:after{content:'+';float:right;color:#8fc8ff}.editor-section[open] summary:after{content:'−'}.editor-section-body{padding:2px 12px 12px}.editor-control{padding:9px 3px;border-top:1px solid #ffffff0d}.editor-control:hover{background:#ffffff08}.editor-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}.editor-row label{color:#cbdcf0}.editor-row output{color:#8fdcff;font-variant-numeric:tabular-nums}.editor-control input[type=range]{width:100%;accent-color:#63c7fa}.editor-control input[type=checkbox]{accent-color:#63c7fa;width:18px;height:18px}.editor-control input[type=color]{width:46px;height:29px;background:transparent;border:0}.editor-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:16px}.editor-actions button{flex:1}.editor-json{width:100%;height:190px;resize:vertical;margin-top:10px;border:1px solid #36516d;background:#050b16;color:#d7ebff;border-radius:7px;padding:10px;font:11px/1.5 ui-monospace,monospace}.editor-tip{position:fixed;right:385px;width:260px;padding:14px 16px;border:1px solid #41678b;border-radius:10px;background:#0b172af5;box-shadow:0 14px 40px #0008;pointer-events:none;color:#c9ddf2;line-height:1.55}.editor-tip strong{display:block;color:#fff;margin-bottom:6px}.editor-tip[hidden]{display:none!important}.editor-msg{color:#9bc8e7;min-height:18px;margin:8px 0 0}.editor-panel input:focus-visible,.editor button:focus-visible,.editor summary:focus-visible{outline:2px solid #76d6ff;outline-offset:2px}@media(max-width:700px){.editor-tip{display:none!important}}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas><div id="status"><strong>PLASMA REACTOR</strong> · MAGNETIC CONFINEMENT ACTIVE</div>
+<script src="./settings-editor.js?v=1"></script>
+<script>
+'use strict';
+const defaults={reactor:{radius:1.15,energy:1.35,spin:0.25,pulse:0.42,instability:0.35,fieldLines:13,arcs:7,arcIntensity:1.3},plasma:{turbulence:1.25,detail:5,filaments:9,glow:1.5,coreBrightness:1.15},camera:{zoom:3.9,orbitSpeed:0.13,tilt:0.24,mouseOrbit:true,mouseStrength:0.55},colors:{core:'#77f4ff',outer:'#477aff',electric:'#c879ff',background:'#03040c'},cinematic:{exposure:1.05,vignette:0.45,grain:0.025,quality:1},animation:{speed:1,paused:false},panel:{enabled:true}};
+const config=structuredClone(defaults);window.getBackgroundConfig=()=>structuredClone(config);
+const canvas=document.getElementById('scene');const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,powerPreference:'high-performance'});
+if(!gl){document.getElementById('status').textContent='WebGL2 is unavailable';throw Error('WebGL2 required');}
+const vs=`#version 300 es
+precision highp float;
+void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}`;
+const fs=`#version 300 es
+precision highp float;
+out vec4 outColor;
+uniform vec2 u_res,u_mouse;
+uniform float u_time,u_radius,u_energy,u_spin,u_pulse,u_instability,u_lines,u_arcs,u_arcPower,u_turb,u_detail,u_filaments,u_glow,u_bright,u_zoom,u_orbit,u_tilt,u_mouseStrength,u_exposure,u_vignette,u_grain;
+uniform int u_mouseOrbit;
+uniform vec3 u_core,u_outer,u_electric,u_bg;
+#define PI 3.14159265359
+float hash11(float p){return fract(sin(p*127.1)*43758.5453);}
+float hash31(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+float noise(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);return mix(mix(mix(hash31(i),hash31(i+vec3(1,0,0)),f.x),mix(hash31(i+vec3(0,1,0)),hash31(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash31(i+vec3(0,0,1)),hash31(i+vec3(1,0,1)),f.x),mix(hash31(i+vec3(0,1,1)),hash31(i+vec3(1,1,1)),f.x),f.y),f.z);}
+float fbm(vec3 p){float s=0.,a=.5;for(int i=0;i<6;i++){if(float(i)>=u_detail)break;s+=a*noise(p);p=p*2.04+17.7;a*=.5;}return s;}
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+vec3 palette(float x){return mix(u_outer,u_core,clamp(x,0.,1.));}
+float sphereHit(vec3 ro,vec3 rd,float r,out float nearT,out float farT){float b=dot(ro,rd),c=dot(ro,ro)-r*r,h=b*b-c;if(h<0.)return 0.;h=sqrt(h);nearT=-b-h;farT=-b+h;return farT>0.?1.:0.;}
+float arcField(vec3 p,float id,float t){float a=id*2.39996+t*(.26+hash11(id)*.22);vec3 axis=normalize(vec3(cos(a),sin(a*.7)*.65,sin(a)));vec3 tangent=normalize(cross(axis,vec3(.1,1.,.2)));vec3 binormal=cross(axis,tangent);float theta=atan(dot(p,binormal),dot(p,tangent));float phase=theta*(4.+mod(id,4.))+t*(3.+hash11(id+9.)*3.);float jag=(sin(phase)*.065+sin(phase*2.43+id)*.025)*u_instability;float d=abs(length(p)-u_radius*(1.08+hash11(id)*.24)-jag);float plane=abs(dot(p,axis));float gate=smoothstep(-.25,.75,sin(theta*2.+id*4.+t));return exp(-d*d*1100.)*exp(-plane*plane*75.)*gate;}
+vec3 render(vec2 uv){
+ vec2 mouse=(u_mouse-.5)*2.;float az=u_time*u_orbit+(u_mouseOrbit==1?mouse.x*u_mouseStrength:0.);float el=u_tilt+(u_mouseOrbit==1?mouse.y*u_mouseStrength*.7:0.);
+ vec3 ro=vec3(0.,0.,u_zoom),rd=normalize(vec3(uv,-1.8));ro.xz=rot(az)*ro.xz;rd.xz=rot(az)*rd.xz;ro.yz=rot(el)*ro.yz;rd.yz=rot(el)*rd.yz;
+ vec3 color=u_bg;float star=step(.9986,hash31(vec3(floor(uv*vec2(650.,370.)),1.)))*(.2+.8*hash31(vec3(floor(uv*vec2(650.,370.)),2.)));color+=vec3(.26,.42,.72)*star;
+ float nearT,farT;float hit=sphereHit(ro,rd,u_radius*1.9,nearT,farT);
+ if(hit>0.){
+  float t0=max(nearT,0.),t1=farT;vec3 sum=vec3(0.);float trans=1.;
+  for(int i=0;i<96;i++){
+   float f=(float(i)+.5)/96.;float t=mix(t0,t1,f);vec3 p=ro+rd*t;float r=length(p);float nr=r/u_radius;
+   float phi=atan(p.z,p.x),lat=atan(p.y,length(p.xz));
+   float swirl=phi*3.2+u_time*u_spin*(1.3+.8/max(.4,nr));
+   vec3 np=vec3(swirl*1.6,lat*5.5,nr*5.-u_time*.34)*u_turb;
+   float n=fbm(np);float strands=pow(max(0.,sin(phi*u_filaments+lat*9.+n*6.-u_time*u_spin*3.)),5.);
+   float shell=exp(-pow((nr-1.)/.19,2.));float corona=exp(-pow((nr-1.16)/.32,2.))*.23;
+   float wav=1.+u_pulse*.16*sin(u_time*2.6+phi*3.);
+   float density=(shell*(.28+.7*n+strands*.95)+corona)*wav;
+   density*=smoothstep(.38,.85,nr);
+   float brightness=(.6+u_energy*.7)*(1.+u_instability*(n-.35));
+   vec3 emission=palette(.25+strands*.65+n*.22)*density*brightness;
+   float stepSize=(t1-t0)/96.;float alpha=clamp(density*stepSize*1.6,0.,.3);
+   sum+=trans*emission*alpha*3.5;trans*=1.-alpha;
+  }
+  color=color*trans+sum*u_bright;
+  // Bright shell silhouette and a concentrated central core.
+  float closest=length(cross(ro,rd));float core=1.-smoothstep(u_radius*.23,u_radius*.78,closest);
+  color+=u_core*pow(core,2.4)*u_energy*.23;
+  float edge=exp(-pow((closest-u_radius*.99)/(.07*u_radius),2.));color+=mix(u_core,u_electric,.3)*edge*u_glow*.34;
+  // Field lines: rotating magnetic latitude rings with shimmering current.
+  vec3 p=ro+rd*max(0.,-dot(ro,rd));float r=length(p);float angle=atan(p.z,p.x);
+  for(int j=0;j<24;j++){
+   if(float(j)>=u_lines)break;
+   float id=float(j),phase=id*PI/max(u_lines,1.)+u_time*u_spin*.45;
+   vec3 axis=normalize(vec3(cos(phase),sin(phase*.73)*.55,sin(phase)));
+   float ringDist=abs(dot(p,axis));float radial=abs(r-u_radius*(1.18+.18*sin(id*1.8)));
+   float ring=exp(-ringDist*ringDist*160.)*exp(-radial*radial*180.);
+   color+=u_outer*ring*.085*u_energy;
+  }
+  for(int j=0;j<18;j++){
+   if(float(j)>=u_arcs)break;
+   float arc=arcField(p,float(j)+1.,u_time);
+   color+=u_electric*arc*u_arcPower*.33;
+  }
+  float halo=exp(-pow(max(0.,closest-u_radius)/(.5*u_radius),2.))*exp(-max(0.,closest-u_radius)*1.4);
+  color+=u_outer*halo*u_glow*.035;
+ }
+ // Screen-space electric discharge filaments on the outer containment shell.
+ float ruv=length(uv);float theta=atan(uv.y,uv.x);float discharge=0.;
+ for(int j=0;j<18;j++){
+  if(float(j)>=u_arcs)break;
+  float id=float(j);float phase=theta*(3.+mod(id,4.))+u_time*(2.2+id*.13);
+  float path=.60+id*.018+sin(phase+id*4.)*.018*u_instability;
+  float mask=smoothstep(.4,.9,sin(theta*2.3+id*2.7+u_time));
+  discharge+=exp(-pow((ruv-path)*340.,2.))*mask;
+ }
+ color+=u_electric*discharge*u_arcPower*.16;
+ float vignette=1.-u_vignette*smoothstep(.25,1.5,length(uv));color*=vignette;
+ color=vec3(1.)-exp(-color*u_exposure);
+ float grain=(hash31(vec3(gl_FragCoord.xy,u_time))-.5)*u_grain;color+=grain;
+ return max(color,vec3(0.));
+}
+void main(){vec2 uv=(gl_FragCoord.xy-.5*u_res)/min(u_res.x,u_res.y);outColor=vec4(render(uv),1.);}`;
+function shader(type,source){const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s;}
+const program=gl.createProgram();gl.attachShader(program,shader(gl.VERTEX_SHADER,vs));gl.attachShader(program,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));gl.useProgram(program);
+const vao=gl.createVertexArray();gl.bindVertexArray(vao);const uniforms={};function U(name){return uniforms[name]??(uniforms[name]=gl.getUniformLocation(program,'u_'+name));}function f(name,v){gl.uniform1f(U(name),v);}function v2(name,a,b){gl.uniform2f(U(name),a,b);}function rgb(name,hex){const h=hex.replace('#','');gl.uniform3f(U(name),parseInt(h.slice(0,2),16)/255,parseInt(h.slice(2,4),16)/255,parseInt(h.slice(4,6),16)/255);}
+let w=0,h=0,last=0,clock=0;const mouse={x:.5,y:.5};function resize(){const q=Math.min(devicePixelRatio||1,2)*config.cinematic.quality;w=canvas.width=Math.max(1,Math.round(innerWidth*q));h=canvas.height=Math.max(1,Math.round(innerHeight*q));gl.viewport(0,0,w,h);}addEventListener('resize',resize);addEventListener('pointermove',e=>{if(e.target.closest?.('.editor'))return;mouse.x=e.clientX/innerWidth;mouse.y=1-e.clientY/innerHeight;});
+function frame(now){const dt=Math.min((now-last)/1000||0,.05);last=now;if(!config.animation.paused)clock+=dt*config.animation.speed;gl.viewport(0,0,w,h);gl.useProgram(program);v2('res',w,h);v2('mouse',mouse.x,mouse.y);f('time',clock);const r=config.reactor,p=config.plasma,c=config.camera,x=config.cinematic;for(const [k,v] of Object.entries({radius:r.radius,energy:r.energy,spin:r.spin,pulse:r.pulse,instability:r.instability,lines:r.fieldLines,arcs:r.arcs,arcPower:r.arcIntensity,turb:p.turbulence,detail:p.detail,filaments:p.filaments,glow:p.glow,bright:p.coreBrightness,zoom:c.zoom,orbit:c.orbitSpeed,tilt:c.tilt,mouseStrength:c.mouseStrength,exposure:x.exposure,vignette:x.vignette,grain:x.grain}))f(k,v);gl.uniform1i(U('mouseOrbit'),c.mouseOrbit?1:0);for(const key of ['core','outer','electric','background'])rgb(key==='background'?'bg':key,config.colors[key]);gl.drawArrays(gl.TRIANGLES,0,3);requestAnimationFrame(frame);}
+resize();requestAnimationFrame(frame);
+if(config.panel.enabled&&typeof window.createSettingsEditor==='function'){window.createSettingsEditor({config,defaults,onChange:()=>{resize();},onReset:()=>{clock=0;resize();}});}else if(config.panel.enabled){console.warn('settings-editor.js not loaded');}
+</script>
+</body>
+</html>
