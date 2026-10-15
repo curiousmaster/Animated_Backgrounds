@@ -327,6 +327,13 @@ export const backgrounds = [
 	        "Brilliant supernovas scatter stellar fragments through colorful nebulas, enhanced by GPU bloom, " +
 	        "dynamic lighting, and subtle twinkling effects.",
 	},
+	{
+	    name: "Plasma Reactor",
+	    folder: "plasma-reactor",
+	    description:
+	        "A suspended sphere of superheated plasma held together by an invisible magnetic field. Brilliant filaments " +
+			"arc around the surface, occasionally erupting into energetic discharges.",
+	},
 
 
 ];
