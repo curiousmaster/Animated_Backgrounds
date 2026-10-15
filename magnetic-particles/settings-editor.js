@@ -1,3 +1,4 @@
+
 "use strict";
 
 export function mountEditor({
@@ -5,212 +6,15 @@ export function mountEditor({
     onChange = () => {},
     onReset = () => {}
 }) {
-    const clamp = (value, min, max) =>
-        Math.max(min, Math.min(max, value));
+    const clamp = (v, min, max) =>
+        Math.max(min, Math.min(max, v));
 
-    const style = document.createElement("style");
-
-    style.textContent = `
-        .mag-editor,
-        .mag-editor * {
-            box-sizing: border-box;
-        }
-
-        .mag-editor {
-            font-family: system-ui, sans-serif;
-            color: #eee;
-        }
-
-        .mag-editor [hidden] {
-            display: none !important;
-        }
-
-        .mag-panel {
-            position: fixed;
-            inset: 0 0 0 auto;
-            width: min(350px, 100vw);
-            z-index: 1001;
-            display: flex;
-            flex-direction: column;
-            background: rgba(18,20,25,.96);
-            border-left: 1px solid #343840;
-            box-shadow: -8px 0 30px #0006;
-            transform: translateX(100%);
-            transition: transform 220ms ease;
-        }
-
-        .mag-panel.open {
-            transform: translateX(0);
-        }
-
-        .mag-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px;
-            border-bottom: 1px solid #343840;
-        }
-
-        .mag-header strong {
-            font-size: 15px;
-        }
-
-        .mag-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 0 16px 20px;
-        }
-
-        .mag-editor fieldset {
-            min-width: 0;
-            margin: 18px 0 0;
-            padding: 12px;
-            border: 1px solid #343840;
-            border-radius: 8px;
-        }
-
-        .mag-editor legend {
-            padding: 0 6px;
-            color: #aeb8ca;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .mag-control {
-            display: grid;
-            grid-template-columns: 1fr 100px;
-            gap: 8px;
-            align-items: center;
-            margin-bottom: 12px;
-            font-size: 12px;
-        }
-
-        .mag-control:last-child {
-            margin-bottom: 0;
-        }
-
-        .mag-editor input[type="range"] {
-            grid-column: 1 / -1;
-            width: 100%;
-            margin: 0;
-            accent-color: #80baff;
-        }
-
-        .mag-editor input[type="number"],
-        .mag-editor select {
-            width: 100px;
-            padding: 5px 7px;
-            color: #fff;
-            background: #090b10;
-            border: 1px solid #454b57;
-            border-radius: 5px;
-        }
-
-        .mag-editor input[type="checkbox"] {
-            justify-self: end;
-            accent-color: #80baff;
-        }
-
-        .mag-colors {
-            grid-column: 1 / -1;
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .mag-editor input[type="color"] {
-            width: 42px;
-            height: 30px;
-            padding: 2px;
-            background: transparent;
-            border: 1px solid #454b57;
-            border-radius: 5px;
-        }
-
-        .mag-rgb {
-            display: flex;
-            flex: 1;
-            gap: 6px;
-        }
-
-        .mag-rgb input[type="number"] {
-            width: 100%;
-            min-width: 0;
-        }
-
-        .mag-editor button {
-            padding: 8px 11px;
-            color: #eee;
-            background: #272d38;
-            border: 1px solid #454b57;
-            border-radius: 6px;
-            cursor: pointer;
-            font: 12px system-ui, sans-serif;
-        }
-
-        .mag-editor button:hover {
-            background: #384253;
-        }
-
-        .mag-editor button:focus-visible,
-        .mag-editor input:focus-visible,
-        .mag-editor select:focus-visible,
-        .mag-editor textarea:focus-visible {
-            outline: 2px solid #80baff;
-            outline-offset: 2px;
-        }
-
-        .mag-launcher {
-            position: fixed;
-            top: 16px;
-            right: 16px;
-            z-index: 1000;
-        }
-
-        .mag-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 18px;
-        }
-
-        .mag-editor textarea {
-            width: 100%;
-            height: 320px;
-            margin-top: 12px;
-            padding: 10px;
-            resize: vertical;
-            color: #bce0ff;
-            background: #090b10;
-            border: 1px solid #454b57;
-            border-radius: 6px;
-            font: 11px/1.5 monospace;
-            white-space: pre;
-        }
-
-        .mag-status {
-            min-height: 18px;
-            margin-top: 8px;
-            color: #a8d6ad;
-            font-size: 11px;
-        }
-
-        .mag-hint {
-            color: #aeb8ca;
-            font-size: 11px;
-            line-height: 1.5;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            .mag-panel {
-                transition: none;
-            }
-        }
-    `;
-
-    document.head.appendChild(style);
+    // ========================================================
+    // EDITOR HTML
+    // ========================================================
 
     const root = document.createElement("div");
+
     root.className = "mag-editor";
     root.setAttribute("data-background-editor", "");
 
@@ -221,9 +25,12 @@ export function mountEditor({
         </button>
 
         <aside class="mag-panel"
-               aria-label="Magnetic particle settings" inert>
+               aria-label="Magnetic particle settings"
+               inert>
+
             <div class="mag-header">
-                <strong>Magnetic particles</strong>
+                <strong>Magnetic Particles — WebGL2</strong>
+
                 <button class="mag-close" type="button">
                     Retract →
                 </button>
@@ -248,30 +55,30 @@ export function mountEditor({
                 </div>
 
                 <textarea readonly spellcheck="false" hidden
-                    aria-label="Current configuration code"></textarea>
+                    aria-label="Current configuration code">
+                </textarea>
 
                 <div class="mag-status" role="status"></div>
 
                 <p class="mag-hint">
                     All settings update immediately.
-                    RGB fields are ordered R, G, B.
+                    Particle rendering uses WebGL2.
+                    Physics runs in JavaScript.
+                </p>
+
+                <p class="mag-hint">
+                    Hover over a setting to see its description.
+                    Click section headings to expand or collapse.
+                </p>
+
+                <p class="mag-hint">
                     Copy the configuration into index.html
                     to make your settings permanent.
                 </p>
-
-                <p class="mag-hint">
-                    Higher friction slows particles more quickly.
-                    Swirl controls circulation around the poles.
-                    Set trail length to zero for crisp moving dots.
-                </p>
-
-                <p class="mag-hint">
-                    Disabling the pane hides its controls.
-                    Save panel.enabled as false to prevent
-                    the editor from loading next time.
-                </p>
             </div>
         </aside>
+
+        <div class="mag-tooltip" role="tooltip"></div>
     `;
 
     document.body.appendChild(root);
@@ -287,10 +94,16 @@ export function mountEditor({
     const reset = find(".mag-reset");
     const code = find("textarea");
     const status = find(".mag-status");
+    const tooltip = find(".mag-tooltip");
+
+    // ========================================================
+    // CONFIGURATION ACCESS
+    // ========================================================
 
     function getValue(path) {
         return path.split(".").reduce(
-            (object, key) => object[key], config
+            (object, key) => object[key],
+            config
         );
     }
 
@@ -299,7 +112,8 @@ export function mountEditor({
         const last = keys.pop();
 
         const object = keys.reduce(
-            (current, key) => current[key], config
+            (current, key) => current[key],
+            config
         );
 
         object[last] = value;
@@ -316,6 +130,10 @@ export function mountEditor({
         status.textContent = "";
     }
 
+    // ========================================================
+    // PANEL CONTROL
+    // ========================================================
+
     function setOpen(open) {
         open = Boolean(open && config.panel.enabled);
 
@@ -323,10 +141,19 @@ export function mountEditor({
         panel.inert = !open;
 
         launcher.hidden = open || !config.panel.enabled;
-        launcher.setAttribute("aria-expanded", String(open));
 
-        if (open) close.focus();
-        else if (config.panel.enabled) launcher.focus();
+        launcher.setAttribute(
+            "aria-expanded",
+            String(open)
+        );
+
+        hideTooltip();
+
+        if (open) {
+            close.focus();
+        } else if (config.panel.enabled) {
+            launcher.focus();
+        }
     }
 
     function changed(path) {
@@ -334,19 +161,36 @@ export function mountEditor({
         refreshCode();
 
         if (path === "panel.enabled") {
-            if (!config.panel.enabled) setOpen(false);
+            if (!config.panel.enabled) {
+                setOpen(false);
+            }
+
             root.hidden = !config.panel.enabled;
         }
     }
 
     function setCodeVisible(visible) {
         code.hidden = !visible;
-        show.textContent = visible ? "Hide code" : "Show code";
-        show.setAttribute("aria-expanded", String(visible));
+
+        show.textContent = visible
+            ? "Hide code"
+            : "Show code";
+
+        show.setAttribute(
+            "aria-expanded",
+            String(visible)
+        );
     }
 
-    launcher.addEventListener("click", () => setOpen(true));
-    close.addEventListener("click", () => setOpen(false));
+    launcher.addEventListener(
+        "click",
+        () => setOpen(true)
+    );
+
+    close.addEventListener(
+        "click",
+        () => setOpen(false)
+    );
 
     function onKeydown(event) {
         if (
@@ -369,14 +213,16 @@ export function mountEditor({
 
         try {
             await navigator.clipboard.writeText(getCode());
-            status.textContent = "Configuration copied.";
+
+            status.textContent =
+                "Configuration copied.";
         } catch {
             setCodeVisible(true);
             code.focus();
             code.select();
 
             status.textContent =
-                "Code selected. Press Ctrl+C or ⌘C to copy.";
+                "Code selected. Press Ctrl+C to copy.";
         }
     });
 
@@ -385,37 +231,169 @@ export function mountEditor({
         status.textContent = "Particles reset.";
     });
 
+    // ========================================================
+    // TOOLTIP DESCRIPTIONS
+    // ========================================================
+
+    const descriptions = {
+        particleCount:
+            "Number of simulated particles. WebGL2 can render " +
+            "large particle counts efficiently, although physics " +
+            "still runs on the CPU.",
+
+        particleRadius:
+            "Radius of each particle in CSS pixels. " +
+            "Larger particles produce brighter, more visible dots.",
+
+        particleColor:
+            "Base RGB color of particles outside the mouse " +
+            "influence area.",
+
+        maxSpeed:
+            "Maximum particle movement speed in pixels per second.",
+
+        friction:
+            "Velocity damping. Higher values slow particles " +
+            "more quickly. Zero disables drag.",
+
+        trailLength:
+            "Approximate trail persistence in seconds. " +
+            "Higher values create longer motion trails. " +
+            "Zero disables trails.",
+
+        "poles.count":
+            "Number of moving magnetic field poles. " +
+            "Each pole influences nearby particles.",
+
+        "poles.strength":
+            "Force exerted by the magnetic poles. " +
+            "Higher values accelerate particles more strongly.",
+
+        "poles.radius":
+            "Distance over which magnetic poles influence " +
+            "particles. Larger values create broader fields.",
+
+        "poles.orbitSpeed":
+            "Speed of magnetic pole movement. Negative values " +
+            "reverse their orbital direction.",
+
+        "poles.swirl":
+            "Tangential magnetic force that causes particles " +
+            "to circulate around poles.",
+
+        "poles.show":
+            "Display the positions of the magnetic poles " +
+            "as small glowing white markers.",
+
+        "mouse.enabled":
+            "Enable or disable mouse interaction with particles.",
+
+        "mouse.mode":
+            "Attract pulls particles toward the pointer. " +
+            "Repel pushes particles away.",
+
+        "mouse.strength":
+            "Strength of the mouse attraction or repulsion force.",
+
+        "mouse.radius":
+            "Radius of the mouse influence field. " +
+            "Larger values affect more particles.",
+
+        "mouse.color":
+            "RGB color used when particles enter the mouse " +
+            "influence field.",
+
+        "glow.enabled":
+            "Enable the GPU-generated soft glow around particles.",
+
+        "glow.intensity":
+            "Brightness of the glow surrounding each particle.",
+
+        "glow.blur":
+            "Approximate size of the particle glow in pixels. " +
+            "Larger values create wider luminous halos.",
+
+        "panel.enabled":
+            "Enable or disable the settings editor. " +
+            "When disabled, the editor is hidden."
+    };
+
+    function showTooltip(row, description) {
+        if (!description) return;
+
+        tooltip.textContent = description;
+        tooltip.classList.add("visible");
+
+        const rect = row.getBoundingClientRect();
+        const tooltipWidth = 245;
+        const margin = 14;
+
+        let left = rect.left - tooltipWidth - margin;
+
+        if (left < 8) {
+            left = rect.right + margin;
+        }
+
+        left = clamp(
+            left,
+            8,
+            window.innerWidth - tooltipWidth - 8
+        );
+
+        const tooltipHeight = tooltip.offsetHeight;
+
+        const top = clamp(
+            rect.top,
+            8,
+            Math.max(
+                8,
+                window.innerHeight - tooltipHeight - 8
+            )
+        );
+
+        tooltip.style.left = left + "px";
+        tooltip.style.top = top + "px";
+    }
+
+    function hideTooltip() {
+        tooltip.classList.remove("visible");
+    }
+
+    // ========================================================
+    // SETTINGS DEFINITIONS
+    // ========================================================
+
     const groups = [
         ["Particles", [
-            ["particleCount", "Particle count", 0, 2000, 1],
-            ["particleRadius", "Particle radius", 0.2, 5, 0.1],
+            ["particleCount", "Particle count", 0, 20000, 1],
+            ["particleRadius", "Particle radius", 0.2, 10, 0.1],
             ["particleColor", "Particle color", "color"],
-            ["maxSpeed", "Maximum speed", 0, 400, 1],
+            ["maxSpeed", "Maximum speed", 0, 1000, 1],
             ["friction", "Friction", 0, 5, 0.05],
-            ["trailLength", "Trail length", 0, 3, 0.05]
+            ["trailLength", "Trail length", 0, 5, 0.05]
         ]],
 
         ["Magnetic poles", [
-            ["poles.count", "Pole count", 0, 10, 1],
-            ["poles.strength", "Strength", 0, 1000, 1],
-            ["poles.radius", "Influence radius", 20, 800, 1],
-            ["poles.orbitSpeed", "Movement speed", -1, 1, 0.01],
-            ["poles.swirl", "Swirl", 0, 4, 0.05],
+            ["poles.count", "Pole count", 0, 20, 1],
+            ["poles.strength", "Strength", 0, 2000, 1],
+            ["poles.radius", "Influence radius", 20, 1200, 1],
+            ["poles.orbitSpeed", "Movement speed", -2, 2, 0.01],
+            ["poles.swirl", "Swirl", 0, 8, 0.05],
             ["poles.show", "Show pole positions", "boolean"]
         ]],
 
         ["Mouse", [
             ["mouse.enabled", "Enabled", "boolean"],
             ["mouse.mode", "Mode", "select", ["attract", "repel"]],
-            ["mouse.strength", "Strength", 0, 1500, 1],
-            ["mouse.radius", "Influence radius", 20, 600, 1],
+            ["mouse.strength", "Strength", 0, 3000, 1],
+            ["mouse.radius", "Influence radius", 20, 1000, 1],
             ["mouse.color", "Mouse color", "color"]
         ]],
 
         ["Glow", [
             ["glow.enabled", "Enabled", "boolean"],
             ["glow.intensity", "Intensity", 0, 1, 0.01],
-            ["glow.blur", "Blur", 0, 40, 1]
+            ["glow.blur", "Blur", 0, 50, 1]
         ]],
 
         ["Settings pane", [
@@ -423,29 +401,50 @@ export function mountEditor({
         ]]
     ];
 
+    // ========================================================
+    // COLOR UTILITIES
+    // ========================================================
+
     function toHex(color) {
         return "#" + color.map(value =>
             Math.round(clamp(value, 0, 255))
-                .toString(16).padStart(2, "0")
+                .toString(16)
+                .padStart(2, "0")
         ).join("");
     }
 
     function fromHex(hex) {
         return [1, 3, 5].map(index =>
-            parseInt(hex.slice(index, index + 2), 16)
+            parseInt(
+                hex.slice(index, index + 2),
+                16
+            )
         );
     }
+
+    // ========================================================
+    // GENERATE SETTINGS CONTROLS
+    // ========================================================
 
     let controlIndex = 0;
 
     for (const [title, fields] of groups) {
-        const fieldset = document.createElement("fieldset");
-        const legend = document.createElement("legend");
+        const section = document.createElement("details");
+        const summary = document.createElement("summary");
+        const body = document.createElement("div");
 
-        legend.textContent = title;
-        fieldset.appendChild(legend);
+        section.className = "mag-section";
+        section.open = true;
 
-        for (const [path, labelText, typeOrMin, max, step] of fields) {
+        summary.textContent = title;
+        body.className = "mag-section-body";
+
+        section.append(summary, body);
+
+        for (
+            const [path, labelText, typeOrMin, max, step]
+            of fields
+        ) {
             const row = document.createElement("div");
             const label = document.createElement("label");
             const id = `mag-control-${controlIndex++}`;
@@ -453,7 +452,34 @@ export function mountEditor({
             row.className = "mag-control";
             label.textContent = labelText;
             label.htmlFor = id;
+
             row.appendChild(label);
+
+            // Tooltip events.
+            const description = descriptions[path];
+
+            row.addEventListener("mouseenter", () => {
+                showTooltip(row, description);
+            });
+
+            row.addEventListener(
+                "mouseleave",
+                hideTooltip
+            );
+
+            row.addEventListener("focusin", () => {
+                showTooltip(row, description);
+            });
+
+            row.addEventListener("focusout", event => {
+                if (!row.contains(event.relatedTarget)) {
+                    hideTooltip();
+                }
+            });
+
+            // ------------------------------------------------
+            // BOOLEAN
+            // ------------------------------------------------
 
             if (typeOrMin === "boolean") {
                 const input = document.createElement("input");
@@ -468,8 +494,14 @@ export function mountEditor({
                 });
 
                 row.appendChild(input);
+
+            // ------------------------------------------------
+            // SELECT
+            // ------------------------------------------------
+
             } else if (typeOrMin === "select") {
                 const select = document.createElement("select");
+
                 select.id = id;
 
                 for (const value of max) {
@@ -490,6 +522,11 @@ export function mountEditor({
                 });
 
                 row.appendChild(select);
+
+            // ------------------------------------------------
+            // COLOR
+            // ------------------------------------------------
+
             } else if (typeOrMin === "color") {
                 const wrapper = document.createElement("div");
                 const picker = document.createElement("input");
@@ -513,11 +550,13 @@ export function mountEditor({
                         input.value = getValue(path)[index];
 
                         input.setAttribute(
-                            "aria-label", `${labelText} ${channel}`
+                            "aria-label",
+                            `${labelText} ${channel}`
                         );
 
                         input.addEventListener("input", () => {
                             const value = input.valueAsNumber;
+
                             if (!Number.isFinite(value)) return;
 
                             const color = [...getValue(path)];
@@ -528,6 +567,7 @@ export function mountEditor({
 
                             setValue(path, color);
                             picker.value = toHex(color);
+
                             changed(path);
                         });
 
@@ -536,6 +576,7 @@ export function mountEditor({
                         });
 
                         rgbWrapper.appendChild(input);
+
                         return input;
                     }
                 );
@@ -554,6 +595,11 @@ export function mountEditor({
 
                 wrapper.append(picker, rgbWrapper);
                 row.appendChild(wrapper);
+
+            // ------------------------------------------------
+            // NUMERIC RANGE
+            // ------------------------------------------------
+
             } else {
                 const number = document.createElement("input");
                 const range = document.createElement("input");
@@ -561,7 +607,11 @@ export function mountEditor({
                 number.id = id;
                 number.type = "number";
                 range.type = "range";
-                range.setAttribute("aria-label", labelText);
+
+                range.setAttribute(
+                    "aria-label",
+                    labelText
+                );
 
                 for (const input of [number, range]) {
                     input.min = typeOrMin;
@@ -572,45 +622,58 @@ export function mountEditor({
 
                 function update(source, target) {
                     let value = source.valueAsNumber;
+
                     if (!Number.isFinite(value)) return;
 
                     value = clamp(value, typeOrMin, max);
-                    if (step === 1) value = Math.round(value);
+
+                    if (step === 1) {
+                        value = Math.round(value);
+                    }
 
                     setValue(path, value);
+
                     target.value = value;
                     changed(path);
                 }
 
-                number.addEventListener("input", () =>
-                    update(number, range)
-                );
+                number.addEventListener("input", () => {
+                    update(number, range);
+                });
 
                 number.addEventListener("change", () => {
                     number.value = getValue(path);
                 });
 
-                range.addEventListener("input", () =>
-                    update(range, number)
-                );
+                range.addEventListener("input", () => {
+                    update(range, number);
+                });
 
                 row.append(number, range);
             }
 
-            fieldset.appendChild(row);
+            body.appendChild(row);
         }
 
-        controls.appendChild(fieldset);
+        controls.appendChild(section);
     }
 
+    // ========================================================
+    // INITIALIZE
+    // ========================================================
+
     refreshCode();
+
     root.hidden = !config.panel.enabled;
 
     return {
         destroy() {
-            document.removeEventListener("keydown", onKeydown);
+            document.removeEventListener(
+                "keydown",
+                onKeydown
+            );
+
             root.remove();
-            style.remove();
         }
     };
 }
