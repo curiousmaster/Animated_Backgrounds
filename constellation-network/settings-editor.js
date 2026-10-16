@@ -560,7 +560,7 @@ export function mountEditor({
                 ["3d", "3D"]
             ]],
             ["view.depth", "Field depth", 0, 1200, 10],
-            ["view.zoom", "Zoom", 1, 4, 0.01],
+            ["view.zoom", "Zoom", 1.2, 4, 0.01],
             ["view.wheelSensitivity", "Wheel sensitivity", 0, 3, 0.05],
             ["view.perspective", "Perspective", 0, 1, 0.01],
             ["view.parallax", "Mouse parallax", 0, 1, 0.01],
