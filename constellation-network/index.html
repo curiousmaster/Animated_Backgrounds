@@ -1201,7 +1201,7 @@ try {
 
 if (config.panel.enabled) {
     // Increment this version when publishing editor changes.
-    import("./settings-editor.js?v=webgl-3d-1")
+    import("./settings-editor.js??v=${Date.now()}")
         .then(({ mountEditor }) => {
             editor = mountEditor({
                 config,
