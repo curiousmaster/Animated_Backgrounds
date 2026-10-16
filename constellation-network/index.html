@@ -3,11 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Constellation Network — WebGL</title>
+<title>Constellation Network — 3D WebGL</title>
 
 <style>
-    html,
-    body {
+    html, body {
         margin: 0;
         width: 100%;
         height: 100%;
@@ -19,11 +18,13 @@
         display: block;
         width: 100%;
         height: 100%;
+        touch-action: none;
     }
 
     #error {
         position: fixed;
-        inset: 20px auto auto 20px;
+        top: 20px;
+        left: 20px;
         max-width: min(500px, calc(100vw - 80px));
         padding: 16px;
         color: #fff;
@@ -47,50 +48,51 @@
 <script type="module">
 "use strict";
 
-// Replace with configuration copied from the editor.
 const config = {
-    "points": {
-        "count": 1120,
-        "radius": 1.8,
-        "speed": 20,
-        "opacity": 0.71,
-        "color": [
-            160,
-            210,
-            255
-        ]
+    points: {
+        count: 1120,
+        radius: 1.8,
+        speed: 20,
+        opacity: 0.9,
+        color: [160, 210, 255]
     },
-    "connections": {
-        "distance": 120,
-        "lineWidth": 0.8,
-        "opacity": 0.35,
-        "color": [
-            80,
-            160,
-            255
-        ]
+
+    connections: {
+        distance: 150,
+        lineWidth: 0.8,
+        opacity: 0.35,
+        color: [80, 160, 255]
     },
-    "mouse": {
-        "enabled": true,
-        "radius": 200,
-        "lineWidth": 1,
-        "opacity": 0.7,
-        "showPoint": true,
-        "pointRadius": 3,
-        "smoothing": 4,
-        "color": [
-            255,
-            100,
-            180
-        ]
+
+    mouse: {
+        enabled: true,
+        radius: 230,
+        lineWidth: 1,
+        opacity: 0.7,
+        showPoint: true,
+        pointRadius: 3,
+        smoothing: 12,
+        color: [255, 100, 180]
     },
-    "glow": {
-        "enabled": true,
-        "intensity": 0.2,
-        "blur": 10
+
+    glow: {
+        enabled: true,
+        intensity: 0.6,
+        blur: 10
     },
-    "panel": {
-        "enabled": true
+
+    view: {
+        mode: "3d",
+        depth: 650,
+        zoom: 1,
+        wheelSensitivity: 1,
+        perspective: 0.65,
+        parallax: 0.45,
+        depthFading: 0.65
+    },
+
+    panel: {
+        enabled: true
     }
 };
 
@@ -100,19 +102,36 @@ window.getBackgroundConfig = () =>
 const canvas = document.getElementById("background");
 const errorBox = document.getElementById("error");
 
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const lerp = (a, b, t) => a + (b - a) * t;
 const TAU = Math.PI * 2;
 
-const clamp = (value, min, max) =>
-    Math.max(min, Math.min(max, value));
+const MIN_ZOOM = 0.35;
+const MAX_ZOOM = 3;
 
-let gl = null;
-let renderer = null;
+let gl;
+let renderer;
 let width = 1;
 let height = 1;
 let points = [];
-let previousTime = null;
 let frameId = 0;
+let previousTime = null;
 let contextLost = false;
+let editor = null;
+
+const camera = {
+    depthMix: config.view.mode === "3d" ? 1 : 0,
+    zoom: config.view.zoom,
+    yaw: 0,
+    pitch: 0,
+    focal: 1,
+    distance: 1,
+    cy: 1,
+    sy: 0,
+    cx: 1,
+    sx: 0,
+    effectiveDepth: 0
+};
 
 const mouse = {
     x: 0,
@@ -121,7 +140,10 @@ const mouse = {
     targetY: 0,
     active: false,
     initialized: false,
-    influence: 0
+    influence: 0,
+    worldX: 0,
+    worldY: 0,
+    worldZ: 0
 };
 
 function showError(message) {
@@ -129,54 +151,44 @@ function showError(message) {
     errorBox.hidden = false;
 }
 
-function hideError() {
-    errorBox.hidden = true;
-}
-
 // --------------------------------------------------
-// WebGL renderer
+// WebGL rendering
 //
-// Every line and point is an instanced quad.
-//
-// The fragment shader evaluates the distance to a
-// line segment. A zero-length segment becomes a point.
-//
-// This avoids the platform-dependent width limits
-// of native WebGL lines and size limits of GL_POINTS.
+// Geometry is projected from 3D in JavaScript.
+// WebGL renders the resulting lines and circles as
+// instanced, antialiased quads with shader glow.
 // --------------------------------------------------
 
 const vertexSource = `#version 300 es
 precision highp float;
 
 layout(location = 0) in vec4 a_segment;
-layout(location = 1) in float a_radius;
+layout(location = 1) in vec2 a_radii;
 layout(location = 2) in vec4 a_color;
 
 uniform vec2 u_resolution;
-uniform float u_glowBlur;
-uniform float u_glowIntensity;
+uniform float u_blur;
+uniform float u_intensity;
 
 out vec2 v_local;
-
 flat out float v_length;
-flat out float v_radius;
+flat out vec2 v_radii;
 flat out vec4 v_color;
 
 const vec2 CORNERS[6] = vec2[6](
     vec2(0.0, -1.0),
     vec2(1.0, -1.0),
-    vec2(0.0,  1.0),
-
-    vec2(0.0,  1.0),
+    vec2(0.0, 1.0),
+    vec2(0.0, 1.0),
     vec2(1.0, -1.0),
-    vec2(1.0,  1.0)
+    vec2(1.0, 1.0)
 );
 
 void main() {
     vec2 start = a_segment.xy;
     vec2 end = a_segment.zw;
-
     vec2 difference = end - start;
+
     float segmentLength = length(difference);
 
     vec2 direction = segmentLength > 0.0001
@@ -185,11 +197,8 @@ void main() {
 
     vec2 normal = vec2(-direction.y, direction.x);
 
-    float glowPadding = u_glowIntensity > 0.0
-        ? u_glowBlur * 2.5
-        : 0.0;
-
-    float padding = a_radius + glowPadding + 1.5;
+    float halo = u_intensity > 0.0 ? u_blur * 2.5 : 0.0;
+    float padding = max(a_radii.x, a_radii.y) + halo + 1.5;
 
     vec2 corner = CORNERS[gl_VertexID];
 
@@ -199,18 +208,14 @@ void main() {
     );
 
     vec2 position =
-        start +
-        direction * local.x +
-        normal * local.y;
+        start + direction * local.x + normal * local.y;
 
     vec2 clip = position / u_resolution * 2.0 - 1.0;
-
-    // Canvas-style coordinates: origin at top left.
     gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
 
     v_local = local;
     v_length = segmentLength;
-    v_radius = a_radius;
+    v_radii = a_radii;
     v_color = a_color;
 }
 `;
@@ -219,87 +224,68 @@ const fragmentSource = `#version 300 es
 precision highp float;
 
 in vec2 v_local;
-
 flat in float v_length;
-flat in float v_radius;
+flat in vec2 v_radii;
 flat in vec4 v_color;
 
-uniform float u_glowBlur;
-uniform float u_glowIntensity;
+uniform float u_blur;
+uniform float u_intensity;
 
 out vec4 outColor;
 
 void main() {
-    // Distance to the closest position on the segment.
-    vec2 closest = vec2(
-        clamp(v_local.x, 0.0, v_length),
-        0.0
-    );
+    float along = clamp(v_local.x, 0.0, v_length);
 
-    float distanceToEdge =
-        length(v_local - closest) - v_radius;
+    float t = v_length > 0.0001
+        ? along / v_length
+        : 0.0;
 
-    // Derivatives make edge smoothing follow actual
-    // framebuffer pixel density.
-    float aa = max(fwidth(distanceToEdge), 0.0001);
+    float radius = mix(v_radii.x, v_radii.y, t);
+
+    float edge =
+        length(v_local - vec2(along, 0.0)) - radius;
+
+    float aa = max(fwidth(edge), 0.0001);
 
     float coverage = 1.0 - smoothstep(
-        -aa * 0.5,
-         aa * 0.5,
-         distanceToEdge
+        -aa * 0.5, aa * 0.5, edge
     );
 
-    float coreAlpha = v_color.a * coverage;
-    float glowAlpha = 0.0;
+    float core = v_color.a * coverage;
+    float glow = 0.0;
 
-    if (u_glowIntensity > 0.0) {
-        if (u_glowBlur > 0.0) {
-            float outside = max(distanceToEdge, 0.0);
-            float sigma = max(u_glowBlur * 0.5, 0.001);
+    if (u_intensity > 0.0) {
+        if (u_blur > 0.0) {
+            float outside = max(edge, 0.0);
+            float sigma = max(u_blur * 0.5, 0.001);
 
             float halo = exp(
                 -0.5 * outside * outside / (sigma * sigma)
             );
 
-            // Fade before the quad boundary.
             float cutoff = 1.0 - smoothstep(
-                u_glowBlur * 2.0,
-                u_glowBlur * 2.5,
+                u_blur * 2.0,
+                u_blur * 2.5,
                 outside
             );
 
-            glowAlpha =
-                v_color.a *
-                u_glowIntensity *
-                halo *
-                cutoff;
+            glow = v_color.a * u_intensity * halo * cutoff;
         } else {
-            glowAlpha =
-                v_color.a *
-                u_glowIntensity *
-                coverage;
+            glow = v_color.a * u_intensity * coverage;
         }
     }
 
-    // Composite the crisp shape over its own halo.
-    float alpha =
-        coreAlpha + glowAlpha * (1.0 - coreAlpha);
+    float alpha = core + glow * (1.0 - core);
 
-    if (alpha < 0.0001) {
-        discard;
-    }
+    if (alpha < 0.0001) discard;
 
-    // Premultiplied alpha.
     outColor = vec4(v_color.rgb * alpha, alpha);
 }
 `;
 
-function createShader(type, source) {
+function compileShader(type, source) {
     const shader = gl.createShader(type);
-
-    if (!shader) {
-        throw new Error("Could not allocate a WebGL shader.");
-    }
+    if (!shader) throw new Error("Could not create shader.");
 
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
@@ -314,21 +300,18 @@ function createShader(type, source) {
 }
 
 function createProgram() {
-    const vertex = createShader(gl.VERTEX_SHADER, vertexSource);
+    const vertex = compileShader(gl.VERTEX_SHADER, vertexSource);
     let fragment;
     let program;
 
     try {
-        fragment = createShader(
+        fragment = compileShader(
             gl.FRAGMENT_SHADER,
             fragmentSource
         );
 
         program = gl.createProgram();
-
-        if (!program) {
-            throw new Error("Could not allocate a WebGL program.");
-        }
+        if (!program) throw new Error("Could not create program.");
 
         gl.attachShader(program, vertex);
         gl.attachShader(program, fragment);
@@ -351,58 +334,46 @@ function createProgram() {
     }
 }
 
-class WebGLRenderer {
+class Renderer {
     constructor() {
         this.program = createProgram();
         this.vao = gl.createVertexArray();
         this.buffer = gl.createBuffer();
 
-        // startX, startY, endX, endY, radius, R, G, B, A
-        this.stride = 9;
+        // endpoints: 4, radii: 2, RGBA: 4
+        this.stride = 10;
         this.capacity = 4096;
         this.data = new Float32Array(
             this.capacity * this.stride
         );
-
         this.count = 0;
         this.gpuBytes = 0;
 
-        this.resolutionLocation = gl.getUniformLocation(
-            this.program,
-            "u_resolution"
+        this.resolution = gl.getUniformLocation(
+            this.program, "u_resolution"
         );
-
-        this.blurLocation = gl.getUniformLocation(
-            this.program,
-            "u_glowBlur"
+        this.blur = gl.getUniformLocation(
+            this.program, "u_blur"
         );
-
-        this.intensityLocation = gl.getUniformLocation(
-            this.program,
-            "u_glowIntensity"
+        this.intensity = gl.getUniformLocation(
+            this.program, "u_intensity"
         );
 
         gl.bindVertexArray(this.vao);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
 
-        const bytes = this.stride * Float32Array.BYTES_PER_ELEMENT;
+        const bytes = this.stride * 4;
 
         gl.enableVertexAttribArray(0);
-        gl.vertexAttribPointer(
-            0, 4, gl.FLOAT, false, bytes, 0
-        );
+        gl.vertexAttribPointer(0, 4, gl.FLOAT, false, bytes, 0);
         gl.vertexAttribDivisor(0, 1);
 
         gl.enableVertexAttribArray(1);
-        gl.vertexAttribPointer(
-            1, 1, gl.FLOAT, false, bytes, 4 * 4
-        );
+        gl.vertexAttribPointer(1, 2, gl.FLOAT, false, bytes, 16);
         gl.vertexAttribDivisor(1, 1);
 
         gl.enableVertexAttribArray(2);
-        gl.vertexAttribPointer(
-            2, 4, gl.FLOAT, false, bytes, 5 * 4
-        );
+        gl.vertexAttribPointer(2, 4, gl.FLOAT, false, bytes, 24);
         gl.vertexAttribDivisor(2, 1);
 
         gl.bindVertexArray(null);
@@ -412,55 +383,68 @@ class WebGLRenderer {
         this.count = 0;
     }
 
-    reserve(required) {
-        if (required <= this.capacity) return;
+    add(x1, y1, x2, y2, r1, r2, color, opacity) {
+        if (opacity <= 0 || Math.max(r1, r2) <= 0) return;
 
-        while (this.capacity < required) {
-            this.capacity *= 2;
+        // Skip shapes entirely outside the viewport.
+        const padding = Math.max(r1, r2) +
+            (config.glow.enabled ? config.glow.blur * 2.5 : 0) +
+            2;
+
+        if (
+            Math.max(x1, x2) < -padding ||
+            Math.min(x1, x2) > width + padding ||
+            Math.max(y1, y2) < -padding ||
+            Math.min(y1, y2) > height + padding
+        ) {
+            return;
         }
 
-        const next = new Float32Array(
-            this.capacity * this.stride
-        );
+        if (this.count >= this.capacity) {
+            this.capacity *= 2;
 
-        next.set(this.data);
-        this.data = next;
-    }
+            const next = new Float32Array(
+                this.capacity * this.stride
+            );
 
-    addSegment(x1, y1, x2, y2, radius, color, opacity) {
-        if (radius <= 0 || opacity <= 0) return;
+            next.set(this.data);
+            this.data = next;
+        }
 
-        this.reserve(this.count + 1);
+        let i = this.count * this.stride;
 
-        let offset = this.count * this.stride;
-
-        this.data[offset++] = x1;
-        this.data[offset++] = y1;
-        this.data[offset++] = x2;
-        this.data[offset++] = y2;
-        this.data[offset++] = radius;
-
-        this.data[offset++] = clamp(color[0] / 255, 0, 1);
-        this.data[offset++] = clamp(color[1] / 255, 0, 1);
-        this.data[offset++] = clamp(color[2] / 255, 0, 1);
-        this.data[offset++] = clamp(opacity, 0, 1);
+        this.data[i++] = x1;
+        this.data[i++] = y1;
+        this.data[i++] = x2;
+        this.data[i++] = y2;
+        this.data[i++] = r1;
+        this.data[i++] = r2;
+        this.data[i++] = clamp(color[0] / 255, 0, 1);
+        this.data[i++] = clamp(color[1] / 255, 0, 1);
+        this.data[i++] = clamp(color[2] / 255, 0, 1);
+        this.data[i++] = clamp(opacity, 0, 1);
 
         this.count++;
     }
 
-    addLine(x1, y1, x2, y2, lineWidth, color, opacity) {
-        this.addSegment(
-            x1, y1, x2, y2,
-            lineWidth * 0.5,
+    point(point, radius, color, opacity) {
+        const size = radius * point.scale;
+
+        this.add(
+            point.screenX, point.screenY,
+            point.screenX, point.screenY,
+            size, size,
             color,
             opacity
         );
     }
 
-    addPoint(x, y, radius, color, opacity) {
-        this.addSegment(
-            x, y, x, y,
-            radius,
+    line(a, b, lineWidth, color, opacity) {
+        this.add(
+            a.screenX, a.screenY,
+            b.screenX, b.screenY,
+            lineWidth * 0.5 * a.scale,
+            lineWidth * 0.5 * b.scale,
             color,
             opacity
         );
@@ -468,14 +452,13 @@ class WebGLRenderer {
 
     render() {
         gl.viewport(0, 0, canvas.width, canvas.height);
-
         gl.disable(gl.DEPTH_TEST);
         gl.disable(gl.CULL_FACE);
 
         gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        if (this.count === 0) return;
+        if (!this.count) return;
 
         gl.enable(gl.BLEND);
         gl.blendEquation(gl.FUNC_ADD);
@@ -485,7 +468,6 @@ class WebGLRenderer {
         gl.bindVertexArray(this.vao);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
 
-        // Allocate only when the batch capacity grows.
         if (this.gpuBytes !== this.data.byteLength) {
             gl.bufferData(
                 gl.ARRAY_BUFFER,
@@ -502,24 +484,13 @@ class WebGLRenderer {
             this.data.subarray(0, this.count * this.stride)
         );
 
-        const intensity = config.glow.enabled
-            ? clamp(config.glow.intensity, 0, 1)
-            : 0;
-
-        gl.uniform2f(
-            this.resolutionLocation,
-            width,
-            height
-        );
-
+        gl.uniform2f(this.resolution, width, height);
+        gl.uniform1f(this.blur, Math.max(0, config.glow.blur));
         gl.uniform1f(
-            this.blurLocation,
-            Math.max(0, config.glow.blur)
-        );
-
-        gl.uniform1f(
-            this.intensityLocation,
-            intensity
+            this.intensity,
+            config.glow.enabled
+                ? clamp(config.glow.intensity, 0, 1)
+                : 0
         );
 
         gl.drawArraysInstanced(
@@ -534,26 +505,39 @@ class WebGLRenderer {
 }
 
 // --------------------------------------------------
-// Point creation and resizing
+// Points
+//
+// z is normalized to -0.5 ... +0.5.
+// Depth can therefore change without resetting points.
 // --------------------------------------------------
 
 function createPoint() {
     const angle = Math.random() * TAU;
+    const vertical = Math.random() * 1.4 - 0.7;
+    const horizontal = Math.sqrt(1 - vertical * vertical);
 
     return {
-        x: Math.random() * width,
-        y: Math.random() * height,
-        dx: Math.cos(angle),
-        dy: Math.sin(angle),
-        speedFactor: 0.5 + Math.random()
+        x: (Math.random() - 0.5) * width,
+        y: (Math.random() - 0.5) * height,
+        z: Math.random() - 0.5,
+
+        dx: Math.cos(angle) * horizontal,
+        dy: Math.sin(angle) * horizontal,
+        dz: vertical,
+
+        speedFactor: 0.5 + Math.random(),
+
+        worldZ: 0,
+        viewZ: 0,
+        screenX: 0,
+        screenY: 0,
+        scale: 1,
+        fade: 1
     };
 }
 
 function syncPoints() {
-    const count = Math.max(
-        0,
-        Math.floor(config.points.count)
-    );
+    const count = Math.max(0, Math.floor(config.points.count));
 
     while (points.length < count) {
         points.push(createPoint());
@@ -577,20 +561,15 @@ function resize() {
     let dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     if (gl && !contextLost) {
-        const maxViewport = gl.getParameter(
-            gl.MAX_VIEWPORT_DIMS
-        );
-
-        const maxRenderbuffer = gl.getParameter(
-            gl.MAX_RENDERBUFFER_SIZE
-        );
+        const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+        const bufferSize = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE);
 
         dpr = Math.min(
             dpr,
-            maxViewport[0] / width,
-            maxViewport[1] / height,
-            maxRenderbuffer / width,
-            maxRenderbuffer / height
+            viewport[0] / width,
+            viewport[1] / height,
+            bufferSize / width,
+            bufferSize / height
         );
     }
 
@@ -605,60 +584,212 @@ function resize() {
         canvas.height = pixelHeight;
     }
 
-    if (oldWidth > 0 && oldHeight > 0) {
-        const scaleX = width / oldWidth;
-        const scaleY = height / oldHeight;
-
-        for (const point of points) {
-            point.x *= scaleX;
-            point.y *= scaleY;
-        }
-
-        mouse.x *= scaleX;
-        mouse.y *= scaleY;
-        mouse.targetX *= scaleX;
-        mouse.targetY *= scaleY;
+    for (const point of points) {
+        point.x *= width / oldWidth;
+        point.y *= height / oldHeight;
     }
+
+    mouse.x *= width / oldWidth;
+    mouse.targetX *= width / oldWidth;
+    mouse.y *= height / oldHeight;
+    mouse.targetY *= height / oldHeight;
 }
 
 function updatePoints(delta) {
     const speed = Math.max(0, config.points.speed);
+    const halfWidth = width * 0.5;
+    const halfHeight = height * 0.5;
+    const depth = Math.max(1, config.view.depth);
 
     for (const point of points) {
-        point.x +=
-            point.dx * speed * point.speedFactor * delta;
+        const movement = speed * point.speedFactor * delta;
 
-        point.y +=
-            point.dy * speed * point.speedFactor * delta;
+        point.x += point.dx * movement;
+        point.y += point.dy * movement;
 
-        if (point.x < 0) {
-            point.x = 0;
+        // Stop depth movement once the field is flat.
+        point.z +=
+            point.dz * movement / depth * camera.depthMix;
+
+        if (point.x < -halfWidth) {
+            point.x = -halfWidth;
             point.dx = Math.abs(point.dx);
-        } else if (point.x > width) {
-            point.x = width;
+        } else if (point.x > halfWidth) {
+            point.x = halfWidth;
             point.dx = -Math.abs(point.dx);
         }
 
-        if (point.y < 0) {
-            point.y = 0;
+        if (point.y < -halfHeight) {
+            point.y = -halfHeight;
             point.dy = Math.abs(point.dy);
-        } else if (point.y > height) {
-            point.y = height;
+        } else if (point.y > halfHeight) {
+            point.y = halfHeight;
             point.dy = -Math.abs(point.dy);
+        }
+
+        if (point.z < -0.5) {
+            point.z = -0.5;
+            point.dz = Math.abs(point.dz);
+        } else if (point.z > 0.5) {
+            point.z = 0.5;
+            point.dz = -Math.abs(point.dz);
         }
     }
 }
 
 // --------------------------------------------------
-// Spatial grid
-//
-// Each nearby pair is considered only once.
-// The grid is reused instead of allocating a Map
-// and arrays on every animation frame.
+// Camera and projection
 // --------------------------------------------------
 
-let gridHeads = new Int32Array(0);
-let gridNext = new Int32Array(0);
+function updateCamera(delta) {
+    const response = 1 - Math.exp(-7 * delta);
+    const targetMix = config.view.mode === "3d" ? 1 : 0;
+
+    camera.depthMix = lerp(
+        camera.depthMix,
+        targetMix,
+        response
+    );
+
+    if (Math.abs(camera.depthMix - targetMix) < 0.0001) {
+        camera.depthMix = targetMix;
+    }
+
+    camera.zoom = lerp(
+        camera.zoom,
+        clamp(config.view.zoom, MIN_ZOOM, MAX_ZOOM),
+        response
+    );
+
+    const pointerX = mouse.initialized
+        ? clamp(mouse.x / width * 2 - 1, -1, 1)
+        : 0;
+
+    const pointerY = mouse.initialized
+        ? clamp(mouse.y / height * 2 - 1, -1, 1)
+        : 0;
+
+    const parallax =
+        clamp(config.view.parallax, 0, 1) *
+        camera.depthMix *
+        mouse.influence *
+        0.28;
+
+    camera.yaw = lerp(
+        camera.yaw,
+        pointerX * parallax,
+        response
+    );
+
+    camera.pitch = lerp(
+        camera.pitch,
+        -pointerY * parallax,
+        response
+    );
+
+    camera.cy = Math.cos(camera.yaw);
+    camera.sy = Math.sin(camera.yaw);
+    camera.cx = Math.cos(camera.pitch);
+    camera.sx = Math.sin(camera.pitch);
+
+    camera.effectiveDepth =
+        Math.max(0, config.view.depth) * camera.depthMix;
+
+    const span = Math.max(width, height);
+
+    // Lower focal length produces stronger perspective.
+    camera.focal = span * lerp(
+        2.8,
+        1,
+        clamp(config.view.perspective, 0, 1)
+    );
+
+    // Exact bound for the rotated box along the camera Z axis.
+    // Keeping the camera beyond this bound prevents clipping
+    // through the field at maximum zoom.
+    const frontBound =
+        Math.abs(camera.sy * camera.cx) * width * 0.5 +
+        Math.abs(camera.sx) * height * 0.5 +
+        Math.abs(camera.cy * camera.cx) *
+            camera.effectiveDepth * 0.5;
+
+    camera.distance =
+        camera.focal / camera.zoom + frontBound;
+}
+
+function projectPoints() {
+    const {
+        cy, sy, cx, sx,
+        focal, distance,
+        effectiveDepth
+    } = camera;
+
+    const fading =
+        clamp(config.view.depthFading, 0, 1) *
+        camera.depthMix;
+
+    // Rotated depth range, including parallax.
+    const depthBound = Math.max(
+        1,
+        Math.abs(sy * cx) * width * 0.5 +
+        Math.abs(sx) * height * 0.5 +
+        Math.abs(cy * cx) * effectiveDepth * 0.5
+    );
+
+    for (const point of points) {
+        const z = point.z * effectiveDepth;
+        point.worldZ = z;
+
+        // Yaw, followed by pitch.
+        const rotatedX = cy * point.x + sy * z;
+        const intermediateZ = -sy * point.x + cy * z;
+
+        const rotatedY = cx * point.y - sx * intermediateZ;
+        const rotatedZ = sx * point.y + cx * intermediateZ;
+
+        const scale = focal / Math.max(1, distance - rotatedZ);
+
+        point.viewZ = rotatedZ;
+        point.scale = scale;
+        point.screenX = width * 0.5 + rotatedX * scale;
+        point.screenY = height * 0.5 + rotatedY * scale;
+
+        const farAmount = clamp(
+            (depthBound - rotatedZ) / (depthBound * 2),
+            0,
+            1
+        );
+
+        point.fade = 1 - fading * farAmount;
+    }
+
+    // Place the cursor node on the camera-facing plane
+    // passing through the center of the field.
+    const viewX =
+        (mouse.x - width * 0.5) * distance / focal;
+
+    const viewY =
+        (mouse.y - height * 0.5) * distance / focal;
+
+    // Inverse pitch, then inverse yaw.
+    const intermediateY = cx * viewY;
+    const intermediateZ = -sx * viewY;
+
+    mouse.worldX = cy * viewX - sy * intermediateZ;
+    mouse.worldY = intermediateY;
+    mouse.worldZ = sy * viewX + cy * intermediateZ;
+}
+
+// --------------------------------------------------
+// Nearby connections: 3D spatial hash
+// --------------------------------------------------
+
+const buckets = new Map();
+const bucketPool = [];
+
+function gridKey(x, y, z) {
+    return `${x},${y},${z}`;
+}
 
 function buildConnections() {
     const settings = config.connections;
@@ -667,100 +798,83 @@ function buildConnections() {
     if (
         distance <= 0 ||
         settings.lineWidth <= 0 ||
-        settings.opacity <= 0 ||
-        points.length < 2
+        settings.opacity <= 0
     ) {
         return;
     }
 
-    // A larger cell size still finds every valid pair.
-    // This also prevents tiny distance values from
-    // creating an unnecessarily large grid.
-    const cellSize = Math.max(16, distance);
-    const columns = Math.floor(width / cellSize) + 1;
-    const rows = Math.floor(height / cellSize) + 1;
-    const cellCount = columns * rows;
-
-    if (gridHeads.length !== cellCount) {
-        gridHeads = new Int32Array(cellCount);
+    for (const bucket of buckets.values()) {
+        bucket.length = 0;
+        bucketPool.push(bucket);
     }
 
-    if (gridNext.length < points.length) {
-        gridNext = new Int32Array(points.length);
-    }
-
-    gridHeads.fill(-1);
+    buckets.clear();
 
     for (let index = 0; index < points.length; index++) {
         const point = points[index];
 
-        const cellX = Math.min(
-            columns - 1,
-            Math.floor(point.x / cellSize)
+        point.cellX = Math.floor(point.x / distance);
+        point.cellY = Math.floor(point.y / distance);
+        point.cellZ = Math.floor(point.worldZ / distance);
+
+        const key = gridKey(
+            point.cellX,
+            point.cellY,
+            point.cellZ
         );
 
-        const cellY = Math.min(
-            rows - 1,
-            Math.floor(point.y / cellSize)
-        );
+        let bucket = buckets.get(key);
 
-        const cell = cellY * columns + cellX;
+        if (!bucket) {
+            bucket = bucketPool.pop() || [];
+            buckets.set(key, bucket);
+        }
 
-        gridNext[index] = gridHeads[cell];
-        gridHeads[cell] = index;
+        bucket.push(index);
     }
 
-    const distanceSquared = distance * distance;
+    const squaredLimit = distance * distance;
+    const flat = camera.effectiveDepth === 0;
 
     for (let index = 0; index < points.length; index++) {
         const point = points[index];
 
-        const cellX = Math.min(
-            columns - 1,
-            Math.floor(point.x / cellSize)
-        );
+        for (let oz = flat ? 0 : -1; oz <= (flat ? 0 : 1); oz++) {
+            for (let oy = -1; oy <= 1; oy++) {
+                for (let ox = -1; ox <= 1; ox++) {
+                    const bucket = buckets.get(gridKey(
+                        point.cellX + ox,
+                        point.cellY + oy,
+                        point.cellZ + oz
+                    ));
 
-        const cellY = Math.min(
-            rows - 1,
-            Math.floor(point.y / cellSize)
-        );
+                    if (!bucket) continue;
 
-        const minX = Math.max(0, cellX - 1);
-        const maxX = Math.min(columns - 1, cellX + 1);
-        const minY = Math.max(0, cellY - 1);
-        const maxY = Math.min(rows - 1, cellY + 1);
+                    for (const otherIndex of bucket) {
+                        if (otherIndex <= index) continue;
 
-        for (let y = minY; y <= maxY; y++) {
-            for (let x = minX; x <= maxX; x++) {
-                const cell = y * columns + x;
+                        const other = points[otherIndex];
 
-                for (
-                    let otherIndex = gridHeads[cell];
-                    otherIndex !== -1;
-                    otherIndex = gridNext[otherIndex]
-                ) {
-                    if (otherIndex <= index) continue;
+                        const dx = point.x - other.x;
+                        const dy = point.y - other.y;
+                        const dz = point.worldZ - other.worldZ;
+                        const squared = dx * dx + dy * dy + dz * dz;
 
-                    const other = points[otherIndex];
+                        if (squared >= squaredLimit) continue;
 
-                    const dx = point.x - other.x;
-                    const dy = point.y - other.y;
-                    const squared = dx * dx + dy * dy;
+                        const strength =
+                            1 - Math.sqrt(squared) / distance;
 
-                    if (squared >= distanceSquared) continue;
-
-                    const strength =
-                        1 - Math.sqrt(squared) / distance;
-
-                    renderer.addLine(
-                        point.x,
-                        point.y,
-                        other.x,
-                        other.y,
-                        settings.lineWidth,
-                        settings.color,
-                        settings.opacity * strength
-                    );
+                        renderer.line(
+                            point,
+                            other,
+                            settings.lineWidth,
+                            settings.color,
+                            settings.opacity *
+                                strength *
+                                Math.sqrt(point.fade * other.fade)
+                        );
+                    }
                 }
             }
         }
@@ -768,7 +882,7 @@ function buildConnections() {
 }
 
 // --------------------------------------------------
-// Mouse connections and point colors
+// Mouse connections and points
 // --------------------------------------------------
 
 function mouseAmount(point) {
@@ -781,8 +895,9 @@ function mouseAmount(point) {
     }
 
     const distance = Math.hypot(
-        point.x - mouse.x,
-        point.y - mouse.y
+        point.x - mouse.worldX,
+        point.y - mouse.worldY,
+        point.worldZ - mouse.worldZ
     );
 
     return mouse.influence * Math.max(
@@ -791,38 +906,37 @@ function mouseAmount(point) {
     );
 }
 
+const cursorNode = {
+    screenX: 0,
+    screenY: 0,
+    scale: 1
+};
+
 function buildMouseConnections() {
     const settings = config.mouse;
 
-    if (
-        !settings.enabled ||
-        mouse.influence < 0.001
-    ) {
-        return;
-    }
+    if (!settings.enabled || mouse.influence < 0.001) return;
 
-    if (settings.lineWidth > 0 && settings.opacity > 0) {
-        for (const point of points) {
-            const amount = mouseAmount(point);
+    cursorNode.screenX = mouse.x;
+    cursorNode.screenY = mouse.y;
+    cursorNode.scale = camera.focal / camera.distance;
 
-            if (amount <= 0) continue;
+    for (const point of points) {
+        const amount = mouseAmount(point);
+        if (amount <= 0) continue;
 
-            renderer.addLine(
-                mouse.x,
-                mouse.y,
-                point.x,
-                point.y,
-                settings.lineWidth,
-                settings.color,
-                settings.opacity * amount
-            );
-        }
+        renderer.line(
+            cursorNode,
+            point,
+            settings.lineWidth,
+            settings.color,
+            settings.opacity * amount * point.fade
+        );
     }
 
     if (settings.showPoint) {
-        renderer.addPoint(
-            mouse.x,
-            mouse.y,
+        renderer.point(
+            cursorNode,
             settings.pointRadius,
             settings.color,
             settings.opacity * mouse.influence
@@ -831,32 +945,40 @@ function buildMouseConnections() {
 }
 
 const mixedColor = [0, 0, 0];
+const orderedPoints = [];
 
 function buildPoints() {
     const settings = config.points;
 
-    if (settings.radius <= 0 || settings.opacity <= 0) {
-        return;
+    if (settings.radius <= 0 || settings.opacity <= 0) return;
+
+    // Painter's order for translucent points: far to near.
+    orderedPoints.length = points.length;
+
+    for (let i = 0; i < points.length; i++) {
+        orderedPoints[i] = points[i];
     }
 
-    for (const point of points) {
+    if (camera.depthMix > 0) {
+        orderedPoints.sort((a, b) => a.viewZ - b.viewZ);
+    }
+
+    for (const point of orderedPoints) {
         const amount = mouseAmount(point);
 
         for (let channel = 0; channel < 3; channel++) {
-            mixedColor[channel] =
-                settings.color[channel] +
-                (
-                    config.mouse.color[channel] -
-                    settings.color[channel]
-                ) * amount;
+            mixedColor[channel] = lerp(
+                settings.color[channel],
+                config.mouse.color[channel],
+                amount
+            );
         }
 
-        renderer.addPoint(
-            point.x,
-            point.y,
+        renderer.point(
+            point,
             settings.radius,
             mixedColor,
-            settings.opacity
+            settings.opacity * point.fade
         );
     }
 }
@@ -868,9 +990,7 @@ function buildPoints() {
 function animate(timestamp) {
     frameId = 0;
 
-    if (contextLost || document.hidden || !renderer) {
-        return;
-    }
+    if (contextLost || document.hidden || !renderer) return;
 
     const delta = previousTime === null
         ? 0
@@ -879,20 +999,22 @@ function animate(timestamp) {
     previousTime = timestamp;
 
     const smoothing =
-        1 - Math.exp(
-            -Math.max(0.1, config.mouse.smoothing) * delta
-        );
+        1 - Math.exp(-Math.max(0.1, config.mouse.smoothing) * delta);
 
-    mouse.x += (mouse.targetX - mouse.x) * smoothing;
-    mouse.y += (mouse.targetY - mouse.y) * smoothing;
+    mouse.x = lerp(mouse.x, mouse.targetX, smoothing);
+    mouse.y = lerp(mouse.y, mouse.targetY, smoothing);
 
-    const targetInfluence =
-        mouse.active && config.mouse.enabled ? 1 : 0;
+    // Parallax remains available even if mouse connections
+    // are disabled.
+    mouse.influence = lerp(
+        mouse.influence,
+        mouse.active ? 1 : 0,
+        smoothing
+    );
 
-    mouse.influence +=
-        (targetInfluence - mouse.influence) * smoothing;
-
+    updateCamera(delta);
     updatePoints(delta);
+    projectPoints();
 
     renderer.begin();
     buildConnections();
@@ -904,12 +1026,7 @@ function animate(timestamp) {
 }
 
 function startAnimation() {
-    if (
-        frameId ||
-        contextLost ||
-        document.hidden ||
-        !renderer
-    ) {
+    if (frameId || contextLost || document.hidden || !renderer) {
         return;
     }
 
@@ -918,24 +1035,23 @@ function startAnimation() {
 }
 
 function stopAnimation() {
-    if (frameId) {
-        cancelAnimationFrame(frameId);
-        frameId = 0;
-    }
-
+    cancelAnimationFrame(frameId);
+    frameId = 0;
     previousTime = null;
 }
 
 // --------------------------------------------------
-// Pointer interaction
+// Pointer and wheel
 // --------------------------------------------------
 
+function isEditorTarget(target) {
+    return target instanceof Element &&
+        Boolean(target.closest("[data-background-editor]"));
+}
+
 function updateMouse(event) {
-    if (
-        event.target instanceof Element &&
-        event.target.closest("[data-background-editor]")
-    ) {
-        deactivateMouse();
+    if (isEditorTarget(event.target)) {
+        mouse.active = false;
         return;
     }
 
@@ -966,10 +1082,46 @@ window.addEventListener("blur", deactivateMouse);
 window.addEventListener("pointercancel", deactivateMouse);
 
 window.addEventListener("pointerup", event => {
-    if (event.pointerType !== "mouse") {
-        deactivateMouse();
-    }
+    if (event.pointerType !== "mouse") deactivateMouse();
 });
+
+window.addEventListener("wheel", event => {
+    if (isEditorTarget(event.target)) return;
+
+    // Preserve browser Ctrl+wheel / trackpad pinch behavior.
+    if (event.ctrlKey) return;
+
+    event.preventDefault();
+
+    const units = event.deltaMode === 1
+        ? 16
+        : event.deltaMode === 2
+            ? height
+            : 1;
+
+    const delta = clamp(event.deltaY * units, -300, 300);
+    const sensitivity = Math.max(0, config.view.wheelSensitivity);
+
+    config.view.zoom = clamp(
+        config.view.zoom * Math.exp(-delta * sensitivity * 0.0015),
+        MIN_ZOOM,
+        MAX_ZOOM
+    );
+
+    editor?.refresh();
+}, { passive: false });
+
+function resetView() {
+    config.view.zoom = 1;
+
+    mouse.active = false;
+    mouse.initialized = false;
+    mouse.influence = 0;
+    mouse.x = mouse.targetX = width * 0.5;
+    mouse.y = mouse.targetY = height * 0.5;
+
+    editor?.refresh();
+}
 
 document.addEventListener("visibilitychange", () => {
     deactivateMouse();
@@ -985,18 +1137,16 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("resize", resize);
 
 // --------------------------------------------------
-// WebGL context lifecycle
+// Context lifecycle
 // --------------------------------------------------
 
 canvas.addEventListener("webglcontextlost", event => {
     event.preventDefault();
-
     contextLost = true;
     stopAnimation();
 
     showError(
-        "The WebGL context was interrupted. " +
-        "Waiting for the browser to restore it…"
+        "WebGL was interrupted. Waiting for the browser to restore it…"
     );
 });
 
@@ -1004,14 +1154,13 @@ canvas.addEventListener("webglcontextrestored", () => {
     contextLost = false;
 
     try {
-        // GPU resources must be recreated after restoration.
-        renderer = new WebGLRenderer();
+        renderer = new Renderer();
         resize();
-        hideError();
+        errorBox.hidden = true;
         startAnimation();
     } catch (error) {
         console.error(error);
-        showError("Could not restore WebGL: " + error.message);
+        showError(error.message);
     }
 });
 
@@ -1031,14 +1180,18 @@ try {
 
     if (!gl) {
         throw new Error(
-            "WebGL2 is unavailable. Enable hardware acceleration " +
-            "in your browser and reload this page."
+            "WebGL2 is unavailable. Enable browser hardware " +
+            "acceleration and reload this page."
         );
     }
 
-    renderer = new WebGLRenderer();
+    renderer = new Renderer();
 
     resize();
+
+    mouse.x = mouse.targetX = width * 0.5;
+    mouse.y = mouse.targetY = height * 0.5;
+
     syncPoints();
     startAnimation();
 } catch (error) {
@@ -1046,33 +1199,24 @@ try {
     showError(error.message);
 }
 
-// --------------------------------------------------
-// Optional settings editor
-// --------------------------------------------------
-
 if (config.panel.enabled) {
-    // Change this version when publishing an updated editor.
-    import("./settings-editor.js?v=webgl-1")
+    // Increment this version when publishing editor changes.
+    import("./settings-editor.js?v=webgl-3d-1")
         .then(({ mountEditor }) => {
-            mountEditor({
+            editor = mountEditor({
                 config,
 
                 onChange(path) {
-                    if (path === "points.count") {
-                        syncPoints();
-                    }
-
+                    if (path === "points.count") syncPoints();
                     deactivateMouse();
                 },
 
-                onReset: resetPoints
+                onReset: resetPoints,
+                onResetView: resetView
             });
         })
         .catch(error => {
-            console.error(
-                "Could not load settings editor:",
-                error
-            );
+            console.error("Could not load settings editor:", error);
         });
 }
 </script>
