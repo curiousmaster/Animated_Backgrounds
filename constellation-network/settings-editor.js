@@ -19,6 +19,7 @@ export function mountEditor({
         .const-editor {
             color: #eee;
             font-family: system-ui, sans-serif;
+            color-scheme: dark;
         }
 
         .const-editor [hidden] {
@@ -32,7 +33,7 @@ export function mountEditor({
             z-index: 1001;
             display: flex;
             flex-direction: column;
-            background: rgba(18,20,25,.96);
+            background: rgba(18, 20, 25, .96);
             border-left: 1px solid #343840;
             box-shadow: -8px 0 30px #0006;
             transform: translateX(100%);
@@ -47,6 +48,7 @@ export function mountEditor({
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 10px;
             padding: 16px;
             border-bottom: 1px solid #343840;
         }
@@ -57,23 +59,38 @@ export function mountEditor({
 
         .const-body {
             flex: 1;
+            min-height: 0;
             overflow-y: auto;
             padding: 0 16px 20px;
+            scrollbar-width: thin;
         }
 
-        .const-editor fieldset {
-            min-width: 0;
-            margin: 18px 0 0;
-            padding: 12px;
+        .const-section {
+            margin: 16px 0 0;
             border: 1px solid #343840;
             border-radius: 8px;
         }
 
-        .const-editor legend {
-            padding: 0 6px;
+        .const-section > summary {
+            padding: 11px 12px;
             color: #aeb8ca;
             font-size: 12px;
             font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .const-section > summary:hover {
+            color: #fff;
+            background: #ffffff06;
+        }
+
+        .const-section[open] > summary {
+            border-bottom: 1px solid #343840;
+        }
+
+        .const-fields {
+            padding: 12px;
         }
 
         .const-control {
@@ -81,7 +98,7 @@ export function mountEditor({
             grid-template-columns: 1fr 100px;
             gap: 8px;
             align-items: center;
-            margin-bottom: 12px;
+            margin-bottom: 14px;
             font-size: 12px;
         }
 
@@ -89,11 +106,16 @@ export function mountEditor({
             margin-bottom: 0;
         }
 
+        .const-control > label {
+            line-height: 1.4;
+        }
+
         .const-editor input[type="range"] {
             grid-column: 1 / -1;
             width: 100%;
             margin: 0;
             accent-color: #80baff;
+            cursor: pointer;
         }
 
         .const-editor input[type="number"] {
@@ -103,6 +125,7 @@ export function mountEditor({
             background: #090b10;
             border: 1px solid #454b57;
             border-radius: 5px;
+            font: inherit;
         }
 
         .const-editor input[type="checkbox"] {
@@ -124,12 +147,14 @@ export function mountEditor({
             background: transparent;
             border: 1px solid #454b57;
             border-radius: 5px;
+            cursor: pointer;
         }
 
         .const-rgb {
             display: flex;
             flex: 1;
             gap: 6px;
+            min-width: 0;
         }
 
         .const-rgb input[type="number"] {
@@ -153,7 +178,8 @@ export function mountEditor({
 
         .const-editor button:focus-visible,
         .const-editor input:focus-visible,
-        .const-editor textarea:focus-visible {
+        .const-editor textarea:focus-visible,
+        .const-editor summary:focus-visible {
             outline: 2px solid #80baff;
             outline-offset: 2px;
         }
@@ -199,6 +225,22 @@ export function mountEditor({
             line-height: 1.5;
         }
 
+        .const-tooltip {
+            position: fixed;
+            z-index: 1100;
+            width: 250px;
+            padding: 12px 14px;
+            color: #dbe8fc;
+            background: rgba(14, 19, 29, .98);
+            border: 1px solid #465672;
+            border-radius: 8px;
+            box-shadow: 0 8px 28px #0008;
+            font-size: 12px;
+            line-height: 1.6;
+            pointer-events: none;
+            overflow-wrap: anywhere;
+        }
+
         @media (prefers-reduced-motion: reduce) {
             .const-panel {
                 transition: none;
@@ -212,16 +254,25 @@ export function mountEditor({
     root.className = "const-editor";
     root.setAttribute("data-background-editor", "");
 
+    const uniqueId = "const-" + Math.random()
+        .toString(36)
+        .slice(2);
+
     root.innerHTML = `
-        <button class="const-launcher" type="button"
-                aria-expanded="false">
+        <button class="const-launcher"
+                type="button"
+                aria-expanded="false"
+                aria-controls="${uniqueId}-panel">
             Settings
         </button>
 
         <aside class="const-panel"
-               aria-label="Constellation settings" inert>
+               id="${uniqueId}-panel"
+               aria-label="Constellation settings"
+               inert>
             <div class="const-header">
-                <strong>Constellation network</strong>
+                <strong>Constellation · WebGL</strong>
+
                 <button class="const-close" type="button">
                     Retract →
                 </button>
@@ -231,7 +282,8 @@ export function mountEditor({
                 <div class="const-controls"></div>
 
                 <div class="const-actions">
-                    <button class="const-show" type="button"
+                    <button class="const-show"
+                            type="button"
                             aria-expanded="false">
                         Show code
                     </button>
@@ -245,31 +297,43 @@ export function mountEditor({
                     </button>
                 </div>
 
-                <textarea readonly spellcheck="false" hidden
-                    aria-label="Current configuration code"></textarea>
+                <textarea readonly
+                          spellcheck="false"
+                          hidden
+                          aria-label="Current configuration code"></textarea>
 
                 <div class="const-status" role="status"></div>
 
                 <p class="const-hint">
                     All settings update immediately.
-                    RGB fields are ordered R, G, B.
-                    Copy the configuration into index.html
-                    for permanent settings.
+                    Click a section heading to fold it.
+                    Hover over a setting for help.
                 </p>
 
                 <p class="const-hint">
-                    Connection distance controls network density.
-                    Mouse radius controls cursor connections.
-                    Set drift speed to zero for a stationary network.
+                    RGB fields are ordered R, G, B.
+                    Copy the configuration into index.html
+                    to keep your settings.
+                </p>
+
+                <p class="const-hint">
+                    Higher point counts and connection distances
+                    increase the workload. Large glow values
+                    increase the number of pixels being rendered.
                 </p>
 
                 <p class="const-hint">
                     Copy your settings before disabling the pane.
-                    Set panel.enabled to false in your saved code
+                    Set panel.enabled to false in index.html
                     to prevent the editor from loading.
                 </p>
             </div>
         </aside>
+
+        <div class="const-tooltip"
+             id="${uniqueId}-help"
+             role="tooltip"
+             hidden></div>
     `;
 
     document.body.appendChild(root);
@@ -285,10 +349,15 @@ export function mountEditor({
     const reset = find(".const-reset");
     const code = find("textarea");
     const status = find(".const-status");
+    const tooltip = find(".const-tooltip");
+    const body = find(".const-body");
+
+    let activeHelpRow = null;
 
     function getValue(path) {
         return path.split(".").reduce(
-            (object, key) => object[key], config
+            (object, key) => object[key],
+            config
         );
     }
 
@@ -297,7 +366,8 @@ export function mountEditor({
         const last = keys.pop();
 
         const object = keys.reduce(
-            (current, key) => current[key], config
+            (current, key) => current[key],
+            config
         );
 
         object[last] = value;
@@ -314,8 +384,83 @@ export function mountEditor({
         status.textContent = "";
     }
 
+    // --------------------------------------------------
+    // Tooltip positioning
+    // --------------------------------------------------
+
+    function hideHelp() {
+        tooltip.hidden = true;
+        activeHelpRow = null;
+    }
+
+    function positionHelp() {
+        if (!activeHelpRow || tooltip.hidden) return;
+
+        const rowRect = activeHelpRow.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+
+        const leftSpace = panelRect.left - 24;
+
+        if (leftSpace >= 180) {
+            // Desktop: help appears to the left of the pane.
+            tooltip.style.width = Math.min(
+                250,
+                leftSpace
+            ) + "px";
+
+            tooltip.style.left = Math.max(
+                8,
+                panelRect.left - tooltip.offsetWidth - 12
+            ) + "px";
+        } else {
+            // Narrow screen: keep the help within the viewport.
+            tooltip.style.width = Math.max(
+                1,
+                Math.min(280, window.innerWidth - 16)
+            ) + "px";
+
+            tooltip.style.left = Math.max(
+                8,
+                (window.innerWidth - tooltip.offsetWidth) / 2
+            ) + "px";
+        }
+
+        const tooltipHeight = tooltip.offsetHeight;
+
+        let top = rowRect.top +
+            rowRect.height / 2 -
+            tooltipHeight / 2;
+
+        if (leftSpace < 180) {
+            top = rowRect.bottom + 8;
+
+            if (top + tooltipHeight > window.innerHeight - 8) {
+                top = rowRect.top - tooltipHeight - 8;
+            }
+        }
+
+        tooltip.style.top = clamp(
+            top,
+            8,
+            Math.max(8, window.innerHeight - tooltipHeight - 8)
+        ) + "px";
+    }
+
+    function showHelp(row, text) {
+        activeHelpRow = row;
+        tooltip.textContent = text;
+        tooltip.hidden = false;
+        positionHelp();
+    }
+
+    // --------------------------------------------------
+    // Panel behavior
+    // --------------------------------------------------
+
     function setOpen(open) {
         open = Boolean(open && config.panel.enabled);
+
+        hideHelp();
 
         panel.classList.toggle("open", open);
         panel.inert = !open;
@@ -323,8 +468,11 @@ export function mountEditor({
         launcher.hidden = open || !config.panel.enabled;
         launcher.setAttribute("aria-expanded", String(open));
 
-        if (open) close.focus();
-        else if (config.panel.enabled) launcher.focus();
+        if (open) {
+            close.focus();
+        } else if (config.panel.enabled) {
+            launcher.focus();
+        }
     }
 
     function changed(path) {
@@ -332,7 +480,10 @@ export function mountEditor({
         refreshCode();
 
         if (path === "panel.enabled") {
-            if (!config.panel.enabled) setOpen(false);
+            if (!config.panel.enabled) {
+                setOpen(false);
+            }
+
             root.hidden = !config.panel.enabled;
         }
     }
@@ -356,6 +507,8 @@ export function mountEditor({
     }
 
     document.addEventListener("keydown", onKeydown);
+    window.addEventListener("resize", hideHelp);
+    body.addEventListener("scroll", hideHelp, { passive: true });
 
     show.addEventListener("click", () => {
         refreshCode();
@@ -383,9 +536,13 @@ export function mountEditor({
         status.textContent = "Points reset.";
     });
 
+    // --------------------------------------------------
+    // Settings definitions
+    // --------------------------------------------------
+
     const groups = [
         ["Points", [
-            ["points.count", "Point count", 0, 500, 1],
+            ["points.count", "Point count", 0, 5000, 1],
             ["points.radius", "Point radius", 0, 6, 0.1],
             ["points.speed", "Drift speed", 0, 100, 1],
             ["points.opacity", "Opacity", 0, 1, 0.01],
@@ -393,7 +550,7 @@ export function mountEditor({
         ]],
 
         ["Connections", [
-            ["connections.distance", "Connection distance", 20, 400, 1],
+            ["connections.distance", "Connection distance", 0, 400, 1],
             ["connections.lineWidth", "Line width", 0, 4, 0.1],
             ["connections.opacity", "Opacity", 0, 1, 0.01],
             ["connections.color", "Line color", "color"]
@@ -401,7 +558,7 @@ export function mountEditor({
 
         ["Mouse", [
             ["mouse.enabled", "Enabled", "boolean"],
-            ["mouse.radius", "Connection radius", 20, 600, 1],
+            ["mouse.radius", "Connection radius", 0, 600, 1],
             ["mouse.lineWidth", "Line width", 0, 4, 0.1],
             ["mouse.opacity", "Opacity", 0, 1, 0.01],
             ["mouse.showPoint", "Show cursor node", "boolean"],
@@ -421,10 +578,95 @@ export function mountEditor({
         ]]
     ];
 
+    const help = {
+        "points.count":
+            "Number of moving points. Increasing this creates " +
+            "more possible connections and increases CPU and GPU work.",
+
+        "points.radius":
+            "Radius of each point in CSS pixels. Zero hides the " +
+            "points while leaving their connections visible.",
+
+        "points.speed":
+            "Base movement speed in CSS pixels per second. Each " +
+            "point has its own speed multiplier. Zero freezes movement.",
+
+        "points.opacity":
+            "Opacity of the points. Zero makes them invisible; " +
+            "one makes their centers fully opaque.",
+
+        "points.color":
+            "Base color of the points. Points near the cursor blend " +
+            "toward the mouse color.",
+
+        "connections.distance":
+            "Maximum distance in CSS pixels between connected points. " +
+            "Connections fade with distance. Zero disables them.",
+
+        "connections.lineWidth":
+            "Thickness of regular connections in CSS pixels. " +
+            "WebGL draws these as shaded quads, supporting fractional widths.",
+
+        "connections.opacity":
+            "Maximum opacity of regular connections. Actual opacity " +
+            "decreases as the distance between the points increases.",
+
+        "connections.color":
+            "Color of the connections between moving points.",
+
+        "mouse.enabled":
+            "Enables cursor connections and nearby point recoloring. " +
+            "The interaction fades away when the pointer leaves.",
+
+        "mouse.radius":
+            "Maximum distance from the cursor for connections and " +
+            "point recoloring. Zero disables this influence.",
+
+        "mouse.lineWidth":
+            "Thickness of connections between the cursor and points, " +
+            "in CSS pixels.",
+
+        "mouse.opacity":
+            "Maximum opacity of cursor connections and the cursor node. " +
+            "Connections fade with distance and mouse influence.",
+
+        "mouse.showPoint":
+            "Displays a visible node at the smoothed cursor position.",
+
+        "mouse.pointRadius":
+            "Radius of the cursor node in CSS pixels.",
+
+        "mouse.smoothing":
+            "How quickly the cursor node follows the pointer and " +
+            "its influence fades in or out. Higher values respond faster.",
+
+        "mouse.color":
+            "Color of the cursor node and its connections. Nearby " +
+            "points also blend toward this color.",
+
+        "glow.enabled":
+            "Enables a soft shader-generated halo around points " +
+            "and connections.",
+
+        "glow.intensity":
+            "Strength of the glow. Zero removes the glow while " +
+            "keeping the crisp points and lines.",
+
+        "glow.blur":
+            "Spread of the shader glow in CSS pixels. Larger values " +
+            "create wider halos and increase GPU pixel work. This " +
+            "approximates the previous Canvas shadow effect.",
+
+        "panel.enabled":
+            "Hides the editor when disabled. Copy your configuration " +
+            "first. Reload the page to return to the saved settings."
+    };
+
     function toHex(color) {
         return "#" + color.map(value =>
             Math.round(clamp(value, 0, 255))
-                .toString(16).padStart(2, "0")
+                .toString(16)
+                .padStart(2, "0")
         ).join("");
     }
 
@@ -437,21 +679,61 @@ export function mountEditor({
     let controlIndex = 0;
 
     for (const [title, fields] of groups) {
-        const fieldset = document.createElement("fieldset");
-        const legend = document.createElement("legend");
+        const section = document.createElement("details");
+        const summary = document.createElement("summary");
+        const fieldContainer = document.createElement("div");
 
-        legend.textContent = title;
-        fieldset.appendChild(legend);
+        section.className = "const-section";
+        section.open = true;
 
-        for (const [path, labelText, typeOrMin, max, step] of fields) {
+        summary.textContent = title;
+        fieldContainer.className = "const-fields";
+
+        section.append(summary, fieldContainer);
+
+        section.addEventListener("toggle", hideHelp);
+
+        for (
+            const [path, labelText, typeOrMin, max, step]
+            of fields
+        ) {
             const row = document.createElement("div");
             const label = document.createElement("label");
-            const id = `const-control-${controlIndex++}`;
+
+            const id =
+                `${uniqueId}-control-${controlIndex++}`;
 
             row.className = "const-control";
             label.textContent = labelText;
             label.htmlFor = id;
             row.appendChild(label);
+
+            const description = help[path] || labelText;
+
+            const helpText = document.createElement("span");
+            helpText.id = `${id}-description`;
+            helpText.hidden = true;
+            helpText.textContent = description;
+
+            row.appendChild(helpText);
+
+            row.addEventListener("pointerenter", () => {
+                showHelp(row, description);
+            });
+
+            row.addEventListener("pointerleave", () => {
+                hideHelp();
+            });
+
+            row.addEventListener("focusin", () => {
+                showHelp(row, description);
+            });
+
+            row.addEventListener("focusout", event => {
+                if (!row.contains(event.relatedTarget)) {
+                    hideHelp();
+                }
+            });
 
             if (typeOrMin === "boolean") {
                 const input = document.createElement("input");
@@ -489,11 +771,13 @@ export function mountEditor({
                         input.value = getValue(path)[index];
 
                         input.setAttribute(
-                            "aria-label", `${labelText} ${channel}`
+                            "aria-label",
+                            `${labelText} ${channel}`
                         );
 
                         input.addEventListener("input", () => {
                             const value = input.valueAsNumber;
+
                             if (!Number.isFinite(value)) return;
 
                             const color = [...getValue(path)];
@@ -518,6 +802,7 @@ export function mountEditor({
 
                 picker.addEventListener("input", () => {
                     const color = fromHex(picker.value);
+
                     setValue(path, color);
 
                     inputs.forEach((input, index) => {
@@ -536,46 +821,70 @@ export function mountEditor({
                 number.id = id;
                 number.type = "number";
                 range.type = "range";
+
                 range.setAttribute("aria-label", labelText);
+
+                // Preserve an existing saved value even if it
+                // exceeds the normal editor range.
+                const initial = Number(getValue(path));
+                const maximum = Math.max(
+                    max,
+                    Number.isFinite(initial) ? initial : max
+                );
 
                 for (const input of [number, range]) {
                     input.min = typeOrMin;
-                    input.max = max;
+                    input.max = maximum;
                     input.step = step;
                     input.value = getValue(path);
                 }
 
                 function update(source, target) {
                     let value = source.valueAsNumber;
+
                     if (!Number.isFinite(value)) return;
 
-                    value = clamp(value, typeOrMin, max);
-                    if (step === 1) value = Math.round(value);
+                    value = clamp(
+                        value,
+                        typeOrMin,
+                        maximum
+                    );
+
+                    if (step === 1) {
+                        value = Math.round(value);
+                    }
 
                     setValue(path, value);
                     target.value = value;
                     changed(path);
                 }
 
-                number.addEventListener("input", () =>
-                    update(number, range)
-                );
+                number.addEventListener("input", () => {
+                    update(number, range);
+                });
 
                 number.addEventListener("change", () => {
                     number.value = getValue(path);
                 });
 
-                range.addEventListener("input", () =>
-                    update(range, number)
-                );
+                range.addEventListener("input", () => {
+                    update(range, number);
+                });
 
                 row.append(number, range);
             }
 
-            fieldset.appendChild(row);
+            for (const input of row.querySelectorAll("input")) {
+                input.setAttribute(
+                    "aria-describedby",
+                    helpText.id
+                );
+            }
+
+            fieldContainer.appendChild(row);
         }
 
-        controls.appendChild(fieldset);
+        controls.appendChild(section);
     }
 
     refreshCode();
@@ -584,6 +893,8 @@ export function mountEditor({
     return {
         destroy() {
             document.removeEventListener("keydown", onKeydown);
+            window.removeEventListener("resize", hideHelp);
+            body.removeEventListener("scroll", hideHelp);
             root.remove();
             style.remove();
         }
