@@ -3,22 +3,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Animated Background Gallery</title>
-
 <style>
 :root {
     color-scheme: dark;
-    --accent: #8acde5;
-    --glass: rgba(8, 13, 23, .78);
-    --border: rgba(255, 255, 255, .17);
-    --text-muted: rgba(255, 255, 255, .65);
+    --accent: #91d8f5;
+    --glass: rgba(8, 13, 23, .82);
+    --border: rgba(255, 255, 255, .18);
 }
-
-* {
-    box-sizing: border-box;
-}
-
+* { box-sizing: border-box; }
 html, body {
     margin: 0;
     width: 100%;
@@ -28,35 +22,14 @@ html, body {
     color: #fff;
     font-family: system-ui, sans-serif;
 }
-
-button, input {
-    font: inherit;
-}
-
-button {
-    color: inherit;
-    cursor: pointer;
-}
-
-button:disabled {
-    opacity: .5;
-    cursor: wait;
-}
-
-button:focus-visible,
-a:focus-visible,
-input:focus-visible {
+button, input { font: inherit; }
+button { color: inherit; cursor: pointer; }
+button:disabled { opacity: .5; cursor: wait; }
+button:focus-visible, a:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 3px;
 }
-
-[hidden] {
-    display: none !important;
-}
-
-/* =========================================================
-   FULLSCREEN BACKGROUND
-========================================================= */
+[hidden] { display: none !important; }
 
 #background {
     position: fixed;
@@ -65,1751 +38,588 @@ input:focus-visible {
     height: 100%;
     border: 0;
     background: #000;
-    z-index: 0;
 }
-
-#screen-shade {
+#shade {
     position: fixed;
     inset: 0;
-    pointer-events: none;
     background: #000;
     opacity: 0;
-    transition: opacity .25s ease;
-    z-index: 1;
+    pointer-events: none;
+    transition: opacity .3s;
 }
+#shade.active { opacity: .85; }
 
-#screen-shade.active {
-    opacity: .85;
-}
-
-/* =========================================================
-   GALLERY INTERFACE
-========================================================= */
-
-.gallery-ui {
+.gallery {
     position: fixed;
     inset: 0;
-    z-index: 5;
     pointer-events: none;
 }
-
-.gallery-ui > * {
-    pointer-events: auto;
-}
-
-.gallery-header {
+.gallery > * { pointer-events: auto; }
+header {
     position: absolute;
-    top: max(22px, env(safe-area-inset-top));
+    top: 22px;
     left: 50%;
     transform: translateX(-50%);
-    width: min(520px, calc(100% - 32px));
+    width: min(550px, calc(100% - 30px));
     text-align: center;
+    text-shadow: 0 2px 16px #000;
     pointer-events: none;
-    text-shadow: 0 2px 14px #000;
 }
-
-.gallery-header h1 {
-    margin: 0 0 6px;
-    font-size: clamp(22px, 3vw, 34px);
-    font-weight: 600;
+header h1 {
+    margin: 0 0 5px;
+    font-size: clamp(23px, 3vw, 35px);
     letter-spacing: -.04em;
 }
-
-.gallery-header p {
+header p {
     margin: 0;
-    color: rgba(255,255,255,.75);
     font-size: 12px;
+    color: #ffffffb0;
 }
 
-/* =========================================================
-   BOTTOM DOCK
-========================================================= */
-
-.gallery-dock {
+.dock {
     position: absolute;
-    bottom: max(16px, env(safe-area-inset-bottom));
     left: 50%;
+    bottom: max(16px, env(safe-area-inset-bottom));
     transform: translateX(-50%);
-    width: min(1180px, calc(100% - 32px));
+    width: min(1180px, calc(100% - 30px));
     border: 1px solid var(--border);
-    border-radius: 20px;
+    border-radius: 19px;
     background: var(--glass);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-    box-shadow: 0 15px 55px rgba(0,0,0,.45);
-    overflow: visible;
+    box-shadow: 0 15px 55px #0008;
 }
-
 .dock-header {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 13px 18px 8px;
+    gap: 12px;
+    padding: 13px 17px 8px;
 }
-
-.dock-title {
-    min-width: 0;
-    flex: 1;
-}
-
-.dock-eyebrow {
+.dock-title { flex: 1; min-width: 0; }
+.eyebrow {
     display: block;
     margin-bottom: 3px;
-    color: #9bc8df;
+    color: var(--accent);
     font-size: 9px;
     text-transform: uppercase;
     letter-spacing: .18em;
 }
-
 #current-name {
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     font-size: 16px;
     font-weight: 600;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.actions { display: flex; gap: 7px; }
+.icon-button {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: #ffffff10;
+    color: white;
+    text-decoration: none;
+    font-size: 18px;
+}
+.icon-button:hover { background: #ffffff28; }
+.icon-button.active {
+    border-color: var(--accent);
+    color: var(--accent);
 }
 
-.dock-actions {
+.carousel {
     display: flex;
     align-items: center;
     gap: 7px;
+    padding: 0 10px 10px;
 }
-
-.icon-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    flex: 0 0 auto;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: rgba(255,255,255,.06);
-    font-size: 17px;
-    text-decoration: none;
-    transition: background .2s, border-color .2s;
+.arrow {
+    flex: 0 0 28px;
+    height: 50px;
+    border: 0;
+    background: transparent;
+    font-size: 24px;
 }
-
-.icon-button:hover {
-    background: rgba(255,255,255,.16);
-    border-color: rgba(255,255,255,.35);
-}
-
-.icon-button.active {
-    color: var(--accent);
-    border-color: var(--accent);
-}
-
-/* =========================================================
-   THUMBNAIL CAROUSEL
-========================================================= */
-
-.carousel-container {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 12px 12px;
-}
-
-.carousel-track {
+.track {
     display: flex;
     flex: 1;
     min-width: 0;
     gap: 10px;
+    padding: 5px 3px 9px;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 5px 3px 9px;
     scroll-behavior: smooth;
     scroll-snap-type: x proximity;
     scrollbar-width: thin;
-    scrollbar-color: #ffffff40 transparent;
-    overscroll-behavior-x: contain;
+    scrollbar-color: #ffffff55 transparent;
 }
-
-.carousel-track::-webkit-scrollbar {
-    height: 4px;
-}
-
-.carousel-track::-webkit-scrollbar-thumb {
-    background: #ffffff40;
-    border-radius: 4px;
-}
-
-.carousel-arrow {
-    width: 28px;
-    height: 52px;
-    flex: 0 0 auto;
-    border: 0;
-    background: transparent;
-    color: rgba(255,255,255,.7);
-    font-size: 24px;
-}
-
-.carousel-arrow:hover {
-    color: #fff;
-}
-
-/* =========================================================
-   THUMBNAIL CARDS
-========================================================= */
-
-.thumbnail-card {
-    position: relative;
+.thumb {
     flex: 0 0 158px;
     width: 158px;
     padding: 0;
     border: 2px solid transparent;
-    border-radius: 11px;
-    background: rgba(255,255,255,.045);
+    border-radius: 10px;
+    background: #ffffff0b;
     text-align: left;
-    scroll-snap-align: center;
     overflow: hidden;
-    transition:
-        border-color .2s,
-        background .2s,
-        transform .2s;
+    scroll-snap-align: center;
+    transition: border-color .2s, transform .2s;
 }
-
-.thumbnail-card:hover {
-    transform: translateY(-3px);
-    background: rgba(255,255,255,.1);
-}
-
-.thumbnail-card.selected {
+.thumb:hover { transform: translateY(-3px); }
+.thumb.selected {
     border-color: var(--accent);
-    background: rgba(138,205,229,.12);
+    background: #91d8f51b;
 }
-
-.thumbnail-image {
+.thumb-picture {
     position: relative;
     width: 100%;
     aspect-ratio: 16 / 9;
+    background: #0b1322;
     overflow: hidden;
-    background: #0c1420;
 }
-
-.thumbnail-image img {
+.thumb-picture img {
     display: block;
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transition: transform .35s;
 }
-
-.thumbnail-card:hover img {
-    transform: scale(1.08);
-}
-
-.thumbnail-image::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-        transparent 65%,
-        rgba(0,0,0,.3)
-    );
-    pointer-events: none;
-}
-
-.thumbnail-name {
+.thumb-label {
     display: block;
-    padding: 7px 9px 8px;
+    padding: 7px 9px;
     overflow: hidden;
-    white-space: nowrap;
     text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 11px;
-    color: #e1e8ee;
 }
-
-.thumbnail-card.selected .thumbnail-name {
-    color: #b9eaff;
-}
-
-.thumbnail-check {
+.thumb.selected .thumb-label { color: var(--accent); }
+.thumb-check {
+    display: none;
     position: absolute;
     top: 5px;
     right: 5px;
-    display: none;
-    align-items: center;
-    justify-content: center;
     width: 21px;
     height: 21px;
     border-radius: 50%;
     background: var(--accent);
     color: #06111a;
-    font-size: 13px;
+    text-align: center;
+    line-height: 21px;
     font-weight: bold;
-    z-index: 2;
 }
-
-.thumbnail-card.selected .thumbnail-check {
-    display: flex;
-}
-
-.thumbnail-loading {
-    position: absolute;
-    bottom: 4px;
-    right: 5px;
-    z-index: 2;
-    font-size: 9px;
-    color: rgba(255,255,255,.75);
-    text-shadow: 0 1px 4px #000;
-}
-
-/* =========================================================
-   FOOTER
-========================================================= */
+.thumb.selected .thumb-check { display: block; }
 
 .dock-footer {
     display: flex;
-    align-items: center;
     justify-content: space-between;
-    gap: 15px;
-    padding: 0 18px 13px;
+    gap: 12px;
+    padding: 0 17px 13px;
 }
-
-#current-description {
+#description {
     margin: 0;
-    max-width: 850px;
-    color: var(--text-muted);
     font-size: 11px;
     line-height: 1.5;
+    color: #ffffffa8;
 }
-
-#background-count {
+#count {
     flex: 0 0 auto;
-    color: rgba(255,255,255,.45);
     font-size: 10px;
-    white-space: nowrap;
+    color: #ffffff80;
 }
-
-/* =========================================================
-   FLOATING SHOW BUTTON
-========================================================= */
 
 #show-gallery {
     position: fixed;
-    bottom: max(18px, env(safe-area-inset-bottom));
     left: 50%;
+    bottom: 18px;
     transform: translateX(-50%);
-    z-index: 8;
+    z-index: 10;
     padding: 12px 20px;
     border: 1px solid var(--border);
-    border-radius: 50px;
-    background: rgba(10,15,25,.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 5px 25px #0006;
-    font-size: 12px;
+    border-radius: 30px;
+    background: var(--glass);
+    backdrop-filter: blur(15px);
 }
-
-#show-gallery:hover {
-    background: rgba(35,45,60,.9);
-}
-
-/* =========================================================
-   DOWNLOAD POPOVER
-========================================================= */
 
 .popover {
     position: absolute;
-    right: 14px;
+    right: 12px;
     bottom: calc(100% + 12px);
-    width: min(330px, calc(100vw - 36px));
+    width: min(330px, calc(100vw - 32px));
     padding: 18px;
     border: 1px solid var(--border);
-    border-radius: 15px;
-    background: rgba(9,15,25,.97);
-    backdrop-filter: blur(20px);
+    border-radius: 14px;
+    background: rgba(8, 13, 23, .97);
     box-shadow: 0 15px 50px #0009;
 }
-
-.popover h2 {
-    margin: 0 0 12px;
-    font-size: 16px;
-}
-
+.popover h2 { margin: 0 0 12px; font-size: 16px; }
 .popover p {
-    color: var(--text-muted);
+    color: #ffffffaa;
     font-size: 12px;
     line-height: 1.5;
 }
-
 .popover label {
     display: flex;
-    align-items: flex-start;
     gap: 9px;
     margin: 14px 0;
-    color: #d8e1e8;
     font-size: 12px;
     line-height: 1.5;
-    cursor: pointer;
 }
-
-.popover input {
-    accent-color: var(--accent);
-}
-
-.primary-button {
-    display: block;
+.popover input { accent-color: var(--accent); }
+.primary {
     width: 100%;
     padding: 12px;
-    border: 1px solid rgba(138,205,229,.4);
+    border: 1px solid #91d8f566;
     border-radius: 9px;
-    background: rgba(138,205,229,.14);
-    font-size: 12px;
+    background: #91d8f526;
 }
-
-.primary-button:hover {
-    background: rgba(138,205,229,.25);
-}
-
-#download-status {
-    overflow-wrap: anywhere;
-}
-
-#download-status:empty {
-    display: none;
-}
-
-/* =========================================================
-   OFFSCREEN CAPTURE HOST
-========================================================= */
-
-#capture-host {
-    position: fixed;
-    left: -10000px;
-    top: 0;
-    width: 480px;
-    height: 270px;
-    overflow: hidden;
-    pointer-events: none;
-    z-index: -1;
-}
-
-.capture-frame {
-    display: block;
-    width: 480px;
-    height: 270px;
-    border: 0;
-}
-
-/* =========================================================
-   RESPONSIVE
-========================================================= */
+.primary:hover { background: #91d8f540; }
+#status { overflow-wrap: anywhere; }
 
 @media (max-width: 700px) {
-    .gallery-dock {
-        width: calc(100% - 16px);
-        bottom: max(8px, env(safe-area-inset-bottom));
-        border-radius: 15px;
-    }
-
-    .gallery-header {
-        top: max(14px, env(safe-area-inset-top));
-    }
-
-    .gallery-header h1 {
-        font-size: 23px;
-    }
-
-    .dock-header {
-        padding: 10px 12px 7px;
-    }
-
-    .thumbnail-card {
-        flex-basis: 132px;
-        width: 132px;
-    }
-
-    .carousel-container {
-        gap: 3px;
-        padding: 0 5px 8px;
-    }
-
-    .carousel-arrow {
-        width: 22px;
-    }
-
-    .dock-footer {
-        padding: 0 12px 11px;
-    }
-
-    #current-description {
-        font-size: 10px;
-        max-height: 45px;
-        overflow: hidden;
-    }
-
-    .icon-button {
-        width: 32px;
-        height: 32px;
-    }
+    .dock { width: calc(100% - 16px); bottom: 8px; }
+    .dock-header { padding: 10px 12px 7px; }
+    .thumb { flex-basis: 132px; width: 132px; }
+    .carousel { gap: 2px; padding: 0 5px 8px; }
+    .arrow { flex-basis: 22px; }
+    .dock-footer { padding: 0 12px 11px; }
+    .icon-button { width: 32px; height: 32px; }
+    #description { max-height: 45px; overflow: hidden; }
 }
-
-@media (max-width: 380px) {
-    .thumbnail-card {
-        flex-basis: 118px;
-        width: 118px;
-    }
-
-    .gallery-header p,
-    #background-count {
-        display: none;
-    }
-}
-
 @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
+    *, *::before, *::after {
         scroll-behavior: auto !important;
         transition-duration: 0s !important;
-        animation-duration: 0s !important;
     }
 }
 </style>
 </head>
-
 <body>
 
-<iframe
-    id="background"
-    title="Selected animated background"
-></iframe>
+<iframe id="background" title="Animated background"></iframe>
+<div id="shade"></div>
 
-<div id="screen-shade"></div>
-
-<div class="gallery-ui" id="gallery-ui">
-
-    <header class="gallery-header">
+<div class="gallery">
+    <header id="gallery-header">
         <h1>A little moving magic.</h1>
         <p>Explore interactive animated backgrounds</p>
     </header>
 
-    <section
-        class="gallery-dock"
-        id="gallery-dock"
-        aria-label="Background gallery"
-    >
-
+    <section class="dock" id="dock" aria-label="Background gallery">
         <div class="dock-header">
-
             <div class="dock-title">
-                <span class="dock-eyebrow">Now playing</span>
+                <span class="eyebrow">Now playing</span>
                 <span id="current-name"></span>
             </div>
-
-            <div class="dock-actions">
-
-                <button
-                    class="icon-button"
-                    id="previous-background"
-                    title="Previous background"
-                    aria-label="Previous background"
-                >‹</button>
-
-                <button
-                    class="icon-button"
-                    id="next-background"
-                    title="Next background"
-                    aria-label="Next background"
-                >›</button>
-
-                <a
-                    class="icon-button"
-                    id="open-background"
-                    title="Open background in new tab"
-                    aria-label="Open background in new tab"
-                    target="_blank"
-                    rel="noopener"
-                >↗</a>
-
-                <button
-                    class="icon-button"
-                    id="settings-button"
-                    title="Download options"
-                    aria-label="Download options"
-                    aria-expanded="false"
-                    aria-controls="download-popover"
-                >⚙</button>
-
-                <button
-                    class="icon-button"
-                    id="hide-gallery"
-                    title="Hide gallery"
-                    aria-label="Hide gallery"
-                >×</button>
-
+            <div class="actions">
+                <button class="icon-button" id="previous"
+                    title="Previous background" aria-label="Previous">‹</button>
+                <button class="icon-button" id="next"
+                    title="Next background" aria-label="Next">›</button>
+                <a class="icon-button" id="open-background"
+                    title="Open in new tab" aria-label="Open background"
+                    target="_blank" rel="noopener">↗</a>
+                <button class="icon-button" id="settings"
+                    title="Download options" aria-label="Download options"
+                    aria-expanded="false">⚙</button>
+                <button class="icon-button" id="hide"
+                    title="Hide gallery" aria-label="Hide gallery">×</button>
             </div>
         </div>
 
-        <div class="carousel-container">
-
-            <button
-                class="carousel-arrow"
-                id="carousel-left"
-                aria-label="Scroll thumbnails left"
-            >‹</button>
-
-            <div
-                class="carousel-track"
-                id="carousel-track"
-                aria-label="Available backgrounds"
-            ></div>
-
-            <button
-                class="carousel-arrow"
-                id="carousel-right"
-                aria-label="Scroll thumbnails right"
-            >›</button>
-
+        <div class="carousel">
+            <button class="arrow" id="scroll-left"
+                aria-label="Scroll left">‹</button>
+            <div class="track" id="track"
+                aria-label="Background thumbnails"></div>
+            <button class="arrow" id="scroll-right"
+                aria-label="Scroll right">›</button>
         </div>
 
         <div class="dock-footer">
-            <p id="current-description"></p>
-            <span id="background-count"></span>
+            <p id="description"></p>
+            <span id="count"></span>
         </div>
 
-        <div class="popover" id="download-popover" hidden>
-
+        <div class="popover" id="popover" hidden>
             <h2>Background options</h2>
-
-            <p>
-                Download the currently selected background
-                with its active configuration.
-            </p>
-
+            <p>Download the selected background with its current settings.</p>
             <label>
-                <input
-                    id="download-editor-enabled"
-                    type="checkbox"
-                >
-                <span>
-                    Enable settings editor in downloaded
-                    background
-                </span>
+                <input id="editor-enabled" type="checkbox">
+                <span>Enable settings editor in downloaded background</span>
             </label>
-
-            <button
-                class="primary-button"
-                id="download-background"
-            >
+            <button class="primary" id="download">
                 Download background ZIP ↓
             </button>
-
-            <p
-                id="download-status"
-                role="status"
-                aria-live="polite"
-            ></p>
-
+            <p id="status" role="status" aria-live="polite"></p>
         </div>
-
     </section>
-
 </div>
 
-<button id="show-gallery" hidden>
-    Show gallery ↑
-</button>
-
-<div id="capture-host" aria-hidden="true"></div>
+<button id="show-gallery" hidden>Show gallery ↑</button>
 
 <script type="module">
 "use strict";
 
 import { backgrounds } from "./backgrounds.js";
 
-/* =========================================================
-   ELEMENTS
-========================================================= */
-
-const frame = document.getElementById("background");
-const shade = document.getElementById("screen-shade");
-
-const galleryDock =
-    document.getElementById("gallery-dock");
-
-const galleryHeader =
-    document.querySelector(".gallery-header");
-
-const track =
-    document.getElementById("carousel-track");
-
-const currentName =
-    document.getElementById("current-name");
-
-const currentDescription =
-    document.getElementById("current-description");
-
-const backgroundCount =
-    document.getElementById("background-count");
-
-const openLink =
-    document.getElementById("open-background");
-
-const showGalleryButton =
-    document.getElementById("show-gallery");
-
-const hideGalleryButton =
-    document.getElementById("hide-gallery");
-
-const settingsButton =
-    document.getElementById("settings-button");
-
-const downloadPopover =
-    document.getElementById("download-popover");
-
-const downloadButton =
-    document.getElementById("download-background");
-
-const downloadStatus =
-    document.getElementById("download-status");
-
-const captureHost =
-    document.getElementById("capture-host");
-
-/* =========================================================
-   CONFIGURATION
-========================================================= */
-
+const $ = id => document.getElementById(id);
+const frame = $("background");
+const shade = $("shade");
+const track = $("track");
+const dock = $("dock");
+const popover = $("popover");
+const cards = new Map();
 const storageKey = "background-gallery-selection";
-
-const THUMB_WIDTH = 480;
-const THUMB_HEIGHT = 270;
-
-const CAPTURE_DELAY = 1800;
-const CAPTURE_TIMEOUT = 8000;
-const CAPTURE_PAUSE = 180;
-const CAPTURE_ATTEMPTS = 3;
 
 let selectedIndex = 0;
 let selectionVersion = 0;
-let captureRunning = false;
-
-const thumbnailCache = new Map();
-const thumbnailCards = new Map();
-
-const captureQueue = [];
-const queuedFolders = new Set();
-
-/* =========================================================
-   UTILITIES
-========================================================= */
 
 function backgroundURL(folder) {
-    const path = folder
-        .split("/")
-        .map(segment => encodeURIComponent(segment))
-        .join("/");
-
-    return `${path}/index.html`;
+    return folder.split("/")
+        .map(encodeURIComponent)
+        .join("/") + "/index.html";
 }
 
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+function thumbnailURL(folder) {
+    return folder.split("/")
+        .map(encodeURIComponent)
+        .join("/") + "/thumbnail.webp";
 }
 
-function findBackground(folder) {
-    return backgrounds.find(
-        item => item.folder === folder
-    ) || backgrounds[0];
-}
-
-function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
-}
-
-function safeStorageGet(key) {
-    try {
-        return localStorage.getItem(key);
-    } catch {
-        return null;
-    }
-}
-
-function safeStorageSet(key, value) {
-    try {
-        localStorage.setItem(key, value);
-    } catch {
-        // Storage is optional.
-    }
-}
-
-/* =========================================================
-   UNIQUE FALLBACK THUMBNAILS
-========================================================= */
-
-function hashString(value) {
-    let hash = 2166136261;
-
-    for (let i = 0; i < value.length; i++) {
-        hash ^= value.charCodeAt(i);
-        hash = Math.imul(hash, 16777619);
-    }
-
-    return hash >>> 0;
-}
-
-function createFallbackThumbnail(background) {
+function fallbackImage(folder) {
     const canvas = document.createElement("canvas");
-
-    canvas.width = THUMB_WIDTH;
-    canvas.height = THUMB_HEIGHT;
-
+    canvas.width = 480;
+    canvas.height = 270;
     const ctx = canvas.getContext("2d");
-
-    const hash = hashString(background.folder);
-
-    const hue1 = hash % 360;
-    const hue2 = (hue1 + 65 + (hash % 70)) % 360;
-
-    const gradient = ctx.createLinearGradient(
-        0, 0, THUMB_WIDTH, THUMB_HEIGHT
-    );
-
-    gradient.addColorStop(
-        0,
-        `hsl(${hue1}, 65%, 13%)`
-    );
-
-    gradient.addColorStop(
-        .5,
-        `hsl(${hue2}, 70%, 8%)`
-    );
-
-    gradient.addColorStop(1, "#020408");
-
+    let seed = 2166136261;
+    for (const char of folder) {
+        seed = Math.imul(seed ^ char.charCodeAt(0), 16777619);
+    }
+    seed >>>= 0;
+    const hue = seed % 360;
+    const gradient = ctx.createLinearGradient(0, 0, 480, 270);
+    gradient.addColorStop(0, `hsl(${hue}, 65%, 19%)`);
+    gradient.addColorStop(1, `hsl(${(hue + 95) % 360}, 65%, 5%)`);
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, THUMB_WIDTH, THUMB_HEIGHT);
-
-    let seed = hash || 1;
-
+    ctx.fillRect(0, 0, 480, 270);
     function random() {
         seed ^= seed << 13;
         seed ^= seed >>> 17;
         seed ^= seed << 5;
-
         return (seed >>> 0) / 4294967296;
     }
-
-    for (let i = 0; i < 8; i++) {
-        const x = random() * THUMB_WIDTH;
-        const y = random() * THUMB_HEIGHT;
-        const radius = 40 + random() * 120;
-
-        const hue = i % 2 ? hue1 : hue2;
-
-        const glow = ctx.createRadialGradient(
-            x, y, 0,
-            x, y, radius
-        );
-
-        glow.addColorStop(
-            0,
-            `hsla(${hue}, 95%, 65%, .22)`
-        );
-
-        glow.addColorStop(
-            1,
-            `hsla(${hue}, 95%, 40%, 0)`
-        );
-
-        ctx.fillStyle = glow;
-        ctx.fillRect(
-            x - radius,
-            y - radius,
-            radius * 2,
-            radius * 2
-        );
-    }
-
-    for (let i = 0; i < 110; i++) {
-        const x = random() * THUMB_WIDTH;
-        const y = random() * THUMB_HEIGHT;
-        const radius = .3 + random() * 1.6;
-
+    for (let i = 0; i < 100; i++) {
         ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-
-        ctx.fillStyle =
-            `rgba(255,255,255,${.15 + random() * .7})`;
-
+        ctx.arc(random() * 480, random() * 270,
+            .4 + random() * 2, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,255,255,${.2 + random() * .7})`;
         ctx.fill();
     }
-
-    for (let i = 0; i < 5; i++) {
-        const x = random() * THUMB_WIDTH;
-        const y = random() * THUMB_HEIGHT;
-        const radius = 5 + random() * 12;
-
-        const glow = ctx.createRadialGradient(
-            x, y, 0,
-            x, y, radius * 3
-        );
-
-        glow.addColorStop(
-            0,
-            "rgba(255,255,255,.9)"
-        );
-
-        glow.addColorStop(
-            .15,
-            `hsla(${hue1},100%,75%,.5)`
-        );
-
-        glow.addColorStop(
-            1,
-            "rgba(0,0,0,0)"
-        );
-
-        ctx.fillStyle = glow;
-
-        ctx.fillRect(
-            x - radius * 3,
-            y - radius * 3,
-            radius * 6,
-            radius * 6
-        );
-    }
-
     return canvas.toDataURL("image/png");
 }
 
-/* =========================================================
-   THUMBNAIL CARDS
-========================================================= */
-
-function createThumbnailCard(background, index) {
+function makeCard(background, index) {
     const button = document.createElement("button");
-
     button.type = "button";
-    button.className = "thumbnail-card";
-    button.dataset.index = index;
-    button.dataset.folder = background.folder;
-
-    button.title =
-        background.description || background.name;
-
-    button.setAttribute(
-        "aria-label",
-        `Select ${background.name}`
-    );
-
+    button.className = "thumb";
+    button.title = background.description || background.name;
+    button.setAttribute("aria-label", `Select ${background.name}`);
     button.setAttribute("aria-pressed", "false");
 
-    const imageContainer = document.createElement("div");
-    imageContainer.className = "thumbnail-image";
+    const picture = document.createElement("div");
+    picture.className = "thumb-picture";
 
     const image = document.createElement("img");
-
     image.alt = "";
     image.loading = "lazy";
     image.decoding = "async";
+    image.src = thumbnailURL(background.folder);
 
-    image.src = createFallbackThumbnail(background);
+    // Missing thumbnails get unique lightweight placeholders.
+    image.onerror = () => {
+        image.onerror = null;
+        image.src = fallbackImage(background.folder);
+    };
 
     const check = document.createElement("span");
-    check.className = "thumbnail-check";
+    check.className = "thumb-check";
     check.textContent = "✓";
     check.setAttribute("aria-hidden", "true");
 
-    const loading = document.createElement("span");
-    loading.className = "thumbnail-loading";
+    picture.append(image, check);
 
-    imageContainer.append(image, check, loading);
+    const label = document.createElement("span");
+    label.className = "thumb-label";
+    label.textContent = background.name;
 
-    const name = document.createElement("span");
-    name.className = "thumbnail-name";
-    name.textContent = background.name;
+    button.append(picture, label);
+    button.addEventListener("click", () => selectBackground(index));
 
-    button.append(imageContainer, name);
-
-    button.addEventListener("click", () => {
-        selectBackground(background.folder);
-    });
-
-    thumbnailCards.set(background.folder, {
-        button,
-        image,
-        loading
-    });
-
+    cards.set(background.folder, button);
     return button;
 }
 
-function buildCarousel() {
-    track.replaceChildren();
-    thumbnailCards.clear();
-
-    backgrounds.forEach((background, index) => {
-        track.append(
-            createThumbnailCard(background, index)
-        );
-    });
-}
-
-function updateSelectedCards() {
-    for (const [folder, card] of thumbnailCards) {
-        const selected =
-            folder === backgrounds[selectedIndex].folder;
-
-        card.button.classList.toggle(
-            "selected",
-            selected
-        );
-
-        card.button.setAttribute(
-            "aria-pressed",
-            String(selected)
-        );
-    }
-}
-
-function scrollToSelected() {
+function centerSelected() {
     const background = backgrounds[selectedIndex];
-    const card = thumbnailCards.get(background.folder);
-
+    const card = cards.get(background.folder);
     if (!card) return;
-
-    const left =
-        card.button.offsetLeft
-        - track.clientWidth / 2
-        + card.button.clientWidth / 2;
-
-    track.scrollTo({
-        left,
-        behavior: "smooth"
-    });
+    const left = card.offsetLeft - track.offsetLeft
+        - track.clientWidth / 2 + card.clientWidth / 2;
+    track.scrollTo({ left, behavior: "smooth" });
 }
 
-/* =========================================================
-   BACKGROUND SELECTION
-========================================================= */
+function selectBackground(indexOrFolder) {
+    if (!backgrounds.length) return;
 
-function selectBackground(folder) {
-    const background = findBackground(folder);
+    let index = typeof indexOrFolder === "number"
+        ? indexOrFolder
+        : backgrounds.findIndex(b => b.folder === indexOrFolder);
 
-    if (!background) return;
-
-    const index = backgrounds.indexOf(background);
-    const url = backgroundURL(background.folder);
+    if (index < 0 || index >= backgrounds.length) index = 0;
 
     selectedIndex = index;
-
+    const background = backgrounds[index];
     const version = ++selectionVersion;
+    const url = backgroundURL(background.folder);
 
-    currentName.textContent = background.name;
+    $("current-name").textContent = background.name;
+    $("description").textContent = background.description || "";
+    $("count").textContent = `${index + 1} / ${backgrounds.length}`;
+    $("open-background").href = url;
 
-    currentDescription.textContent =
-        background.description || "";
-
-    backgroundCount.textContent =
-        `${index + 1} / ${backgrounds.length}`;
-
-    openLink.href = url;
-
-    updateSelectedCards();
-
-    safeStorageSet(storageKey, background.folder);
-
-    const resolvedURL = new URL(
-        url,
-        document.baseURI
-    ).href;
-
-    if (frame.src === resolvedURL) {
-        scrollToSelected();
-        return;
+    for (const [folder, button] of cards) {
+        const active = folder === background.folder;
+        button.classList.toggle("selected", active);
+        button.setAttribute("aria-pressed", String(active));
     }
-
-    shade.classList.add("active");
-
-    frame.title =
-        `${background.name} animated background`;
-
-    frame.onload = () => {
-        if (version !== selectionVersion) return;
-
-        shade.classList.remove("active");
-    };
-
-    frame.src = url;
-
-    scrollToSelected();
-}
-
-function selectRelativeBackground(direction) {
-    const index =
-        (selectedIndex + direction + backgrounds.length)
-        % backgrounds.length;
-
-    selectBackground(backgrounds[index].folder);
-}
-
-/* =========================================================
-   IMAGE CONVERSION
-========================================================= */
-
-function blobToDataURL(blob) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error);
-
-        reader.readAsDataURL(blob);
-    });
-}
-
-/* =========================================================
-   CAPTURE CANVAS FROM A SPECIFIC WINDOW
-========================================================= */
-
-async function captureCanvasFromWindow(win) {
-    if (!win) return null;
 
     try {
-        if (
-            typeof win.captureBackgroundThumbnail
-            === "function"
-        ) {
-            const result =
-                await win.captureBackgroundThumbnail();
+        localStorage.setItem(storageKey, background.folder);
+    } catch {}
 
-            if (typeof result === "string") {
-                return result;
+    const absoluteURL = new URL(url, document.baseURI).href;
+    if (frame.src !== absoluteURL) {
+        shade.classList.add("active");
+        frame.onload = () => {
+            if (version === selectionVersion) {
+                shade.classList.remove("active");
             }
-
-            if (result instanceof Blob) {
-                return await blobToDataURL(result);
-            }
-
-            if (
-                result &&
-                typeof result.toDataURL === "function"
-            ) {
-                return result.toDataURL("image/png");
-            }
-        }
-    } catch (error) {
-        console.debug(
-            "Custom thumbnail capture failed:",
-            error
-        );
+        };
+        frame.title = `${background.name} animated background`;
+        frame.src = url;
     }
 
-    let canvases;
-
-    try {
-        canvases = [
-            ...win.document.querySelectorAll("canvas")
-        ];
-    } catch {
-        return null;
-    }
-
-    if (!canvases.length) return null;
-
-    const output = document.createElement("canvas");
-
-    output.width = THUMB_WIDTH;
-    output.height = THUMB_HEIGHT;
-
-    const ctx = output.getContext("2d", {
-        willReadFrequently: true
-    });
-
-    let captured = false;
-
-    const viewportWidth =
-        win.document.documentElement.clientWidth
-        || win.innerWidth
-        || THUMB_WIDTH;
-
-    const viewportHeight =
-        win.document.documentElement.clientHeight
-        || win.innerHeight
-        || THUMB_HEIGHT;
-
-    for (const canvas of canvases) {
-        if (!canvas.width || !canvas.height) continue;
-
-        try {
-            const style = win.getComputedStyle(canvas);
-
-            if (
-                style.display === "none" ||
-                style.visibility === "hidden" ||
-                Number(style.opacity) === 0
-            ) {
-                continue;
-            }
-
-            const rect = canvas.getBoundingClientRect();
-
-            if (!rect.width || !rect.height) continue;
-
-            const x =
-                rect.left / viewportWidth * THUMB_WIDTH;
-
-            const y =
-                rect.top / viewportHeight * THUMB_HEIGHT;
-
-            const width =
-                rect.width / viewportWidth * THUMB_WIDTH;
-
-            const height =
-                rect.height / viewportHeight * THUMB_HEIGHT;
-
-            ctx.globalAlpha = clamp(
-                Number(style.opacity) || 1,
-                0,
-                1
-            );
-
-            ctx.drawImage(
-                canvas,
-                x,
-                y,
-                width,
-                height
-            );
-
-            captured = true;
-
-        } catch (error) {
-            console.debug(
-                "Canvas could not be captured:",
-                error
-            );
-        }
-    }
-
-    ctx.globalAlpha = 1;
-
-    if (!captured) return null;
-
-    const pixels = ctx.getImageData(
-        0,
-        0,
-        THUMB_WIDTH,
-        THUMB_HEIGHT
-    ).data;
-
-    let visible = 0;
-    let brightness = 0;
-
-    for (let i = 0; i < pixels.length; i += 160) {
-        const alpha = pixels[i + 3];
-
-        if (alpha > 10) {
-            visible++;
-
-            brightness +=
-                pixels[i] +
-                pixels[i + 1] +
-                pixels[i + 2];
-        }
-    }
-
-    if (visible < 30 || brightness < 500) {
-        return null;
-    }
-
-    return output.toDataURL("image/jpeg", .82);
+    centerSelected();
 }
 
-/* =========================================================
-   STRICT THUMBNAIL OWNERSHIP
-========================================================= */
-
-function setThumbnail(background, dataURL) {
-    if (!dataURL) return;
-
-    const folder = background.folder;
-    const card = thumbnailCards.get(folder);
-
-    if (!card) return;
-
-    if (card.button.dataset.folder !== folder) {
-        console.warn(
-            "Thumbnail ownership mismatch:",
-            folder
-        );
-
-        return;
-    }
-
-    thumbnailCache.set(folder, dataURL);
-
-    card.image.src = dataURL;
-    card.loading.textContent = "";
+function moveSelection(delta) {
+    selectBackground(
+        (selectedIndex + delta + backgrounds.length)
+        % backgrounds.length
+    );
 }
-
-/* =========================================================
-   DEDICATED CAPTURE IFRAME
-
-   Each background is loaded separately.
-
-   The iframe URL is validated before capture.
-
-   The iframe is destroyed after capture.
-========================================================= */
-
-async function loadCaptureFrame(background) {
-    const iframe = document.createElement("iframe");
-
-    iframe.className = "capture-frame";
-
-    iframe.title =
-        `Thumbnail capture: ${background.name}`;
-
-    iframe.tabIndex = -1;
-    iframe.setAttribute("aria-hidden", "true");
-
-    const expectedURL = new URL(
-        backgroundURL(background.folder),
-        document.baseURI
-    ).href;
-
-    captureHost.append(iframe);
-
-    let timeoutID;
-
-    try {
-        await new Promise((resolve, reject) => {
-            timeoutID = setTimeout(() => {
-                reject(
-                    new Error("Thumbnail load timeout")
-                );
-            }, CAPTURE_TIMEOUT);
-
-            iframe.onload = () => {
-                try {
-                    const loadedURL =
-                        iframe.contentWindow.location.href;
-
-                    if (loadedURL !== expectedURL) {
-                        reject(
-                            new Error(
-                                "Unexpected capture URL"
-                            )
-                        );
-
-                        return;
-                    }
-
-                    resolve();
-
-                } catch {
-                    reject(
-                        new Error(
-                            "Cross-origin capture blocked"
-                        )
-                    );
-                }
-            };
-
-            iframe.onerror = () => {
-                reject(
-                    new Error("Thumbnail load failed")
-                );
-            };
-
-            iframe.src = expectedURL;
-        });
-
-        await sleep(CAPTURE_DELAY);
-
-        let image = null;
-
-        for (
-            let attempt = 0;
-            attempt < CAPTURE_ATTEMPTS;
-            attempt++
-        ) {
-            // Validate the iframe still belongs to
-            // the expected background.
-            if (
-                iframe.contentWindow.location.href
-                !== expectedURL
-            ) {
-                throw new Error(
-                    "Capture iframe navigated unexpectedly"
-                );
-            }
-
-            image = await captureCanvasFromWindow(
-                iframe.contentWindow
-            );
-
-            if (image) break;
-
-            await sleep(400);
-        }
-
-        return image;
-
-    } finally {
-        clearTimeout(timeoutID);
-
-        iframe.remove();
-    }
-}
-
-/* =========================================================
-   SEQUENTIAL CAPTURE QUEUE
-========================================================= */
-
-function queueThumbnail(background) {
-    const folder = background.folder;
-
-    if (thumbnailCache.has(folder)) return;
-    if (queuedFolders.has(folder)) return;
-
-    queuedFolders.add(folder);
-    captureQueue.push(background);
-
-    processCaptureQueue();
-}
-
-async function processCaptureQueue() {
-    if (captureRunning) return;
-
-    captureRunning = true;
-
-    try {
-        while (captureQueue.length > 0) {
-            const background = captureQueue.shift();
-            const folder = background.folder;
-
-            queuedFolders.delete(folder);
-
-            if (thumbnailCache.has(folder)) {
-                continue;
-            }
-
-            const card = thumbnailCards.get(folder);
-
-            if (!card) continue;
-
-            card.loading.textContent = "Loading";
-
-            try {
-                const image = await loadCaptureFrame(
-                    background
-                );
-
-                if (image) {
-                    setThumbnail(background, image);
-                }
-
-            } catch (error) {
-                console.warn(
-                    `Thumbnail failed for ${background.name}:`,
-                    error
-                );
-
-            } finally {
-                card.loading.textContent = "";
-            }
-
-            await sleep(CAPTURE_PAUSE);
-        }
-
-    } finally {
-        captureRunning = false;
-    }
-}
-
-/* =========================================================
-   LAZY THUMBNAIL GENERATION
-========================================================= */
-
-const thumbnailObserver = new IntersectionObserver(
-    entries => {
-        for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
-
-            const folder =
-                entry.target.dataset.folder;
-
-            const background = backgrounds.find(
-                item => item.folder === folder
-            );
-
-            if (background) {
-                queueThumbnail(background);
-            }
-
-            thumbnailObserver.unobserve(
-                entry.target
-            );
-        }
-    },
-    {
-        root: track,
-        rootMargin: "0px 250px",
-        threshold: .01
-    }
-);
-
-function observeThumbnails() {
-    for (const card of thumbnailCards.values()) {
-        thumbnailObserver.observe(card.button);
-    }
-}
-
-/* =========================================================
-   CAROUSEL NAVIGATION
-========================================================= */
-
-document.getElementById("carousel-left")
-    .addEventListener("click", () => {
-        track.scrollBy({
-            left: -track.clientWidth * .7,
-            behavior: "smooth"
-        });
-    });
-
-document.getElementById("carousel-right")
-    .addEventListener("click", () => {
-        track.scrollBy({
-            left: track.clientWidth * .7,
-            behavior: "smooth"
-        });
-    });
-
-document.getElementById("previous-background")
-    .addEventListener("click", () => {
-        selectRelativeBackground(-1);
-    });
-
-document.getElementById("next-background")
-    .addEventListener("click", () => {
-        selectRelativeBackground(1);
-    });
-
-track.addEventListener("wheel", event => {
-    if (track.scrollWidth <= track.clientWidth) {
-        return;
-    }
-
-    const delta =
-        Math.abs(event.deltaX) > Math.abs(event.deltaY)
-        ? event.deltaX
-        : event.deltaY;
-
-    track.scrollLeft += delta;
-
-    event.preventDefault();
-
-}, { passive: false });
-
-document.addEventListener("keydown", event => {
-    const target = event.target;
-
-    if (
-        target instanceof HTMLElement &&
-        target.closest(
-            "input, textarea, select, [contenteditable]"
-        )
-    ) {
-        return;
-    }
-
-    if (event.key === "Escape") {
-        if (!downloadPopover.hidden) {
-            setSettingsOpen(false);
-        } else if (!galleryDock.hidden) {
-            setGalleryVisible(false);
-        } else {
-            setGalleryVisible(true);
-        }
-
-        return;
-    }
-
-    if (
-        target instanceof HTMLElement &&
-        target.closest("button, a")
-    ) {
-        return;
-    }
-
-    if (event.key === "ArrowLeft") {
-        selectRelativeBackground(-1);
-    }
-
-    if (event.key === "ArrowRight") {
-        selectRelativeBackground(1);
-    }
-});
-
-/* =========================================================
-   SHOW / HIDE GALLERY
-========================================================= */
 
 function setGalleryVisible(visible) {
-    galleryDock.hidden = !visible;
-    galleryHeader.hidden = !visible;
-
-    showGalleryButton.hidden = visible;
-
-    if (!visible) {
-        setSettingsOpen(false);
-        showGalleryButton.focus();
-    } else {
-        hideGalleryButton.focus();
-
-        requestAnimationFrame(() => {
-            scrollToSelected();
-        });
-    }
+    dock.hidden = !visible;
+    $("gallery-header").hidden = !visible;
+    $("show-gallery").hidden = visible;
+    if (!visible) setPopover(false);
+    if (visible) requestAnimationFrame(centerSelected);
 }
 
-hideGalleryButton.addEventListener("click", () => {
-    setGalleryVisible(false);
-});
-
-showGalleryButton.addEventListener("click", () => {
-    setGalleryVisible(true);
-});
-
-/* =========================================================
-   SETTINGS POPOVER
-========================================================= */
-
-function setSettingsOpen(open) {
-    downloadPopover.hidden = !open;
-
-    settingsButton.classList.toggle(
-        "active",
-        open
-    );
-
-    settingsButton.setAttribute(
-        "aria-expanded",
-        String(open)
-    );
+function setPopover(open) {
+    popover.hidden = !open;
+    $("settings").classList.toggle("active", open);
+    $("settings").setAttribute("aria-expanded", String(open));
 }
 
-settingsButton.addEventListener("click", () => {
-    setSettingsOpen(downloadPopover.hidden);
+$("previous").onclick = () => moveSelection(-1);
+$("next").onclick = () => moveSelection(1);
+$("hide").onclick = () => setGalleryVisible(false);
+$("show-gallery").onclick = () => setGalleryVisible(true);
+$("settings").onclick = () => setPopover(popover.hidden);
+
+$("scroll-left").onclick = () => track.scrollBy({
+    left: -track.clientWidth * .7,
+    behavior: "smooth"
 });
+$("scroll-right").onclick = () => track.scrollBy({
+    left: track.clientWidth * .7,
+    behavior: "smooth"
+});
+
+track.addEventListener("wheel", event => {
+    if (track.scrollWidth <= track.clientWidth) return;
+    track.scrollLeft += Math.abs(event.deltaX) > Math.abs(event.deltaY)
+        ? event.deltaX : event.deltaY;
+    event.preventDefault();
+}, { passive: false });
 
 document.addEventListener("pointerdown", event => {
-    if (downloadPopover.hidden) return;
-
-    if (
-        !downloadPopover.contains(event.target) &&
-        !settingsButton.contains(event.target)
-    ) {
-        setSettingsOpen(false);
+    if (!popover.hidden &&
+        !popover.contains(event.target) &&
+        !$("settings").contains(event.target)) {
+        setPopover(false);
     }
 });
 
-/* =========================================================
-   DEACTIVATE BACKGROUND POINTER
-========================================================= */
-
-function deactivateBackgroundPointer() {
-    try {
-        frame.contentWindow.dispatchEvent(
-            new Event("blur")
-        );
-    } catch {
-        // Same-origin only.
+document.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+        if (!popover.hidden) setPopover(false);
+        else setGalleryVisible(dock.hidden);
+        return;
     }
-}
+    if (event.target.closest("button, a, input, textarea, select")) return;
+    if (event.key === "ArrowLeft") moveSelection(-1);
+    if (event.key === "ArrowRight") moveSelection(1);
+});
 
-galleryDock.addEventListener(
-    "pointerenter",
-    deactivateBackgroundPointer
-);
-
-showGalleryButton.addEventListener(
-    "pointerenter",
-    deactivateBackgroundPointer
-);
-
-/* =========================================================
-   ZIP WRITER
-========================================================= */
-
+/* ZIP writer: store entries without compression. */
 function makeBackgroundZip(files) {
     const encoder = new TextEncoder();
-
-    const parts = [];
-    const directory = [];
-
-    let offset = 0;
-    let directorySize = 0;
-
+    const parts = [], directory = [];
+    let offset = 0, directorySize = 0;
     const now = new Date();
-
-    const dosTime =
-        (now.getHours() << 11) |
-        (now.getMinutes() << 5) |
-        (now.getSeconds() >> 1);
-
-    const dosDate =
-        ((Math.max(1980, now.getFullYear()) - 1980) << 9) |
-        ((now.getMonth() + 1) << 5) |
-        now.getDate();
+    const dosTime = (now.getHours() << 11) |
+        (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const dosDate = ((Math.max(1980, now.getFullYear()) - 1980) << 9) |
+        ((now.getMonth() + 1) << 5) | now.getDate();
 
     function crc32(bytes) {
         let crc = 0xffffffff;
-
         for (const byte of bytes) {
             crc ^= byte;
-
-            for (let bit = 0; bit < 8; bit++) {
-                crc =
-                    (crc >>> 1) ^
-                    ((crc & 1) ? 0xedb88320 : 0);
+            for (let i = 0; i < 8; i++) {
+                crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
             }
         }
-
         return (crc ^ 0xffffffff) >>> 0;
     }
 
     for (const file of files) {
         const name = encoder.encode(file.name);
         const data = encoder.encode(file.text);
-
         const crc = crc32(data);
-
-        const local = new Uint8Array(
-            30 + name.length
-        );
-
-        const view = new DataView(local.buffer);
-
-        view.setUint32(0, 0x04034b50, true);
-        view.setUint16(4, 20, true);
-        view.setUint16(6, 0x0800, true);
-        view.setUint16(10, dosTime, true);
-        view.setUint16(12, dosDate, true);
-        view.setUint32(14, crc, true);
-        view.setUint32(18, data.length, true);
-        view.setUint32(22, data.length, true);
-        view.setUint16(26, name.length, true);
-
+        const local = new Uint8Array(30 + name.length);
+        const lv = new DataView(local.buffer);
+        lv.setUint32(0, 0x04034b50, true);
+        lv.setUint16(4, 20, true);
+        lv.setUint16(6, 0x0800, true);
+        lv.setUint16(10, dosTime, true);
+        lv.setUint16(12, dosDate, true);
+        lv.setUint32(14, crc, true);
+        lv.setUint32(18, data.length, true);
+        lv.setUint32(22, data.length, true);
+        lv.setUint16(26, name.length, true);
         local.set(name, 30);
-
         parts.push(local, data);
 
-        const central = new Uint8Array(
-            46 + name.length
-        );
-
+        const central = new Uint8Array(46 + name.length);
         const cv = new DataView(central.buffer);
-
         cv.setUint32(0, 0x02014b50, true);
         cv.setUint16(4, 20, true);
         cv.setUint16(6, 20, true);
@@ -1819,230 +629,127 @@ function makeBackgroundZip(files) {
         cv.setUint32(16, crc, true);
         cv.setUint32(20, data.length, true);
         cv.setUint32(24, data.length, true);
-        cv.setUint16(28, name.length, true);
         cv.setUint32(42, offset, true);
-
         central.set(name, 46);
-
         directory.push(central);
-
         directorySize += central.length;
         offset += local.length + data.length;
     }
 
     const end = new Uint8Array(22);
     const ev = new DataView(end.buffer);
-
     ev.setUint32(0, 0x06054b50, true);
     ev.setUint16(8, files.length, true);
     ev.setUint16(10, files.length, true);
     ev.setUint32(12, directorySize, true);
     ev.setUint32(16, offset, true);
-
-    return new Blob(
-        [...parts, ...directory, end],
-        { type: "application/zip" }
-    );
+    return new Blob([...parts, ...directory, end],
+        { type: "application/zip" });
 }
 
-/* =========================================================
-   CONFIGURATION REPLACEMENT
-========================================================= */
-
 function applyDownloadedConfig(html, config) {
-    const pattern =
-        /\bconst\s+config\s*=\s*\{[\s\S]*?^\s*\};/gm;
-
+    const pattern = /\bconst\s+config\s*=\s*\{[\s\S]*?^\s*\};/gm;
     const matches = [...html.matchAll(pattern)];
-
     if (matches.length !== 1) {
-        throw new Error(
-            "Could not locate one configuration block."
-        );
+        throw new Error("Could not locate exactly one config block.");
     }
-
+    const match = matches[0];
     const serialized = JSON.stringify(config, null, 2)
         .replace(/</g, "\\u003c")
         .replace(/\u2028/g, "\\u2028")
         .replace(/\u2029/g, "\\u2029");
-
-    const match = matches[0];
-
-    return (
-        html.slice(0, match.index) +
-        "const config = " +
-        serialized +
-        ";" +
-        html.slice(match.index + match[0].length)
-    );
+    return html.slice(0, match.index) +
+        "const config = " + serialized + ";" +
+        html.slice(match.index + match[0].length);
 }
 
-async function fetchBackgroundSource(url) {
-    const response = await fetch(url, {
-        cache: "no-cache"
-    });
-
+async function fetchSource(url) {
+    const response = await fetch(url, { cache: "no-cache" });
     if (!response.ok) {
-        throw new Error(
-            `Could not download ${url.pathname} (${response.status}).`
-        );
+        throw new Error(`Could not fetch ${url.pathname}: ${response.status}`);
     }
-
     return response.text();
 }
 
-/* =========================================================
-   DOWNLOAD BACKGROUND
-========================================================= */
-
-downloadButton.addEventListener("click", async () => {
-    downloadButton.disabled = true;
-    downloadButton.textContent = "Preparing download…";
-    downloadStatus.textContent = "";
+$("download").addEventListener("click", async () => {
+    const button = $("download");
+    button.disabled = true;
+    button.textContent = "Preparing download…";
+    $("status").textContent = "";
 
     try {
         if (!/^https?:$/.test(location.protocol)) {
-            throw new Error(
-                "Open the gallery through a web server."
-            );
+            throw new Error("Open this gallery through a web server.");
         }
 
         const background = backgrounds[selectedIndex];
-
         const sourceURL = new URL(
-            backgroundURL(background.folder),
-            document.baseURI
+            backgroundURL(background.folder), document.baseURI
         );
-
         const child = frame.contentWindow;
 
-        if (
-            child.location.href !== sourceURL.href ||
-            typeof child.getBackgroundConfig !== "function"
-        ) {
+        if (child.location.href !== sourceURL.href ||
+            typeof child.getBackgroundConfig !== "function") {
             throw new Error(
-                "Wait for the background to load. " +
-                "It must expose window.getBackgroundConfig()."
+                "Background is not ready or does not expose getBackgroundConfig()."
             );
         }
 
-        const currentConfig = JSON.parse(
+        const config = JSON.parse(
             JSON.stringify(child.getBackgroundConfig())
         );
 
-        if (
-            !currentConfig ||
-            typeof currentConfig !== "object" ||
-            Array.isArray(currentConfig)
-        ) {
-            throw new Error(
-                "The background returned an invalid configuration."
-            );
+        if (config.panel && typeof config.panel === "object") {
+            config.panel.enabled = $("editor-enabled").checked;
         }
 
-        if (
-            currentConfig.panel &&
-            typeof currentConfig.panel === "object"
-        ) {
-            currentConfig.panel.enabled =
-                document.getElementById(
-                    "download-editor-enabled"
-                ).checked;
-        }
-
-        const results = await Promise.all([
-            fetchBackgroundSource(sourceURL),
-            fetchBackgroundSource(
-                new URL("settings-editor.js", sourceURL)
-            )
+        const [htmlSource, editorSource] = await Promise.all([
+            fetchSource(sourceURL),
+            fetchSource(new URL("settings-editor.js", sourceURL))
         ]);
 
-        const html = applyDownloadedConfig(
-            results[0],
-            currentConfig
-        );
-
-        if (
-            !/\bexport\b/.test(results[1]) ||
-            /^\s*</.test(results[1])
-        ) {
-            throw new Error(
-                "The settings editor could not be retrieved."
-            );
+        const html = applyDownloadedConfig(htmlSource, config);
+        if (!/\bexport\b/.test(editorSource) ||
+            /^\s*</.test(editorSource)) {
+            throw new Error("Could not retrieve the settings editor.");
         }
 
-        const blob = makeBackgroundZip([
-            {
-                name: "index.html",
-                text: html
-            },
-            {
-                name: "settings-editor.js",
-                text: results[1]
-            }
+        const zip = makeBackgroundZip([
+            { name: "index.html", text: html },
+            { name: "settings-editor.js", text: editorSource }
         ]);
 
-        const url = URL.createObjectURL(blob);
-
+        const blobURL = URL.createObjectURL(zip);
         const link = document.createElement("a");
-
-        link.href = url;
-
+        link.href = blobURL;
         link.download =
             `${background.folder.split("/").pop()}-custom.zip`;
-
         document.body.append(link);
         link.click();
         link.remove();
-
-        setTimeout(() => {
-            URL.revokeObjectURL(url);
-        }, 60000);
-
-        downloadStatus.textContent =
-            `${background.name} downloaded with current settings.`;
-
+        setTimeout(() => URL.revokeObjectURL(blobURL), 60000);
+        $("status").textContent = "Background ZIP prepared.";
     } catch (error) {
-        downloadStatus.textContent =
-            error.name === "SecurityError"
-            ? "Gallery and background must use the same origin."
-            : error.message;
-
+        $("status").textContent = error.message;
     } finally {
-        downloadButton.disabled = false;
-
-        downloadButton.textContent =
-            "Download background ZIP ↓";
+        button.disabled = false;
+        button.textContent = "Download background ZIP ↓";
     }
 });
 
-/* =========================================================
-   INITIALIZATION
-========================================================= */
-
-function initializeGallery() {
-    if (!backgrounds.length) {
-        currentName.textContent =
-            "No backgrounds found";
-
-        return;
-    }
-
-    buildCarousel();
-
-    const savedSelection =
-        safeStorageGet(storageKey);
-
-    selectBackground(savedSelection);
-
-    requestAnimationFrame(() => {
-        observeThumbnails();
-        scrollToSelected();
+if (backgrounds.length) {
+    backgrounds.forEach((background, index) => {
+        track.append(makeCard(background, index));
     });
+
+    let saved = null;
+    try { saved = localStorage.getItem(storageKey); } catch {}
+    selectBackground(saved);
+
+    requestAnimationFrame(centerSelected);
+} else {
+    $("current-name").textContent = "No backgrounds found";
 }
-
-initializeGallery();
-
 </script>
 </body>
 </html>
