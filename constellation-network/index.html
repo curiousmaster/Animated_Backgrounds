@@ -49,50 +49,57 @@
 "use strict";
 
 const config = {
-    points: {
-        count: 1120,
-        radius: 1.8,
-        speed: 20,
-        opacity: 0.9,
-        color: [160, 210, 255]
+    "points": {
+        "count": 1500,
+        "radius": 1.8,
+        "speed": 20,
+        "opacity": 0.9,
+        "color": [
+            160,
+            210,
+            255
+        ]
     },
-
-    connections: {
-        distance: 150,
-        lineWidth: 0.8,
-        opacity: 0.35,
-        color: [80, 160, 255]
+    "connections": {
+        "distance": 170,
+        "lineWidth": 0.8,
+        "opacity": 0.35,
+        "color": [
+            80,
+            160,
+            255
+        ]
     },
-
-    mouse: {
-        enabled: true,
-        radius: 230,
-        lineWidth: 1,
-        opacity: 0.7,
-        showPoint: true,
-        pointRadius: 3,
-        smoothing: 12,
-        color: [255, 100, 180]
+    "mouse": {
+        "enabled": true,
+        "radius": 230,
+        "lineWidth": 1,
+        "opacity": 0.7,
+        "showPoint": true,
+        "pointRadius": 3,
+        "smoothing": 12,
+        "color": [
+            255,
+            100,
+            180
+        ]
     },
-
-    glow: {
-        enabled: true,
-        intensity: 0.6,
-        blur: 10
+    "glow": {
+        "enabled": true,
+        "intensity": 0.3,
+        "blur": 10
     },
-
-    view: {
-        mode: "3d",
-        depth: 650,
-        zoom: 1,
-        wheelSensitivity: 1,
-        perspective: 0.65,
-        parallax: 0.45,
-        depthFading: 0.65
+    "view": {
+        "mode": "3d",
+        "depth": 500,
+        "zoom": 1.2,
+        "wheelSensitivity": 1,
+        "perspective": 0.5,
+        "parallax": 0,
+        "depthFading": 0.65
     },
-
-    panel: {
-        enabled: true
+    "panel": {
+        "enabled": true
     }
 };
 
@@ -106,7 +113,7 @@ const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const TAU = Math.PI * 2;
 
-const MIN_ZOOM = 1;
+const MIN_ZOOM = 1.2;
 const MAX_ZOOM = 4;
 
 let gl;
