@@ -1,0 +1,111 @@
+
+name: Generate Background Thumbnails
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "backgrounds.js"
+      - "*/index.html"
+      - "*/*/index.html"
+      - "*/settings-editor.js"
+      - "*/*/settings-editor.js"
+      - "scripts/generate-thumbnails.mjs"
+      - ".github/workflows/thumbnails.yml"
+
+  workflow_dispatch:
+    inputs:
+      regenerate_all:
+        description: "Regenerate all thumbnails"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: thumbnails-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    name: Generate and commit thumbnails
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Generate thumbnails
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REGENERATE_ALL: ${{ inputs.regenerate_all }}
+        run: |
+          if [[ "$EVENT_NAME" == "push" || "$REGENERATE_ALL" == "true" ]]; then
+            node scripts/generate-thumbnails.mjs --all
+          else
+            node scripts/generate-thumbnails.mjs
+          fi
+
+      - name: Commit generated thumbnails
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          find . -name thumbnail.webp \
+            -not -path './node_modules/*' \
+            -not -path './.git/*' \
+            -print0 | xargs -0 -r git add --
+
+          if git diff --cached --quiet; then
+            echo "No thumbnail changes to commit."
+          else
+            git commit -m "chore: update background thumbnails [skip ci]"
+            git push
+          fi
+
+  deploy:
+    name: Deploy GitHub Pages
+    needs: generate
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout latest repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "."
+
+      - name: Deploy website
+        id: deployment
+        uses: actions/deploy-pages@v4
