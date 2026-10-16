@@ -13,7 +13,6 @@
     --glass: rgba(8, 13, 23, .78);
     --border: rgba(255, 255, 255, .17);
     --text-muted: rgba(255, 255, 255, .65);
-    --carousel-height: 174px;
 }
 
 * {
@@ -55,7 +54,9 @@ input:focus-visible {
     display: none !important;
 }
 
-/* Fullscreen background */
+/* =========================================================
+   FULLSCREEN BACKGROUND
+========================================================= */
 
 #background {
     position: fixed;
@@ -81,7 +82,9 @@ input:focus-visible {
     opacity: .85;
 }
 
-/* Gallery interface */
+/* =========================================================
+   GALLERY INTERFACE
+========================================================= */
 
 .gallery-ui {
     position: fixed;
@@ -94,8 +97,6 @@ input:focus-visible {
     pointer-events: auto;
 }
 
-/* Compact title area */
-
 .gallery-header {
     position: absolute;
     top: max(22px, env(safe-area-inset-top));
@@ -105,7 +106,6 @@ input:focus-visible {
     text-align: center;
     pointer-events: none;
     text-shadow: 0 2px 14px #000;
-    transition: opacity .3s;
 }
 
 .gallery-header h1 {
@@ -121,7 +121,9 @@ input:focus-visible {
     font-size: 12px;
 }
 
-/* Bottom dock */
+/* =========================================================
+   BOTTOM DOCK
+========================================================= */
 
 .gallery-dock {
     position: absolute;
@@ -135,11 +137,8 @@ input:focus-visible {
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
     box-shadow: 0 15px 55px rgba(0,0,0,.45);
-    overflow: hidden;
-    transition: opacity .25s, transform .25s;
+    overflow: visible;
 }
-
-/* Dock header */
 
 .dock-header {
     display: flex;
@@ -202,7 +201,9 @@ input:focus-visible {
     border-color: var(--accent);
 }
 
-/* Thumbnail carousel */
+/* =========================================================
+   THUMBNAIL CAROUSEL
+========================================================= */
 
 .carousel-container {
     position: relative;
@@ -215,6 +216,7 @@ input:focus-visible {
 .carousel-track {
     display: flex;
     flex: 1;
+    min-width: 0;
     gap: 10px;
     overflow-x: auto;
     overflow-y: hidden;
@@ -243,14 +245,15 @@ input:focus-visible {
     background: transparent;
     color: rgba(255,255,255,.7);
     font-size: 24px;
-    transition: color .2s;
 }
 
 .carousel-arrow:hover {
     color: #fff;
 }
 
-/* Thumbnail cards */
+/* =========================================================
+   THUMBNAIL CARDS
+========================================================= */
 
 .thumbnail-card {
     position: relative;
@@ -349,12 +352,15 @@ input:focus-visible {
     position: absolute;
     bottom: 4px;
     right: 5px;
+    z-index: 2;
     font-size: 9px;
-    color: rgba(255,255,255,.65);
+    color: rgba(255,255,255,.75);
     text-shadow: 0 1px 4px #000;
 }
 
-/* Description and status */
+/* =========================================================
+   FOOTER
+========================================================= */
 
 .dock-footer {
     display: flex;
@@ -379,7 +385,9 @@ input:focus-visible {
     white-space: nowrap;
 }
 
-/* Floating controls when dock is hidden */
+/* =========================================================
+   FLOATING SHOW BUTTON
+========================================================= */
 
 #show-gallery {
     position: fixed;
@@ -401,7 +409,9 @@ input:focus-visible {
     background: rgba(35,45,60,.9);
 }
 
-/* Settings/download popup */
+/* =========================================================
+   DOWNLOAD POPOVER
+========================================================= */
 
 .popover {
     position: absolute;
@@ -464,7 +474,9 @@ input:focus-visible {
     display: none;
 }
 
-/* Offscreen capture host */
+/* =========================================================
+   OFFSCREEN CAPTURE HOST
+========================================================= */
 
 #capture-host {
     position: fixed;
@@ -473,19 +485,20 @@ input:focus-visible {
     width: 480px;
     height: 270px;
     overflow: hidden;
-    visibility: visible;
     pointer-events: none;
     z-index: -1;
 }
 
-#capture-frame {
+.capture-frame {
     display: block;
     width: 480px;
     height: 270px;
     border: 0;
 }
 
-/* Responsive */
+/* =========================================================
+   RESPONSIVE
+========================================================= */
 
 @media (max-width: 700px) {
     .gallery-dock {
@@ -542,10 +555,7 @@ input:focus-visible {
         width: 118px;
     }
 
-    .gallery-header p {
-        display: none;
-    }
-
+    .gallery-header p,
     #background-count {
         display: none;
     }
@@ -565,16 +575,12 @@ input:focus-visible {
 
 <body>
 
-<!-- Fullscreen animated background -->
-
 <iframe
     id="background"
     title="Selected animated background"
 ></iframe>
 
 <div id="screen-shade"></div>
-
-<!-- Gallery interface -->
 
 <div class="gallery-ui" id="gallery-ui">
 
@@ -583,8 +589,11 @@ input:focus-visible {
         <p>Explore interactive animated backgrounds</p>
     </header>
 
-    <section class="gallery-dock" id="gallery-dock"
-             aria-label="Background gallery">
+    <section
+        class="gallery-dock"
+        id="gallery-dock"
+        aria-label="Background gallery"
+    >
 
         <div class="dock-header">
 
@@ -637,8 +646,6 @@ input:focus-visible {
             </div>
         </div>
 
-        <!-- Thumbnail carousel -->
-
         <div class="carousel-container">
 
             <button
@@ -665,8 +672,6 @@ input:focus-visible {
             <p id="current-description"></p>
             <span id="background-count"></span>
         </div>
-
-        <!-- Download options -->
 
         <div class="popover" id="download-popover" hidden>
 
@@ -711,8 +716,6 @@ input:focus-visible {
     Show gallery ↑
 </button>
 
-<!-- Temporary iframe for generating thumbnails -->
-
 <div id="capture-host" aria-hidden="true"></div>
 
 <script type="module">
@@ -727,19 +730,26 @@ import { backgrounds } from "./backgrounds.js";
 const frame = document.getElementById("background");
 const shade = document.getElementById("screen-shade");
 
-const galleryDock = document.getElementById("gallery-dock");
-const galleryHeader = document.querySelector(".gallery-header");
+const galleryDock =
+    document.getElementById("gallery-dock");
 
-const track = document.getElementById("carousel-track");
+const galleryHeader =
+    document.querySelector(".gallery-header");
 
-const currentName = document.getElementById("current-name");
+const track =
+    document.getElementById("carousel-track");
+
+const currentName =
+    document.getElementById("current-name");
+
 const currentDescription =
     document.getElementById("current-description");
 
 const backgroundCount =
     document.getElementById("background-count");
 
-const openLink = document.getElementById("open-background");
+const openLink =
+    document.getElementById("open-background");
 
 const showGalleryButton =
     document.getElementById("show-gallery");
@@ -771,16 +781,9 @@ const storageKey = "background-gallery-selection";
 const THUMB_WIDTH = 480;
 const THUMB_HEIGHT = 270;
 
-// Time allowed for an animation to become visible.
 const CAPTURE_DELAY = 1800;
-
-// Maximum time spent loading an offscreen background.
 const CAPTURE_TIMEOUT = 8000;
-
-// Delay between thumbnail captures.
 const CAPTURE_PAUSE = 180;
-
-// Number of times to try capturing a canvas.
 const CAPTURE_ATTEMPTS = 3;
 
 let selectedIndex = 0;
@@ -811,8 +814,9 @@ function sleep(ms) {
 }
 
 function findBackground(folder) {
-    return backgrounds.find(item => item.folder === folder)
-        || backgrounds[0];
+    return backgrounds.find(
+        item => item.folder === folder
+    ) || backgrounds[0];
 }
 
 function clamp(value, min, max) {
@@ -836,12 +840,7 @@ function safeStorageSet(key, value) {
 }
 
 /* =========================================================
-   GENERATED FALLBACK THUMBNAILS
-
-   These are used when a background cannot be captured.
-
-   Every background gets a different visual based on
-   its folder name.
+   UNIQUE FALLBACK THUMBNAILS
 ========================================================= */
 
 function hashString(value) {
@@ -887,7 +886,6 @@ function createFallbackThumbnail(background) {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, THUMB_WIDTH, THUMB_HEIGHT);
 
-    // Deterministic pseudo-random generator.
     let seed = hash || 1;
 
     function random() {
@@ -898,7 +896,6 @@ function createFallbackThumbnail(background) {
         return (seed >>> 0) / 4294967296;
     }
 
-    // Colored glowing clouds.
     for (let i = 0; i < 8; i++) {
         const x = random() * THUMB_WIDTH;
         const y = random() * THUMB_HEIGHT;
@@ -930,7 +927,6 @@ function createFallbackThumbnail(background) {
         );
     }
 
-    // Fine particles.
     for (let i = 0; i < 110; i++) {
         const x = random() * THUMB_WIDTH;
         const y = random() * THUMB_HEIGHT;
@@ -945,7 +941,6 @@ function createFallbackThumbnail(background) {
         ctx.fill();
     }
 
-    // A few larger glowing particles.
     for (let i = 0; i < 5; i++) {
         const x = random() * THUMB_WIDTH;
         const y = random() * THUMB_HEIGHT;
@@ -996,7 +991,8 @@ function createThumbnailCard(background, index) {
     button.dataset.index = index;
     button.dataset.folder = background.folder;
 
-    button.title = background.description || background.name;
+    button.title =
+        background.description || background.name;
 
     button.setAttribute(
         "aria-label",
@@ -1023,7 +1019,6 @@ function createThumbnailCard(background, index) {
 
     const loading = document.createElement("span");
     loading.className = "thumbnail-loading";
-    loading.textContent = "";
 
     imageContainer.append(image, check, loading);
 
@@ -1121,8 +1116,10 @@ function selectBackground(folder) {
 
     safeStorageSet(storageKey, background.folder);
 
-    // Avoid unnecessary reloads.
-    const resolvedURL = new URL(url, document.baseURI).href;
+    const resolvedURL = new URL(
+        url,
+        document.baseURI
+    ).href;
 
     if (frame.src === resolvedURL) {
         scrollToSelected();
@@ -1138,16 +1135,6 @@ function selectBackground(folder) {
         if (version !== selectionVersion) return;
 
         shade.classList.remove("active");
-
-        // Capture selected background after it has
-        // had time to render.
-        if (!thumbnailCache.has(background.folder)) {
-            setTimeout(() => {
-                if (version !== selectionVersion) return;
-
-                captureSelectedBackground(background);
-            }, CAPTURE_DELAY);
-        }
     };
 
     frame.src = url;
@@ -1164,24 +1151,27 @@ function selectRelativeBackground(direction) {
 }
 
 /* =========================================================
-   CANVAS CAPTURE
+   IMAGE CONVERSION
+========================================================= */
 
-   Supports ordinary 2D canvas.
+function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
 
-   WebGL capture is attempted, but some WebGL canvases
-   clear their drawing buffers before capture.
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
 
-   Individual backgrounds can optionally expose:
+        reader.readAsDataURL(blob);
+    });
+}
 
-       window.captureBackgroundThumbnail()
-
-   returning a data URL, Blob, canvas or Promise.
+/* =========================================================
+   CAPTURE CANVAS FROM A SPECIFIC WINDOW
 ========================================================= */
 
 async function captureCanvasFromWindow(win) {
     if (!win) return null;
 
-    // Optional custom screenshot API.
     try {
         if (
             typeof win.captureBackgroundThumbnail
@@ -1215,17 +1205,15 @@ async function captureCanvasFromWindow(win) {
     let canvases;
 
     try {
-        canvases = [...win.document.querySelectorAll(
-            "canvas"
-        )];
+        canvases = [
+            ...win.document.querySelectorAll("canvas")
+        ];
     } catch {
         return null;
     }
 
     if (!canvases.length) return null;
 
-    // Capture visible canvases in their stacking order.
-    // For WebGL this is best effort.
     const output = document.createElement("canvas");
 
     output.width = THUMB_WIDTH;
@@ -1305,8 +1293,6 @@ async function captureCanvasFromWindow(win) {
 
     if (!captured) return null;
 
-    // Reject effectively blank screenshots.
-    // This is common with WebGL drawing buffers.
     const pixels = ctx.getImageData(
         0,
         0,
@@ -1337,79 +1323,58 @@ async function captureCanvasFromWindow(win) {
     return output.toDataURL("image/jpeg", .82);
 }
 
-function blobToDataURL(blob) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(reader.error);
-
-        reader.readAsDataURL(blob);
-    });
-}
+/* =========================================================
+   STRICT THUMBNAIL OWNERSHIP
+========================================================= */
 
 function setThumbnail(background, dataURL) {
     if (!dataURL) return;
 
-    thumbnailCache.set(background.folder, dataURL);
+    const folder = background.folder;
+    const card = thumbnailCards.get(folder);
 
-    const card = thumbnailCards.get(background.folder);
+    if (!card) return;
 
-    if (card) {
-        card.image.src = dataURL;
-        card.loading.textContent = "";
-    }
-}
+    if (card.button.dataset.folder !== folder) {
+        console.warn(
+            "Thumbnail ownership mismatch:",
+            folder
+        );
 
-async function captureSelectedBackground(background) {
-    if (thumbnailCache.has(background.folder)) return;
-
-    for (let attempt = 0; attempt < CAPTURE_ATTEMPTS; attempt++) {
-        try {
-            const image = await captureCanvasFromWindow(
-                frame.contentWindow
-            );
-
-            if (image) {
-                setThumbnail(background, image);
-                return;
-            }
-        } catch (error) {
-            console.debug(error);
-        }
-
-        await sleep(450);
+        return;
     }
 
-    // The generated fallback remains visible.
+    thumbnailCache.set(folder, dataURL);
+
+    card.image.src = dataURL;
+    card.loading.textContent = "";
 }
 
 /* =========================================================
-   OFFSCREEN THUMBNAIL GENERATION
+   DEDICATED CAPTURE IFRAME
 
-   Processes backgrounds one at a time.
+   Each background is loaded separately.
 
-   The iframe is removed after each capture, preventing
-   inactive WebGL animations from accumulating.
+   The iframe URL is validated before capture.
+
+   The iframe is destroyed after capture.
 ========================================================= */
-
-function queueThumbnail(background) {
-    if (thumbnailCache.has(background.folder)) return;
-    if (queuedFolders.has(background.folder)) return;
-
-    queuedFolders.add(background.folder);
-    captureQueue.push(background);
-
-    processCaptureQueue();
-}
 
 async function loadCaptureFrame(background) {
     const iframe = document.createElement("iframe");
 
-    iframe.id = "capture-frame";
-    iframe.title = "Thumbnail generator";
+    iframe.className = "capture-frame";
+
+    iframe.title =
+        `Thumbnail capture: ${background.name}`;
+
     iframe.tabIndex = -1;
     iframe.setAttribute("aria-hidden", "true");
+
+    const expectedURL = new URL(
+        backgroundURL(background.folder),
+        document.baseURI
+    ).href;
 
     captureHost.append(iframe);
 
@@ -1417,45 +1382,99 @@ async function loadCaptureFrame(background) {
 
     try {
         await new Promise((resolve, reject) => {
-            timeoutID = setTimeout(
-                () => reject(new Error("Capture timeout")),
-                CAPTURE_TIMEOUT
-            );
+            timeoutID = setTimeout(() => {
+                reject(
+                    new Error("Thumbnail load timeout")
+                );
+            }, CAPTURE_TIMEOUT);
 
-            iframe.onload = resolve;
-            iframe.onerror = () => reject(
-                new Error("Background failed to load")
-            );
+            iframe.onload = () => {
+                try {
+                    const loadedURL =
+                        iframe.contentWindow.location.href;
 
-            iframe.src = backgroundURL(background.folder);
+                    if (loadedURL !== expectedURL) {
+                        reject(
+                            new Error(
+                                "Unexpected capture URL"
+                            )
+                        );
+
+                        return;
+                    }
+
+                    resolve();
+
+                } catch {
+                    reject(
+                        new Error(
+                            "Cross-origin capture blocked"
+                        )
+                    );
+                }
+            };
+
+            iframe.onerror = () => {
+                reject(
+                    new Error("Thumbnail load failed")
+                );
+            };
+
+            iframe.src = expectedURL;
         });
 
         await sleep(CAPTURE_DELAY);
 
-        let result = null;
+        let image = null;
 
         for (
             let attempt = 0;
             attempt < CAPTURE_ATTEMPTS;
             attempt++
         ) {
-            result = await captureCanvasFromWindow(
+            // Validate the iframe still belongs to
+            // the expected background.
+            if (
+                iframe.contentWindow.location.href
+                !== expectedURL
+            ) {
+                throw new Error(
+                    "Capture iframe navigated unexpectedly"
+                );
+            }
+
+            image = await captureCanvasFromWindow(
                 iframe.contentWindow
             );
 
-            if (result) break;
+            if (image) break;
 
             await sleep(400);
         }
 
-        return result;
+        return image;
 
     } finally {
         clearTimeout(timeoutID);
 
-        iframe.src = "about:blank";
         iframe.remove();
     }
+}
+
+/* =========================================================
+   SEQUENTIAL CAPTURE QUEUE
+========================================================= */
+
+function queueThumbnail(background) {
+    const folder = background.folder;
+
+    if (thumbnailCache.has(folder)) return;
+    if (queuedFolders.has(folder)) return;
+
+    queuedFolders.add(folder);
+    captureQueue.push(background);
+
+    processCaptureQueue();
 }
 
 async function processCaptureQueue() {
@@ -1464,22 +1483,21 @@ async function processCaptureQueue() {
     captureRunning = true;
 
     try {
-        while (captureQueue.length) {
+        while (captureQueue.length > 0) {
             const background = captureQueue.shift();
+            const folder = background.folder;
 
-            queuedFolders.delete(background.folder);
+            queuedFolders.delete(folder);
 
-            if (thumbnailCache.has(background.folder)) {
+            if (thumbnailCache.has(folder)) {
                 continue;
             }
 
-            const card = thumbnailCards.get(
-                background.folder
-            );
+            const card = thumbnailCards.get(folder);
 
-            if (card) {
-                card.loading.textContent = "Loading";
-            }
+            if (!card) continue;
+
+            card.loading.textContent = "Loading";
 
             try {
                 const image = await loadCaptureFrame(
@@ -1489,19 +1507,20 @@ async function processCaptureQueue() {
                 if (image) {
                     setThumbnail(background, image);
                 }
+
             } catch (error) {
-                console.debug(
-                    `Thumbnail capture failed: ${background.name}`,
+                console.warn(
+                    `Thumbnail failed for ${background.name}:`,
                     error
                 );
-            }
 
-            if (card) {
+            } finally {
                 card.loading.textContent = "";
             }
 
             await sleep(CAPTURE_PAUSE);
         }
+
     } finally {
         captureRunning = false;
     }
@@ -1509,9 +1528,6 @@ async function processCaptureQueue() {
 
 /* =========================================================
    LAZY THUMBNAIL GENERATION
-
-   Generate thumbnails when their cards approach
-   the visible carousel area.
 ========================================================= */
 
 const thumbnailObserver = new IntersectionObserver(
@@ -1519,7 +1535,8 @@ const thumbnailObserver = new IntersectionObserver(
         for (const entry of entries) {
             if (!entry.isIntersecting) continue;
 
-            const folder = entry.target.dataset.folder;
+            const folder =
+                entry.target.dataset.folder;
 
             const background = backgrounds.find(
                 item => item.folder === folder
@@ -1529,7 +1546,9 @@ const thumbnailObserver = new IntersectionObserver(
                 queueThumbnail(background);
             }
 
-            thumbnailObserver.unobserve(entry.target);
+            thumbnailObserver.unobserve(
+                entry.target
+            );
         }
     },
     {
@@ -1575,12 +1594,8 @@ document.getElementById("next-background")
         selectRelativeBackground(1);
     });
 
-// Translate vertical mouse wheel movement to horizontal
-// scrolling only when hovering over the carousel.
 track.addEventListener("wheel", event => {
-    if (
-        track.scrollWidth <= track.clientWidth
-    ) {
+    if (track.scrollWidth <= track.clientWidth) {
         return;
     }
 
@@ -1592,9 +1607,9 @@ track.addEventListener("wheel", event => {
     track.scrollLeft += delta;
 
     event.preventDefault();
+
 }, { passive: false });
 
-// Keyboard shortcuts, except when typing in controls.
 document.addEventListener("keydown", event => {
     const target = event.target;
 
@@ -1619,8 +1634,6 @@ document.addEventListener("keydown", event => {
         return;
     }
 
-    // Only change backgrounds with arrow keys when
-    // focus is not on another interactive control.
     if (
         target instanceof HTMLElement &&
         target.closest("button, a")
@@ -1644,6 +1657,7 @@ document.addEventListener("keydown", event => {
 function setGalleryVisible(visible) {
     galleryDock.hidden = !visible;
     galleryHeader.hidden = !visible;
+
     showGalleryButton.hidden = visible;
 
     if (!visible) {
@@ -1700,7 +1714,7 @@ document.addEventListener("pointerdown", event => {
 });
 
 /* =========================================================
-   DEACTIVATE BACKGROUND POINTER WHEN OVER CONTROLS
+   DEACTIVATE BACKGROUND POINTER
 ========================================================= */
 
 function deactivateBackgroundPointer() {
@@ -1709,7 +1723,7 @@ function deactivateBackgroundPointer() {
             new Event("blur")
         );
     } catch {
-        // Only available for same-origin backgrounds.
+        // Same-origin only.
     }
 }
 
@@ -1724,11 +1738,7 @@ showGalleryButton.addEventListener(
 );
 
 /* =========================================================
-   ZIP CREATION
-
-   Dependency-free ZIP writer.
-
-   Files are stored without compression.
+   ZIP WRITER
 ========================================================= */
 
 function makeBackgroundZip(files) {
@@ -1882,7 +1892,7 @@ async function fetchBackgroundSource(url) {
 }
 
 /* =========================================================
-   DOWNLOAD SELECTED BACKGROUND
+   DOWNLOAD BACKGROUND
 ========================================================= */
 
 downloadButton.addEventListener("click", async () => {
@@ -2012,18 +2022,19 @@ downloadButton.addEventListener("click", async () => {
 
 function initializeGallery() {
     if (!backgrounds.length) {
-        currentName.textContent = "No backgrounds found";
+        currentName.textContent =
+            "No backgrounds found";
+
         return;
     }
 
     buildCarousel();
 
-    const savedSelection = safeStorageGet(storageKey);
+    const savedSelection =
+        safeStorageGet(storageKey);
 
     selectBackground(savedSelection);
 
-    // Start generating previews only after the
-    // initial layout is ready.
     requestAnimationFrame(() => {
         observeThumbnails();
         scrollToSelected();
