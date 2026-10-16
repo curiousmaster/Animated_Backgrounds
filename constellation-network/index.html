@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Constellation Network</title>
+<title>Constellation Network — WebGL</title>
 
 <style>
-    html, body {
+    html,
+    body {
         margin: 0;
         width: 100%;
         height: 100%;
@@ -14,16 +15,34 @@
         background: #000;
     }
 
-    canvas {
+    #background {
         display: block;
         width: 100%;
         height: 100%;
+    }
+
+    #error {
+        position: fixed;
+        inset: 20px auto auto 20px;
+        max-width: min(500px, calc(100vw - 80px));
+        padding: 16px;
+        color: #fff;
+        background: #28131b;
+        border: 1px solid #aa5267;
+        border-radius: 8px;
+        font: 14px/1.5 system-ui, sans-serif;
+        z-index: 2000;
+    }
+
+    [hidden] {
+        display: none !important;
     }
 </style>
 </head>
 
 <body>
 <canvas id="background" aria-hidden="true"></canvas>
+<div id="error" role="alert" hidden></div>
 
 <script type="module">
 "use strict";
@@ -68,33 +87,24 @@ const config = {
 };
 
 window.getBackgroundConfig = () =>
-      JSON.parse(JSON.stringify(config));
+    JSON.parse(JSON.stringify(config));
 
 const canvas = document.getElementById("background");
-const ctx = canvas.getContext("2d");
+const errorBox = document.getElementById("error");
 
 const TAU = Math.PI * 2;
+
 const clamp = (value, min, max) =>
     Math.max(min, Math.min(max, value));
 
-function rgb(color) {
-    return `rgb(${color.map(value =>
-        Math.round(clamp(value, 0, 255))
-    ).join(",")})`;
-}
-
-function mixColor(a, b, amount) {
-    const t = clamp(amount, 0, 1);
-
-    return a.map((value, index) =>
-        value + (b[index] - value) * t
-    );
-}
-
-let width = 0;
-let height = 0;
+let gl = null;
+let renderer = null;
+let width = 1;
+let height = 1;
 let points = [];
 let previousTime = null;
+let frameId = 0;
+let contextLost = false;
 
 const mouse = {
     x: 0,
@@ -105,6 +115,415 @@ const mouse = {
     initialized: false,
     influence: 0
 };
+
+function showError(message) {
+    errorBox.textContent = message;
+    errorBox.hidden = false;
+}
+
+function hideError() {
+    errorBox.hidden = true;
+}
+
+// --------------------------------------------------
+// WebGL renderer
+//
+// Every line and point is an instanced quad.
+//
+// The fragment shader evaluates the distance to a
+// line segment. A zero-length segment becomes a point.
+//
+// This avoids the platform-dependent width limits
+// of native WebGL lines and size limits of GL_POINTS.
+// --------------------------------------------------
+
+const vertexSource = `#version 300 es
+precision highp float;
+
+layout(location = 0) in vec4 a_segment;
+layout(location = 1) in float a_radius;
+layout(location = 2) in vec4 a_color;
+
+uniform vec2 u_resolution;
+uniform float u_glowBlur;
+uniform float u_glowIntensity;
+
+out vec2 v_local;
+
+flat out float v_length;
+flat out float v_radius;
+flat out vec4 v_color;
+
+const vec2 CORNERS[6] = vec2[6](
+    vec2(0.0, -1.0),
+    vec2(1.0, -1.0),
+    vec2(0.0,  1.0),
+
+    vec2(0.0,  1.0),
+    vec2(1.0, -1.0),
+    vec2(1.0,  1.0)
+);
+
+void main() {
+    vec2 start = a_segment.xy;
+    vec2 end = a_segment.zw;
+
+    vec2 difference = end - start;
+    float segmentLength = length(difference);
+
+    vec2 direction = segmentLength > 0.0001
+        ? difference / segmentLength
+        : vec2(1.0, 0.0);
+
+    vec2 normal = vec2(-direction.y, direction.x);
+
+    float glowPadding = u_glowIntensity > 0.0
+        ? u_glowBlur * 2.5
+        : 0.0;
+
+    float padding = a_radius + glowPadding + 1.5;
+
+    vec2 corner = CORNERS[gl_VertexID];
+
+    vec2 local = vec2(
+        mix(-padding, segmentLength + padding, corner.x),
+        corner.y * padding
+    );
+
+    vec2 position =
+        start +
+        direction * local.x +
+        normal * local.y;
+
+    vec2 clip = position / u_resolution * 2.0 - 1.0;
+
+    // Canvas-style coordinates: origin at top left.
+    gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+
+    v_local = local;
+    v_length = segmentLength;
+    v_radius = a_radius;
+    v_color = a_color;
+}
+`;
+
+const fragmentSource = `#version 300 es
+precision highp float;
+
+in vec2 v_local;
+
+flat in float v_length;
+flat in float v_radius;
+flat in vec4 v_color;
+
+uniform float u_glowBlur;
+uniform float u_glowIntensity;
+
+out vec4 outColor;
+
+void main() {
+    // Distance to the closest position on the segment.
+    vec2 closest = vec2(
+        clamp(v_local.x, 0.0, v_length),
+        0.0
+    );
+
+    float distanceToEdge =
+        length(v_local - closest) - v_radius;
+
+    // Derivatives make edge smoothing follow actual
+    // framebuffer pixel density.
+    float aa = max(fwidth(distanceToEdge), 0.0001);
+
+    float coverage = 1.0 - smoothstep(
+        -aa * 0.5,
+         aa * 0.5,
+         distanceToEdge
+    );
+
+    float coreAlpha = v_color.a * coverage;
+    float glowAlpha = 0.0;
+
+    if (u_glowIntensity > 0.0) {
+        if (u_glowBlur > 0.0) {
+            float outside = max(distanceToEdge, 0.0);
+            float sigma = max(u_glowBlur * 0.5, 0.001);
+
+            float halo = exp(
+                -0.5 * outside * outside / (sigma * sigma)
+            );
+
+            // Fade before the quad boundary.
+            float cutoff = 1.0 - smoothstep(
+                u_glowBlur * 2.0,
+                u_glowBlur * 2.5,
+                outside
+            );
+
+            glowAlpha =
+                v_color.a *
+                u_glowIntensity *
+                halo *
+                cutoff;
+        } else {
+            glowAlpha =
+                v_color.a *
+                u_glowIntensity *
+                coverage;
+        }
+    }
+
+    // Composite the crisp shape over its own halo.
+    float alpha =
+        coreAlpha + glowAlpha * (1.0 - coreAlpha);
+
+    if (alpha < 0.0001) {
+        discard;
+    }
+
+    // Premultiplied alpha.
+    outColor = vec4(v_color.rgb * alpha, alpha);
+}
+`;
+
+function createShader(type, source) {
+    const shader = gl.createShader(type);
+
+    if (!shader) {
+        throw new Error("Could not allocate a WebGL shader.");
+    }
+
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const message = gl.getShaderInfoLog(shader);
+        gl.deleteShader(shader);
+        throw new Error(message || "Shader compilation failed.");
+    }
+
+    return shader;
+}
+
+function createProgram() {
+    const vertex = createShader(gl.VERTEX_SHADER, vertexSource);
+    let fragment;
+    let program;
+
+    try {
+        fragment = createShader(
+            gl.FRAGMENT_SHADER,
+            fragmentSource
+        );
+
+        program = gl.createProgram();
+
+        if (!program) {
+            throw new Error("Could not allocate a WebGL program.");
+        }
+
+        gl.attachShader(program, vertex);
+        gl.attachShader(program, fragment);
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            throw new Error(
+                gl.getProgramInfoLog(program) ||
+                "Shader linking failed."
+            );
+        }
+
+        return program;
+    } catch (error) {
+        if (program) gl.deleteProgram(program);
+        throw error;
+    } finally {
+        gl.deleteShader(vertex);
+        if (fragment) gl.deleteShader(fragment);
+    }
+}
+
+class WebGLRenderer {
+    constructor() {
+        this.program = createProgram();
+        this.vao = gl.createVertexArray();
+        this.buffer = gl.createBuffer();
+
+        // startX, startY, endX, endY, radius, R, G, B, A
+        this.stride = 9;
+        this.capacity = 4096;
+        this.data = new Float32Array(
+            this.capacity * this.stride
+        );
+
+        this.count = 0;
+        this.gpuBytes = 0;
+
+        this.resolutionLocation = gl.getUniformLocation(
+            this.program,
+            "u_resolution"
+        );
+
+        this.blurLocation = gl.getUniformLocation(
+            this.program,
+            "u_glowBlur"
+        );
+
+        this.intensityLocation = gl.getUniformLocation(
+            this.program,
+            "u_glowIntensity"
+        );
+
+        gl.bindVertexArray(this.vao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+
+        const bytes = this.stride * Float32Array.BYTES_PER_ELEMENT;
+
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(
+            0, 4, gl.FLOAT, false, bytes, 0
+        );
+        gl.vertexAttribDivisor(0, 1);
+
+        gl.enableVertexAttribArray(1);
+        gl.vertexAttribPointer(
+            1, 1, gl.FLOAT, false, bytes, 4 * 4
+        );
+        gl.vertexAttribDivisor(1, 1);
+
+        gl.enableVertexAttribArray(2);
+        gl.vertexAttribPointer(
+            2, 4, gl.FLOAT, false, bytes, 5 * 4
+        );
+        gl.vertexAttribDivisor(2, 1);
+
+        gl.bindVertexArray(null);
+    }
+
+    begin() {
+        this.count = 0;
+    }
+
+    reserve(required) {
+        if (required <= this.capacity) return;
+
+        while (this.capacity < required) {
+            this.capacity *= 2;
+        }
+
+        const next = new Float32Array(
+            this.capacity * this.stride
+        );
+
+        next.set(this.data);
+        this.data = next;
+    }
+
+    addSegment(x1, y1, x2, y2, radius, color, opacity) {
+        if (radius <= 0 || opacity <= 0) return;
+
+        this.reserve(this.count + 1);
+
+        let offset = this.count * this.stride;
+
+        this.data[offset++] = x1;
+        this.data[offset++] = y1;
+        this.data[offset++] = x2;
+        this.data[offset++] = y2;
+        this.data[offset++] = radius;
+
+        this.data[offset++] = clamp(color[0] / 255, 0, 1);
+        this.data[offset++] = clamp(color[1] / 255, 0, 1);
+        this.data[offset++] = clamp(color[2] / 255, 0, 1);
+        this.data[offset++] = clamp(opacity, 0, 1);
+
+        this.count++;
+    }
+
+    addLine(x1, y1, x2, y2, lineWidth, color, opacity) {
+        this.addSegment(
+            x1, y1, x2, y2,
+            lineWidth * 0.5,
+            color,
+            opacity
+        );
+    }
+
+    addPoint(x, y, radius, color, opacity) {
+        this.addSegment(
+            x, y, x, y,
+            radius,
+            color,
+            opacity
+        );
+    }
+
+    render() {
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
+        gl.disable(gl.DEPTH_TEST);
+        gl.disable(gl.CULL_FACE);
+
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        if (this.count === 0) return;
+
+        gl.enable(gl.BLEND);
+        gl.blendEquation(gl.FUNC_ADD);
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+        gl.useProgram(this.program);
+        gl.bindVertexArray(this.vao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+
+        // Allocate only when the batch capacity grows.
+        if (this.gpuBytes !== this.data.byteLength) {
+            gl.bufferData(
+                gl.ARRAY_BUFFER,
+                this.data.byteLength,
+                gl.DYNAMIC_DRAW
+            );
+
+            this.gpuBytes = this.data.byteLength;
+        }
+
+        gl.bufferSubData(
+            gl.ARRAY_BUFFER,
+            0,
+            this.data.subarray(0, this.count * this.stride)
+        );
+
+        const intensity = config.glow.enabled
+            ? clamp(config.glow.intensity, 0, 1)
+            : 0;
+
+        gl.uniform2f(
+            this.resolutionLocation,
+            width,
+            height
+        );
+
+        gl.uniform1f(
+            this.blurLocation,
+            Math.max(0, config.glow.blur)
+        );
+
+        gl.uniform1f(
+            this.intensityLocation,
+            intensity
+        );
+
+        gl.drawArraysInstanced(
+            gl.TRIANGLES,
+            0,
+            6,
+            this.count
+        );
+
+        gl.bindVertexArray(null);
+    }
+}
 
 // --------------------------------------------------
 // Point creation and resizing
@@ -123,7 +542,10 @@ function createPoint() {
 }
 
 function syncPoints() {
-    const count = Math.max(0, Math.floor(config.points.count));
+    const count = Math.max(
+        0,
+        Math.floor(config.points.count)
+    );
 
     while (points.length < count) {
         points.push(createPoint());
@@ -141,21 +563,53 @@ function resize() {
     const oldWidth = width;
     const oldHeight = height;
 
-    width = window.innerWidth;
-    height = window.innerHeight;
+    width = Math.max(1, window.innerWidth);
+    height = Math.max(1, window.innerHeight);
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
+    if (gl && !contextLost) {
+        const maxViewport = gl.getParameter(
+            gl.MAX_VIEWPORT_DIMS
+        );
 
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const maxRenderbuffer = gl.getParameter(
+            gl.MAX_RENDERBUFFER_SIZE
+        );
+
+        dpr = Math.min(
+            dpr,
+            maxViewport[0] / width,
+            maxViewport[1] / height,
+            maxRenderbuffer / width,
+            maxRenderbuffer / height
+        );
+    }
+
+    const pixelWidth = Math.max(1, Math.floor(width * dpr));
+    const pixelHeight = Math.max(1, Math.floor(height * dpr));
+
+    if (
+        canvas.width !== pixelWidth ||
+        canvas.height !== pixelHeight
+    ) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+    }
 
     if (oldWidth > 0 && oldHeight > 0) {
+        const scaleX = width / oldWidth;
+        const scaleY = height / oldHeight;
+
         for (const point of points) {
-            point.x *= width / oldWidth;
-            point.y *= height / oldHeight;
+            point.x *= scaleX;
+            point.y *= scaleY;
         }
+
+        mouse.x *= scaleX;
+        mouse.y *= scaleY;
+        mouse.targetX *= scaleX;
+        mouse.targetY *= scaleY;
     }
 }
 
@@ -163,10 +617,12 @@ function updatePoints(delta) {
     const speed = Math.max(0, config.points.speed);
 
     for (const point of points) {
-        point.x += point.dx * speed * point.speedFactor * delta;
-        point.y += point.dy * speed * point.speedFactor * delta;
+        point.x +=
+            point.dx * speed * point.speedFactor * delta;
 
-        // Bounce at the edges.
+        point.y +=
+            point.dy * speed * point.speedFactor * delta;
+
         if (point.x < 0) {
             point.x = 0;
             point.dx = Math.abs(point.dx);
@@ -186,112 +642,99 @@ function updatePoints(delta) {
 }
 
 // --------------------------------------------------
-// Drawing helpers
+// Spatial grid
+//
+// Each nearby pair is considered only once.
+// The grid is reused instead of allocating a Map
+// and arrays on every animation frame.
 // --------------------------------------------------
 
-function strokePath(path, color, lineWidth, opacity) {
-    if (lineWidth <= 0 || opacity <= 0) return;
+let gridHeads = new Int32Array(0);
+let gridNext = new Int32Array(0);
 
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth;
+function buildConnections() {
+    const settings = config.connections;
+    const distance = Math.max(0, settings.distance);
 
-    if (config.glow.enabled && config.glow.intensity > 0) {
-        ctx.save();
-
-        ctx.globalAlpha =
-            clamp(opacity, 0, 1) *
-            clamp(config.glow.intensity, 0, 1);
-
-        ctx.shadowColor = color;
-        ctx.shadowBlur = Math.max(0, config.glow.blur);
-        ctx.stroke(path);
-
-        ctx.restore();
+    if (
+        distance <= 0 ||
+        settings.lineWidth <= 0 ||
+        settings.opacity <= 0 ||
+        points.length < 2
+    ) {
+        return;
     }
 
-    ctx.globalAlpha = clamp(opacity, 0, 1);
-    ctx.stroke(path);
-    ctx.globalAlpha = 1;
-}
+    // A larger cell size still finds every valid pair.
+    // This also prevents tiny distance values from
+    // creating an unnecessarily large grid.
+    const cellSize = Math.max(16, distance);
+    const columns = Math.floor(width / cellSize) + 1;
+    const rows = Math.floor(height / cellSize) + 1;
+    const cellCount = columns * rows;
 
-function drawPoint(x, y, radius, color, opacity) {
-    if (radius <= 0 || opacity <= 0) return;
-
-    const path = new Path2D();
-    path.arc(x, y, radius, 0, TAU);
-
-    ctx.fillStyle = color;
-
-    if (config.glow.enabled && config.glow.intensity > 0) {
-        ctx.save();
-
-        ctx.globalAlpha =
-            clamp(opacity, 0, 1) *
-            clamp(config.glow.intensity, 0, 1);
-
-        ctx.shadowColor = color;
-        ctx.shadowBlur = Math.max(0, config.glow.blur);
-        ctx.fill(path);
-
-        ctx.restore();
+    if (gridHeads.length !== cellCount) {
+        gridHeads = new Int32Array(cellCount);
     }
 
-    ctx.globalAlpha = clamp(opacity, 0, 1);
-    ctx.fill(path);
-    ctx.globalAlpha = 1;
-}
+    if (gridNext.length < points.length) {
+        gridNext = new Int32Array(points.length);
+    }
 
-// --------------------------------------------------
-// Spatial grid for nearby connection searches
-// --------------------------------------------------
+    gridHeads.fill(-1);
 
-function drawConnections() {
-    const distance = Math.max(1, config.connections.distance);
+    for (let index = 0; index < points.length; index++) {
+        const point = points[index];
+
+        const cellX = Math.min(
+            columns - 1,
+            Math.floor(point.x / cellSize)
+        );
+
+        const cellY = Math.min(
+            rows - 1,
+            Math.floor(point.y / cellSize)
+        );
+
+        const cell = cellY * columns + cellX;
+
+        gridNext[index] = gridHeads[cell];
+        gridHeads[cell] = index;
+    }
+
     const distanceSquared = distance * distance;
 
-    const buckets = new Map();
-
-    function key(x, y) {
-        return `${x},${y}`;
-    }
-
     for (let index = 0; index < points.length; index++) {
         const point = points[index];
-        const cellX = Math.floor(point.x / distance);
-        const cellY = Math.floor(point.y / distance);
-        const bucketKey = key(cellX, cellY);
 
-        if (!buckets.has(bucketKey)) {
-            buckets.set(bucketKey, []);
-        }
+        const cellX = Math.min(
+            columns - 1,
+            Math.floor(point.x / cellSize)
+        );
 
-        buckets.get(bucketKey).push(index);
-    }
+        const cellY = Math.min(
+            rows - 1,
+            Math.floor(point.y / cellSize)
+        );
 
-    // Batch connections into opacity bands.
-    const bandCount = 12;
-    const paths = Array.from(
-        { length: bandCount }, () => new Path2D()
-    );
+        const minX = Math.max(0, cellX - 1);
+        const maxX = Math.min(columns - 1, cellX + 1);
+        const minY = Math.max(0, cellY - 1);
+        const maxY = Math.min(rows - 1, cellY + 1);
 
-    for (let index = 0; index < points.length; index++) {
-        const point = points[index];
-        const cellX = Math.floor(point.x / distance);
-        const cellY = Math.floor(point.y / distance);
+        for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+                const cell = y * columns + x;
 
-        for (let oy = -1; oy <= 1; oy++) {
-            for (let ox = -1; ox <= 1; ox++) {
-                const bucket = buckets.get(
-                    key(cellX + ox, cellY + oy)
-                );
-
-                if (!bucket) continue;
-
-                for (const otherIndex of bucket) {
-                    // Draw each pair only once.
+                for (
+                    let otherIndex = gridHeads[cell];
+                    otherIndex !== -1;
+                    otherIndex = gridNext[otherIndex]
+                ) {
                     if (otherIndex <= index) continue;
 
                     const other = points[otherIndex];
+
                     const dx = point.x - other.x;
                     const dy = point.y - other.y;
                     const squared = dx * dx + dy * dy;
@@ -301,110 +744,111 @@ function drawConnections() {
                     const strength =
                         1 - Math.sqrt(squared) / distance;
 
-                    const band = Math.min(
-                        bandCount - 1,
-                        Math.floor(strength * bandCount)
+                    renderer.addLine(
+                        point.x,
+                        point.y,
+                        other.x,
+                        other.y,
+                        settings.lineWidth,
+                        settings.color,
+                        settings.opacity * strength
                     );
-
-                    paths[band].moveTo(point.x, point.y);
-                    paths[band].lineTo(other.x, other.y);
                 }
             }
         }
     }
-
-    const color = rgb(config.connections.color);
-
-    for (let band = 0; band < bandCount; band++) {
-        strokePath(
-            paths[band],
-            color,
-            config.connections.lineWidth,
-            config.connections.opacity *
-                (band + 0.5) / bandCount
-        );
-    }
 }
 
 // --------------------------------------------------
-// Mouse node and points
+// Mouse connections and point colors
 // --------------------------------------------------
 
 function mouseAmount(point) {
-    if (!config.mouse.enabled || mouse.influence < 0.001) {
+    if (
+        !config.mouse.enabled ||
+        mouse.influence < 0.001 ||
+        config.mouse.radius <= 0
+    ) {
         return 0;
     }
 
-    const radius = Math.max(1, config.mouse.radius);
     const distance = Math.hypot(
         point.x - mouse.x,
         point.y - mouse.y
     );
 
-    return mouse.influence * Math.max(0, 1 - distance / radius);
+    return mouse.influence * Math.max(
+        0,
+        1 - distance / config.mouse.radius
+    );
 }
 
-function drawMouseConnections() {
-    if (!config.mouse.enabled || mouse.influence < 0.001) {
+function buildMouseConnections() {
+    const settings = config.mouse;
+
+    if (
+        !settings.enabled ||
+        mouse.influence < 0.001
+    ) {
         return;
     }
 
-    const bands = 12;
-    const paths = Array.from(
-        { length: bands }, () => new Path2D()
-    );
+    if (settings.lineWidth > 0 && settings.opacity > 0) {
+        for (const point of points) {
+            const amount = mouseAmount(point);
 
-    for (const point of points) {
-        const amount = mouseAmount(point);
-        if (amount <= 0) continue;
+            if (amount <= 0) continue;
 
-        const band = Math.min(
-            bands - 1,
-            Math.floor(amount * bands)
-        );
-
-        paths[band].moveTo(mouse.x, mouse.y);
-        paths[band].lineTo(point.x, point.y);
+            renderer.addLine(
+                mouse.x,
+                mouse.y,
+                point.x,
+                point.y,
+                settings.lineWidth,
+                settings.color,
+                settings.opacity * amount
+            );
+        }
     }
 
-    const color = rgb(config.mouse.color);
-
-    for (let band = 0; band < bands; band++) {
-        strokePath(
-            paths[band],
-            color,
-            config.mouse.lineWidth,
-            config.mouse.opacity * (band + 0.5) / bands
-        );
-    }
-
-    if (config.mouse.showPoint) {
-        drawPoint(
+    if (settings.showPoint) {
+        renderer.addPoint(
             mouse.x,
             mouse.y,
-            config.mouse.pointRadius,
-            color,
-            config.mouse.opacity * mouse.influence
+            settings.pointRadius,
+            settings.color,
+            settings.opacity * mouse.influence
         );
     }
 }
 
-function drawPoints() {
+const mixedColor = [0, 0, 0];
+
+function buildPoints() {
+    const settings = config.points;
+
+    if (settings.radius <= 0 || settings.opacity <= 0) {
+        return;
+    }
+
     for (const point of points) {
         const amount = mouseAmount(point);
 
-        const color = rgb(mixColor(
-            config.points.color,
-            config.mouse.color,
-            amount
-        ));
+        for (let channel = 0; channel < 3; channel++) {
+            mixedColor[channel] =
+                settings.color[channel] +
+                (
+                    config.mouse.color[channel] -
+                    settings.color[channel]
+                ) * amount;
+        }
 
-        drawPoint(
+        renderer.addPoint(
             point.x,
             point.y,
-            config.points.radius,
-            color,
-            config.points.opacity
+            settings.radius,
+            mixedColor,
+            settings.opacity
         );
     }
 }
@@ -414,32 +858,64 @@ function drawPoints() {
 // --------------------------------------------------
 
 function animate(timestamp) {
+    frameId = 0;
+
+    if (contextLost || document.hidden || !renderer) {
+        return;
+    }
+
     const delta = previousTime === null
         ? 0
-        : Math.min((timestamp - previousTime) / 1000, 0.05);
+        : clamp((timestamp - previousTime) / 1000, 0, 0.05);
 
     previousTime = timestamp;
 
     const smoothing =
-        1 - Math.exp(-Math.max(0.1, config.mouse.smoothing) * delta);
+        1 - Math.exp(
+            -Math.max(0.1, config.mouse.smoothing) * delta
+        );
 
     mouse.x += (mouse.targetX - mouse.x) * smoothing;
     mouse.y += (mouse.targetY - mouse.y) * smoothing;
 
+    const targetInfluence =
+        mouse.active && config.mouse.enabled ? 1 : 0;
+
     mouse.influence +=
-        ((mouse.active && config.mouse.enabled ? 1 : 0) -
-            mouse.influence) * smoothing;
+        (targetInfluence - mouse.influence) * smoothing;
 
     updatePoints(delta);
 
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, width, height);
+    renderer.begin();
+    buildConnections();
+    buildMouseConnections();
+    buildPoints();
+    renderer.render();
 
-    drawConnections();
-    drawMouseConnections();
-    drawPoints();
+    frameId = requestAnimationFrame(animate);
+}
 
-    requestAnimationFrame(animate);
+function startAnimation() {
+    if (
+        frameId ||
+        contextLost ||
+        document.hidden ||
+        !renderer
+    ) {
+        return;
+    }
+
+    previousTime = null;
+    frameId = requestAnimationFrame(animate);
+}
+
+function stopAnimation() {
+    if (frameId) {
+        cancelAnimationFrame(frameId);
+        frameId = 0;
+    }
+
+    previousTime = null;
 }
 
 // --------------------------------------------------
@@ -451,7 +927,7 @@ function updateMouse(event) {
         event.target instanceof Element &&
         event.target.closest("[data-background-editor]")
     ) {
-        mouse.active = false;
+        deactivateMouse();
         return;
     }
 
@@ -474,39 +950,110 @@ window.addEventListener("pointermove", updateMouse);
 window.addEventListener("pointerdown", updateMouse);
 
 document.documentElement.addEventListener(
-    "pointerleave", deactivateMouse
+    "pointerleave",
+    deactivateMouse
 );
 
 window.addEventListener("blur", deactivateMouse);
 window.addEventListener("pointercancel", deactivateMouse);
 
 window.addEventListener("pointerup", event => {
-    if (event.pointerType !== "mouse") deactivateMouse();
+    if (event.pointerType !== "mouse") {
+        deactivateMouse();
+    }
 });
 
 document.addEventListener("visibilitychange", () => {
-    previousTime = null;
     deactivateMouse();
+
+    if (document.hidden) {
+        stopAnimation();
+    } else {
+        resize();
+        startAnimation();
+    }
 });
 
 window.addEventListener("resize", resize);
 
-resize();
-syncPoints();
-requestAnimationFrame(animate);
+// --------------------------------------------------
+// WebGL context lifecycle
+// --------------------------------------------------
+
+canvas.addEventListener("webglcontextlost", event => {
+    event.preventDefault();
+
+    contextLost = true;
+    stopAnimation();
+
+    showError(
+        "The WebGL context was interrupted. " +
+        "Waiting for the browser to restore it…"
+    );
+});
+
+canvas.addEventListener("webglcontextrestored", () => {
+    contextLost = false;
+
+    try {
+        // GPU resources must be recreated after restoration.
+        renderer = new WebGLRenderer();
+        resize();
+        hideError();
+        startAnimation();
+    } catch (error) {
+        console.error(error);
+        showError("Could not restore WebGL: " + error.message);
+    }
+});
 
 // --------------------------------------------------
-// Optional editor
+// Initialization
+// --------------------------------------------------
+
+try {
+    gl = canvas.getContext("webgl2", {
+        alpha: false,
+        antialias: false,
+        depth: false,
+        stencil: false,
+        preserveDrawingBuffer: false,
+        powerPreference: "high-performance"
+    });
+
+    if (!gl) {
+        throw new Error(
+            "WebGL2 is unavailable. Enable hardware acceleration " +
+            "in your browser and reload this page."
+        );
+    }
+
+    renderer = new WebGLRenderer();
+
+    resize();
+    syncPoints();
+    startAnimation();
+} catch (error) {
+    console.error(error);
+    showError(error.message);
+}
+
+// --------------------------------------------------
+// Optional settings editor
 // --------------------------------------------------
 
 if (config.panel.enabled) {
-    import("./settings-editor.js")
+    // Change this version when publishing an updated editor.
+    import("./settings-editor.js?v=webgl-1")
         .then(({ mountEditor }) => {
             mountEditor({
                 config,
 
                 onChange(path) {
-                    if (path === "points.count") syncPoints();
+                    if (path === "points.count") {
+                        syncPoints();
+                    }
+
                     deactivateMouse();
                 },
 
@@ -514,7 +1061,10 @@ if (config.panel.enabled) {
             });
         })
         .catch(error => {
-            console.error("Could not load settings editor:", error);
+            console.error(
+                "Could not load settings editor:",
+                error
+            );
         });
 }
 </script>
